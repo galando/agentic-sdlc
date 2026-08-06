@@ -145,7 +145,11 @@ teardown() {
 
 @test "outside CI the skip stays plain prose — no annotation syntax in a terminal" {
   cd "$WORK/repo"
-  run "$SCAN"
+  # `env -u`, not a bare call. A GitHub runner exports GITHUB_ACTIONS=true for every
+  # step, so "outside CI" has to be CONSTRUCTED here rather than assumed from the
+  # ambient environment — otherwise this test asserts the opposite of its own name the
+  # moment it runs on CI, which is exactly what happened the first time it got there.
+  run env -u GITHUB_ACTIONS -u CI "$SCAN"
   [ "$status" -eq 0 ]
   [[ "$output" != *"::notice"* ]]
 }

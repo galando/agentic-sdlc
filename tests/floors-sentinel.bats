@@ -106,6 +106,24 @@ teardown() {
   [[ "$output" == *"floor not yet calibrated — run tools/measure-floors.sh against your product"* ]]
 }
 
+@test "floor-notice.sh still reaches the LOG when GITHUB_STEP_SUMMARY is set" {
+  # The regression that made the test above fail the first time CI ever ran it, and the
+  # more serious half of that failure: the summary branch used `tee -a "$FILE" >/dev/null`,
+  # which sent the block to the summary and NOWHERE else. GITHUB_STEP_SUMMARY is set on
+  # every real runner and never on a laptop, so the announcement was silent in the only
+  # environment it exists for, and loud only where nobody needed it. An annotation is
+  # produced by a line in the LOG; written into summary markdown it is just literal text.
+  cd "$FIXTURE"
+  summary="$BATS_TEST_TMPDIR/step-summary.md"
+  : > "$summary"
+
+  GITHUB_STEP_SUMMARY="$summary" run bash tools/floor-notice.sh backend
+  [ "$status" -eq 0 ]
+  # Both destinations, not either/or.
+  [[ "$output" == *"::notice title=Floor not calibrated::"* ]]
+  grep -q '::notice title=Floor not calibrated::' "$summary"
+}
+
 @test "floor-notice.sh always exits 0" {
   cd "$FIXTURE"
   run bash tools/floor-notice.sh nonexistent-scope

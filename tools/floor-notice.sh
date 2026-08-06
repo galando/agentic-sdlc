@@ -43,7 +43,14 @@ any=0
       any=1
     fi
   done <<<"$keys"
-} | { [ -n "${GITHUB_STEP_SUMMARY:-}" ] && tee -a "$GITHUB_STEP_SUMMARY" >/dev/null || cat; }
+    # tee WITHOUT `>/dev/null`. Discarding stdout here sent the whole block to the step
+    # summary and nowhere else, so on a real runner — the only place GITHUB_STEP_SUMMARY
+    # is ever set — the `::notice::` lines never reached the log that turns them into
+    # annotations. They landed in the summary markdown instead, where they render as
+    # literal text. A script whose entire job is "uncalibrated floors pass LOUDLY" was
+    # silent in the one environment it was written for, and loud only on the laptop where
+    # nobody needed telling. Both destinations, always.
+} | { if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then tee -a "$GITHUB_STEP_SUMMARY"; else cat; fi; }
 
 [ "$any" -eq 1 ] || true
 exit 0
