@@ -284,3 +284,45 @@ teardown() {
   run grep -nE '^[[:space:]]*AGENTS=("|.)[a-z]' "$LEDGER"
   [ "$status" -ne 0 ]
 }
+
+@test "a failed commit is reported, never announced as a successful append" {
+  # `set -e` is SUPPRESSED inside a subshell in a condition context — as the left operand
+  # of && or ||, or in an `if`. Neither an inner `set -e` nor capturing the status after
+  # restores it. So a failing `git commit` fell through to `git push`, which had nothing
+  # to push and exited 0, and the run printed "appended to ledger/<agent>.jsonl" and
+  # returned 0 with the entry nowhere on the branch.
+  #
+  # For the ledger this is the worst available shape. It is the sole evidence an agent
+  # ran, and liveness keys on the age of the newest entry — so the next agent in the ring
+  # escalates about a predecessor that believes it reported successfully.
+  cd "$WORK/checkout"
+  mkdir -p "$WORK/hooks"
+  printf '#!/bin/sh\nexit 1\n' > "$WORK/hooks/pre-commit"
+  chmod +x "$WORK/hooks/pre-commit"
+
+  run env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$WORK/hooks" \
+    "$LEDGER" append ops '{"date":"2026-08-06","verdict":"green","summary":"must not be announced"}'
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"appended to"* ]]      # never claim success
+  [[ "$output" == *"NOTHING was written"* ]]
+  [[ "$output" == *"commit"* ]]           # and name which step refused
+
+  # And the branch must genuinely not carry it.
+  run git -C "$WORK/remote.git" show "agent-ledger:ledger/ops.jsonl"
+  [[ "$output" != *"must not be announced"* ]]
+}
+
+@test "a commit failure is not mistaken for a push rejection and retried five times" {
+  # The old code treated every non-zero subshell as "push rejected", so an unretryable
+  # failure burned five attempts and ~30s of sleeps before dying with the wrong reason.
+  cd "$WORK/checkout"
+  mkdir -p "$WORK/hooks"
+  printf '#!/bin/sh\nexit 1\n' > "$WORK/hooks/pre-commit"
+  chmod +x "$WORK/hooks/pre-commit"
+
+  run env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$WORK/hooks" \
+    "$LEDGER" append ops '{"date":"2026-08-06","verdict":"green","summary":"x"}'
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"attempt 2"* ]]
+  [[ "$output" != *"refetching and replaying"* ]]
+}

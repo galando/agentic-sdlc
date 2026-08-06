@@ -211,24 +211,56 @@ cmd_append() {
   git clone -q --depth 1 --branch "$BRANCH" "$origin_url" "$tmp/repo" 2>/dev/null \
     || die "cannot clone branch '$BRANCH' from origin — create it first (see docs/runbooks/agent-ledgers.md)"
 
-  local attempt
+  # EVERY command below carries its own `|| exit`, and that is not belt-and-braces.
+  # `set -e` is SUPPRESSED inside a subshell that sits in a condition context — as the
+  # left operand of `&&` or `||`, or in an `if`. Neither an explicit `set -e` inside the
+  # subshell nor capturing its status afterwards restores it; both were measured. So a
+  # failing `git commit` (a hook, a signing key, a full disk) used to fall straight
+  # through to `git push`, which had nothing new to push and therefore exited 0 — and the
+  # whole run printed "appended to ledger/<agent>.jsonl" and returned 0 while the entry
+  # never reached the remote.
+  #
+  # For a ledger that is the sole evidence an agent ran at all, that is the worst
+  # available shape: a success message, a zero exit, and no entry. Liveness keys on the
+  # age of the newest entry, so the next agent in the ring escalates about a predecessor
+  # that believes it reported.
+  #
+  # The exit codes also separate the two failures the old code conflated. A rejected push
+  # is NORMAL — someone appended between our fetch and ours — and is retried. Anything
+  # else is not, and retrying it five times only delays a misleading message.
+  local attempt rc
   for attempt in 1 2 3 4 5; do
+    rc=0
     (
-      cd "$tmp/repo"
-      git fetch -q origin "$BRANCH"
-      git reset -q --hard "origin/${BRANCH}"
-      mkdir -p ledger
-      printf '%s\n' "$entry" >> "ledger/${agent}.jsonl"
+      cd "$tmp/repo" || exit 20
+      git fetch -q origin "$BRANCH" || exit 21
+      git reset -q --hard "origin/${BRANCH}" || exit 22
+      mkdir -p ledger || exit 23
+      printf '%s\n' "$entry" >> "ledger/${agent}.jsonl" || exit 24
       if [ -n "$narrative_rel" ]; then
-        mkdir -p "$(dirname "$narrative_rel")"
-        cp "$narrative_src" "$narrative_rel"
-        git add "$narrative_rel"
+        mkdir -p "$(dirname "$narrative_rel")" || exit 25
+        cp "$narrative_src" "$narrative_rel" || exit 26
+        git add "$narrative_rel" || exit 27
       fi
-      git add "ledger/${agent}.jsonl"
+      git add "ledger/${agent}.jsonl" || exit 28
       git -c user.name="$commit_name" -c user.email="$commit_email" \
-        commit -q -m "ledger($agent): $(printf '%s' "$entry" | jq -r '.date') $(printf '%s' "$entry" | jq -r '.verdict')"
-      git push -q origin "HEAD:${BRANCH}"
-    ) && { echo "appended to ledger/${agent}.jsonl on $BRANCH"; return 0; }
+        commit -q -m "ledger($agent): $(printf '%s' "$entry" | jq -r '.date') $(printf '%s' "$entry" | jq -r '.verdict')" \
+        || exit 29
+      # The ONLY retryable outcome.
+      git push -q origin "HEAD:${BRANCH}" || exit 30
+    ) || rc=$?
+
+    [ "$rc" -eq 0 ] && { echo "appended to ledger/${agent}.jsonl on $BRANCH"; return 0; }
+
+    if [ "$rc" -ne 30 ]; then
+      case "$rc" in
+        29) die "ledger append failed: git commit refused (exit $rc) — a hook, a signing key or a full disk. NOTHING was written to $BRANCH." ;;
+        21|22) die "ledger append failed: cannot fetch or reset '$BRANCH' from origin (exit $rc). NOTHING was written." ;;
+        26|27) die "ledger append failed: the narrative file could not be staged (exit $rc). NOTHING was written." ;;
+        *) die "ledger append failed before push (exit $rc). NOTHING was written to $BRANCH." ;;
+      esac
+    fi
+
     # Rejected: someone else appended between our fetch and our push. Refetch and
     # REPLAY the append. Never force-push — a force-push here silently discards
     # another agent's entry, and the ledger's only real value is that it is the one
