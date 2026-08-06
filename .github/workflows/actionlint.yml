@@ -1,0 +1,41 @@
+# Gate: actionlint passes on every workflow (SC8).
+#
+# The only mechanical proof that the extracted YAML under .github/workflows/ survives
+# substitution. A placeholder dropped inside an expression is a startup failure, and
+# startup failures do not create a status check — they go quiet rather than red, so this
+# is the one gate standing between "silently broken" and "visibly broken".
+#
+# Job id is `fast-actionlint`, no `name:` key, so the branch-protection context string
+# is exactly the id (docs/runbooks/branch-protection.md).
+name: actionlint
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: actionlint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fast-actionlint:
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      # Official install method from actionlint's own usage docs
+      # (https://github.com/rhysd/actionlint/blob/main/docs/usage.md) — a self-contained
+      # download script, no marketplace action dependency.
+      - name: Download actionlint
+        id: get_actionlint
+        run: bash <(curl -sS https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+        shell: bash
+
+      - name: Check workflow files
+        run: ${{ steps.get_actionlint.outputs.executable }} -color
+        shell: bash

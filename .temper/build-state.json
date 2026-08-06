@@ -1,0 +1,20 @@
+{
+  "stage": "review_complete",
+  "spec": "agent-sdlc-template",
+  "spec_path": ".temper/specs/agent-sdlc-template",
+  "branch": "feature/agent-sdlc-template",
+  "command": "temper",
+  "next_stage": "check",
+  "run_mode": "interactive",
+  "artifacts": [
+    "spec.md",
+    "intent.md",
+    "plan.md",
+    "tasks.md",
+    "quickstart.md",
+    "evals/evalset.json"
+  ],
+  "updated": "2026-08-06T09:16:51Z",
+  "complexity": "complex",
+  "risk": "high"
+}

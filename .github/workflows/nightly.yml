@@ -1,0 +1,530 @@
+# The nightly gates — too slow or too flaky to block a merge.
+#
+# Gates 5 (mutation, both stacks, whole codebase), 15 (end-to-end + accessibility),
+# 16 (deep dependency scan), 18 (live external API contract, informative), and
+# 20 (flaky-test detection).
+#
+# ---------------------------------------------------------------------------
+# NONE OF THESE MAY EVER BE MARKED AS A REQUIRED STATUS CHECK.
+#
+# They do not run on pull requests at all, so a required nightly context would
+# leave every pull request waiting forever on a status that can never arrive.
+# docs/runbooks/branch-protection.md says so in the same words and lists them
+# under "never required".
+# ---------------------------------------------------------------------------
+#
+# ---------------------------------------------------------------------------
+# ONE NOTIFIER JOB PER GATE. NEVER ONE THAT ORs THE GATE RESULTS TOGETHER.
+#
+# These five gates lived in five separate workflows upstream, each opening its
+# own `[nightly] <gate> is failing` issue. Consolidating them into one workflow
+# with a single OR-ing notifier would collapse five distinct issues into one —
+# so a second gate going red while the first is still open produces NO NEW
+# SIGNAL AT ALL, and the issue title names the wrong gate. Each notifier below
+# passes its own `gate:`, its own `what_red_means:` and its own `runbook:`.
+# ---------------------------------------------------------------------------
+name: nightly
+
+on:
+  schedule:
+    # Odd minutes on purpose: the top of the hour is the most contended slot on
+    # a shared scheduler, so a `0 * * * *` cron is the one most likely to be
+    # delayed or dropped. Staggered so the jobs do not all contend at once.
+    - cron: '19 1 * * *'
+  workflow_dispatch:
+
+# Required by every notifier job below. A reusable workflow cannot hold more
+# permission than its caller, and a caller that omits this is rejected at
+# STARTUP — the whole workflow never runs, gate jobs included, so the gate goes
+# quiet rather than red. See the header of nightly-alert.yml.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Which stacks are present in this repository, and whether gate 18 is armed. A gate
+  # whose stack is absent — or whose upstream dependency was never configured — must
+  # report SKIPPED, not fail and not go missing: the same clean-skip rule pr-tests.yml
+  # follows, expressed here without a paths filter because a scheduled run has no diff
+  # to filter on.
+  #
+  # This job always runs, which is why the "not armed" announcements live here. A gate
+  # job skipped by its own `if:` produces no log to announce anything in.
+  #
+  # `hashFiles` is deliberately NOT used in a job-level `if:` — it is not
+  # available in that context, and a workflow that uses it there is rejected at
+  # startup, which creates no check and therefore goes quiet rather than red.
+  stacks:
+    runs-on: ${{ vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.detect.outputs.backend }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+      api_contract: ${{ steps.detect.outputs.api_contract }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Detect present stacks
+        id: detect
+        run: |
+          [ -f examples/backend/pom.xml ]          && echo "backend=true"  >> "$GITHUB_OUTPUT" || echo "backend=false"  >> "$GITHUB_OUTPUT"
+          [ -f examples/frontend/package.json ]    && echo "frontend=true" >> "$GITHUB_OUTPUT" || echo "frontend=false" >> "$GITHUB_OUTPUT"
+          # Gate 18's arming check lives HERE, in the job that always runs, rather than
+          # in gate 18 itself. A job whose `if:` is false logs nothing at all, so an
+          # unconfigured gate 18 would be a grey square and no explanation. The notice
+          # below is the only place an adopter is told the difference between "this gate
+          # checked your providers" and "this gate has never checked anything".
+          if [ -x tools/live-api-contract.sh ]; then
+            echo "api_contract=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "api_contract=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Gate 18 not armed::No executable tools/live-api-contract.sh, so gate 18 (live external API contract) SKIPPED, not passed — it has no upstream dependency configured to check. See the contract in .github/workflows/nightly.yml."
+          fi
+  # =========================================================================
+  # Gate 5 — mutation testing, whole codebase, both stacks.
+  # The gate that keeps coverage honest: it breaks the code on purpose and a
+  # real suite must notice. Every logic-bearing package, not just the easy ones.
+  # =========================================================================
+  nightly-mutation-backend:
+    needs: stacks
+    if: needs.stacks.outputs.backend == 'true'
+    runs-on: ${{ vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up the backend toolchain
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '24'
+          cache: 'maven'
+
+      - name: Report uncalibrated floors
+        if: always()
+        run: |
+          if [ -x tools/floor-notice.sh ]; then tools/floor-notice.sh mutation; fi
+
+      - name: Mutation testing (backend)
+        working-directory: ./examples/backend
+        run: mvn -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
+
+      - name: Upload the mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-mutation-backend-report
+          path: examples/backend/target/pit-reports/
+          retention-days: 14
+
+  nightly-mutation-frontend:
+    needs: stacks
+    if: needs.stacks.outputs.frontend == 'true'
+    runs-on: ${{ vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up the frontend toolchain
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: examples/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./examples/frontend
+        run: npm ci
+
+      - name: Mutation testing (frontend)
+        working-directory: ./examples/frontend
+        run: npx stryker run
+
+      - name: Upload the mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-mutation-frontend-report
+          path: examples/frontend/reports/mutation/
+          retention-days: 14
+
+  # =========================================================================
+  # Gate 15 — end-to-end in a real browser + accessibility.
+  # Everything else can be green while the built artifact is blank.
+  # =========================================================================
+  nightly-e2e-accessibility:
+    needs: stacks
+    if: needs.stacks.outputs.frontend == 'true'
+    runs-on: ${{ vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up the frontend toolchain
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: examples/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./examples/frontend
+        run: npm ci
+
+      - name: Install the browser
+        working-directory: ./examples/frontend
+        run: npx playwright install --with-deps chromium
+
+      # KEEP THE KNOWN-VIOLATIONS BASELINE EMPTY. Adding an entry means shipping
+      # a known accessibility defect, and that needs a recorded human decision —
+      # not a quiet append to a file nobody reads. The gate must also fail when
+      # a baselined violation DISAPPEARS, so stale exceptions cannot accumulate.
+      - name: End-to-end and accessibility
+        working-directory: ./examples/frontend
+        run: npm run test:e2e
+
+      - name: Upload traces and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-e2e-report
+          path: |
+            examples/frontend/playwright-report/
+            examples/frontend/test-results/
+          retention-days: 14
+
+  # =========================================================================
+  # Gate 16 — deep dependency scan.
+  # The primary CVE detector, because advisories get published against an
+  # UNCHANGED lockfile — which no pull-request-triggered run would ever catch.
+  # =========================================================================
+  nightly-dependency-scan:
+    needs: stacks
+    runs-on: ${{ vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up the frontend toolchain
+        if: needs.stacks.outputs.frontend == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: examples/frontend/package-lock.json
+
+      - name: Frontend advisory audit
+        if: needs.stacks.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: |
+          npm ci
+          npm run audit:ci
+
+      - name: Set up the backend toolchain
+        if: needs.stacks.outputs.backend == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '24'
+          cache: 'maven'
+
+      # Fails at a high CVSS score. An allowlist entry needs a written exposure
+      # analysis, and the gate fails when an allowlisted advisory disappears —
+      # the same one-way ratchet as every other floor here.
+      - name: Backend dependency scan
+        if: needs.stacks.outputs.backend == 'true'
+        working-directory: ./examples/backend
+        run: mvn -B org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=8
+
+  # =========================================================================
+  # Gate 18 — live external API contract tests. INFORMATIVE, NON-BLOCKING.
+  #
+  # THIS IS A SHELL, AND IT IS A CONTRACT RATHER THAN A GAP. The upstream body was
+  # entirely two named external providers. Inventing replacement provider calls would
+  # ship something that runs, goes green, and checks nothing — worse than an empty
+  # gate, because it looks armed. So what is shipped instead is the exact shape of
+  # what belongs here, in enough detail to fill in.
+  #
+  # ---------------------------------------------------------------------------
+  # WHAT THIS GATE IS FOR
+  #
+  # An upstream provider changing its response shape. It renames a field, moves a
+  # value into a nested object, or starts returning a string where it used to return a
+  # number. You break in production and NOT ONE of your own tests goes red, because
+  # every test you own runs against a fixture that still matches the OLD shape. Your
+  # fixtures are a snapshot of a promise somebody else made and can revise without
+  # telling you. This gate is the only thing in the gauntlet that re-reads the promise.
+  #
+  # WHY NIGHTLY AND NOT BLOCKING
+  #
+  # A third party's outage is not a reason to stop your merges, and this gate goes red
+  # for reasons nobody in your repository can fix. Made blocking, its first upstream
+  # incident blocks every pull request in the queue, and the fix that gets reached for
+  # is switching the gate off. Informative and nightly, it stays on for years.
+  # ---------------------------------------------------------------------------
+  #
+  # ---------------------------------------------------------------------------
+  # THE SHAPE OF WHAT BELONGS HERE
+  #
+  # One step per upstream dependency. Not one step looping over all of them: when the
+  # step name is the provider name, a red run says WHICH provider changed before anyone
+  # opens a log, and one provider's outage does not hide another's contract break
+  # behind an early exit.
+  #
+  # Each step asserts the response SHAPE, not the values. Fields present, types right,
+  # required nesting intact. Asserting values is the single most common way this gate
+  # is filled in wrong: it then fails every time ordinary data changes upstream, which
+  # is most nights, and it is switched off within a week.
+  #
+  # A worked pseudo-example. The provider is fictional and the host is under the
+  # reserved `.invalid` domain on purpose — an example naming a real provider gets
+  # copied verbatim into somebody's repository:
+  #
+  #     - name: Contract — Blorptron Tariff API
+  #       env:
+  #         BLORPTRON_KEY: ${{ secrets.BLORPTRON_KEY }}
+  #       run: |
+  #         set -euo pipefail
+  #         # The credential check is INSIDE the body, not a step-level `if:`. A step
+  #         # skipped by an `if:` logs nothing, and "no credential, so nothing was
+  #         # checked" is exactly the sentence that has to be said out loud.
+  #         if [ -z "${BLORPTRON_KEY:-}" ]; then
+  #           echo "::notice title=Blorptron not checked::No BLORPTRON_KEY secret. SKIPPED, not passed."
+  #           exit 0
+  #         fi
+  #         # --max-time bounds the run; a hanging provider is an outage, not a break.
+  #         if ! curl -sS --max-time 20 -f -H "authorization: Bearer $BLORPTRON_KEY" \
+  #              https://api.blorptron.invalid/v2/tariffs > /tmp/resp.json; then
+  #           echo "::notice title=Blorptron unreachable::No answer from the provider. NOT a contract failure."
+  #           exit 0
+  #         fi
+  #         # Shape only. `type == "number"`, never `== 42`.
+  #         jq -e '
+  #           (.tariffs | type == "array")
+  #           and (.tariffs[0] | has("id") and has("rate") and has("validFrom"))
+  #           and (.tariffs[0].rate | type == "number")
+  #         ' /tmp/resp.json > /dev/null
+  #
+  # Two rules that matter more than any individual assertion:
+  #
+  #   1. A provider being UNREACHABLE is not a contract failure. Distinguish "the
+  #      provider answered with something unexpected" from "the provider did not
+  #      answer", or the first outage trains everyone to ignore this gate. In the
+  #      example that is the `if ! curl` branch exiting 0 with a notice.
+  #   2. Gate each step on its credential being present, INSIDE the body, and skip with
+  #      a notice when it is absent — not with a step-level `if:`, which produces no log
+  #      to put the notice in. A gate that fails because a key is missing gets switched
+  #      off; a gate that skips in silence is one nobody knows is off.
+  #
+  # placeholder: {{UPSTREAM_PROVIDER}} — the external API your product calls at runtime
+  #   and whose response shape this gate re-reads. `none` is a valid answer and leaves
+  #   the gate skipping. Named in this comment and deliberately NOT interpolated into
+  #   any `run:` body: an unresolved placeholder inside a live command is a run that
+  #   executes and reports having checked something it never looked at.
+  #
+  # ARMING IT. The gate is armed by the existence of an executable
+  # `tools/live-api-contract.sh` — a FILE rather than a repository variable on purpose,
+  # because a variable can be switched on while no check exists, and that is a green gate
+  # that verified nothing.
+  #
+  # Put one section per upstream dependency in that script, each doing what the example
+  # step's `run:` body does. If you would rather have real per-provider steps in the job
+  # below, add them there and leave the script in place as the arming marker — what the
+  # one-step-per-dependency rule buys you is failure attribution, and either form gives
+  # you that.
+  #
+  # Until that file exists the job below does not run at all: it reports SKIPPED, with
+  # the reason announced from `stacks`, rather than passing quietly. An unconfigured gate
+  # that reports green is indistinguishable from one that ran.
+  # =========================================================================
+  nightly-api-contract:
+    needs: stacks
+    # Job-level `if:`, never a workflow-level `paths:` filter — a paths filter creates
+    # no check run at all. This reports `skipped`, and the `stacks` job has already said
+    # in its own log why.
+    if: needs.stacks.outputs.api_contract == 'true'
+    runs-on: ${{ vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Live API contract tests
+        run: tools/live-api-contract.sh
+
+  # =========================================================================
+  # Gate 20 — flaky-test detection. Run the suite three times, diff per-test
+  # outcomes. A nondeterministic test means some share of every other gate's
+  # green runs was luck.
+  # =========================================================================
+  nightly-flaky-detection:
+    needs: stacks
+    if: needs.stacks.outputs.frontend == 'true'
+    runs-on: ${{ vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up the frontend toolchain
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: examples/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./examples/frontend
+        run: npm ci
+
+      - name: Run the suite three times and diff the outcomes
+        working-directory: ./examples/frontend
+        run: |
+          set -uo pipefail
+          for i in 1 2 3; do
+            npx vitest run --reporter=json --outputFile="/tmp/run-$i.json" || true
+          done
+          # A test that passes in one run and fails in another is flaky. A test
+          # that fails in ALL THREE is simply broken and is the unit suite's
+          # problem, not this gate's — reporting it here would bury the flakes.
+          #
+          # Heredoc-quoted so the shell expands nothing: this is a script in
+          # another language and the shell has no business touching it.
+          cat > /tmp/detect-flaky.mjs <<'FLAKY'
+          import fs from 'node:fs';
+          const runs = [1, 2, 3].map(i => JSON.parse(fs.readFileSync(`/tmp/run-${i}.json`, 'utf8')));
+          const outcomes = new Map();
+          for (const run of runs)
+            for (const file of run.testResults ?? [])
+              for (const t of file.assertionResults ?? []) {
+                if (!outcomes.has(t.fullName)) outcomes.set(t.fullName, new Set());
+                outcomes.get(t.fullName).add(t.status);
+              }
+          const flaky = [...outcomes].filter(([, s]) => s.size > 1).map(([n]) => n);
+          if (flaky.length) {
+            console.error('Flaky tests (different outcomes across three identical runs):');
+            for (const n of flaky) console.error('  ' + n);
+            process.exit(1);
+          }
+          console.log('No flaky tests across three runs.');
+          FLAKY
+          node /tmp/detect-flaky.mjs
+
+  # =========================================================================
+  # NOTIFIERS — ONE PER GATE. See the header.
+  #
+  # `needs.<job>.result == 'failure'` rather than `if: failure()`. That
+  # distinction is exact and it was a real defect: a run CANCELLED by its
+  # concurrency group — which happens on every merge that supersedes an
+  # in-flight run — was reported as a failed gate, so the alert filed an S2 for
+  # a job that never reached a verdict, and the issue said something had failed
+  # when nothing had. `result` is 'failure' only when the job RAN and FAILED,
+  # and is 'cancelled' or 'skipped' otherwise. Keep it spelled out per job.
+  # =========================================================================
+
+  notify-mutation-backend:
+    if: ${{ always() && needs.nightly-mutation-backend.result == 'failure' }}
+    needs: [nightly-mutation-backend]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      gate: 'Mutation testing (backend)'
+      severity: 'S2'
+      what_red_means: >-
+        CHECK FIRST whether a score was ever produced. A mutation run KILLED mid-flight reports
+        identically to one that scored below the floor. Grep the log for 'Killed', 'exit code 137'
+        or 'received a shutdown signal' — if any appear, this is the host dying, not test quality,
+        and there are no surviving mutants to chase. Only if a real score printed and it is below
+        the floor does the rest apply: tests execute code without asserting on it. Then open the
+        report artifact, find the survivors, and add the killing assertions.
+      runbook: 'docs/runbooks/qa-procedures.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+
+  notify-mutation-frontend:
+    if: ${{ always() && needs.nightly-mutation-frontend.result == 'failure' }}
+    needs: [nightly-mutation-frontend]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      gate: 'Mutation testing (frontend)'
+      severity: 'S2'
+      what_red_means: >-
+        As for the backend: confirm a score was actually produced before treating this as a test
+        quality finding. If it was, surviving mutants mean tests execute code without asserting on
+        its behaviour. Open the report artifact and add the killing assertions.
+      runbook: 'docs/runbooks/qa-procedures.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+
+  notify-e2e-accessibility:
+    if: ${{ always() && needs.nightly-e2e-accessibility.result == 'failure' }}
+    needs: [nightly-e2e-accessibility]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      gate: 'End-to-end + accessibility'
+      severity: 'S2'
+      what_red_means: >-
+        One of three very different things, and the log says which. Read it before assuming. An
+        ACCESSIBILITY failure is a contrast or ARIA finding and the bundle is fine — check whether
+        the elements named are yours or third-party markup you configure but do not author. ANY
+        OTHER failing spec means the built bundle genuinely broke in a real browser. A web-server
+        timeout means neither: the suite never ran at all. The known-violations baseline is empty,
+        so any accessibility violation is new.
+      runbook: 'docs/runbooks/qa-procedures.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+
+  notify-dependency-scan:
+    if: ${{ always() && needs.nightly-dependency-scan.result == 'failure' }}
+    needs: [nightly-dependency-scan]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      gate: 'Dependency CVE scan'
+      severity: 'S2'
+      what_red_means: >-
+        A dependency carries a high or critical advisory. This fires against an UNCHANGED lockfile,
+        so it is usually a newly-published advisory rather than anything this repository changed.
+        Either upgrade, or allowlist it with a written exposure analysis — and remember the gate
+        also fails when an allowlisted advisory disappears, so stale exceptions cannot accumulate.
+      runbook: 'docs/runbooks/qa-procedures.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+
+  notify-api-contract:
+    if: ${{ always() && needs.nightly-api-contract.result == 'failure' }}
+    needs: [nightly-api-contract]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      gate: 'Live external API contract'
+      severity: 'S1'
+      what_red_means: >-
+        An upstream provider changed its response shape, or it was unreachable. Those are different
+        findings and the log distinguishes them — an outage is not a contract break. This gate is
+        informative and non-blocking: it never stops a merge. A shape change usually needs a
+        deserialisation fix and a fixture update, in that order.
+      runbook: 'docs/runbooks/qa-procedures.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+
+  notify-flaky-detection:
+    if: ${{ always() && needs.nightly-flaky-detection.result == 'failure' }}
+    needs: [nightly-flaky-detection]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      gate: 'Flaky-test detection'
+      severity: 'S2'
+      what_red_means: >-
+        A test produced different outcomes across three identical runs. That means some share of
+        every other gate's green runs was luck, and it undermines every number in the gauntlet
+        rather than just this one. Fix the nondeterminism; retrying until green is not a fix and
+        muting the test is lowering a floor.
+      runbook: 'docs/runbooks/qa-procedures.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}

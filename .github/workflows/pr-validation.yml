@@ -1,0 +1,137 @@
+# Gate 10 — migration validation. Duplicate version numbers, or a migration
+# that will not apply cleanly to a fresh database.
+#
+# ---------------------------------------------------------------------------
+# THE PATHS FILTER MOVED, AND THE MOVE IS THE POINT.
+#
+# Upstream this workflow carried a WORKFLOW-LEVEL `paths:` filter. That was
+# correct there, because neither of its jobs was a required status check. It
+# cannot stay, because here `full-migration-validation` is a FULL-tier gate and
+# therefore promotable to required in one documented step.
+#
+# The two ways to skip a job look equivalent and are not:
+#
+#   * workflow-level `paths:` — the workflow never triggers, so NO CHECK RUN IS
+#     EVER CREATED. A required check that never reports does not fail; it sits
+#     at "Expected — waiting for status to be reported" forever, and with
+#     "do not allow bypassing" enabled the pull request becomes permanently
+#     unmergeable.
+#   * job-level `if:` — the job reports conclusion "skipped", which GitHub
+#     counts as satisfying a required check.
+#
+# So the filter now lives in a `changes`-fed job-level `if:`, which is exactly
+# the conversion docs/runbooks/branch-protection.md prescribes. The incident
+# survives here as the lesson that explains the conversion, not as the defect it
+# describes.
+# ---------------------------------------------------------------------------
+name: pr-validation
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# `cancel-in-progress: true` is safe here ONLY while neither job is required.
+#
+# The required set, named inline because a decision that depends on it is
+# worthless without it — the FAST tier is required from day one:
+#   fast-unit-tests, fast-frontend-checks, fast-harness-guards,
+#   fast-repo-hygiene, fast-actionlint, fast-secret-scan, fast-spec-artifacts
+#
+# NOT YET IN THE TREE: `fast-actionlint` and `fast-spec-artifacts`. Their
+# workflows arrive with the agent-plumbing change. Requiring a context whose job
+# does not exist parks every pull request on "waiting for status to be reported"
+# forever — the same wedge as the paths filter this file exists to warn about,
+# reached by a shorter route. docs/runbooks/branch-protection.md carries the
+# check-before-you-paste loop and the two-stage ruleset.
+#
+# and the FULL tier is promoted within the first week:
+#   full-integration-tests, full-migration-validation, full-mutation-on-diff,
+#   full-e2e-accessibility, full-bundle-budget
+#
+# `full-migration-validation` is in the second list. Once it is promoted,
+# re-read this line: cancelling a check branch protection is waiting on
+# would leave the PR unmergeable, which is the same trap the paths filter above
+# created, reached by a different route. A superseded commit's migration check
+# is nobody's answer, so the cancellation is worth having — but it is a decision
+# to revisit at promotion, not a default to forget about.
+concurrency:
+  group: pr-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # Deliberately NOT named `changes`: pr-tests.yml already publishes a check by
+  # that name, and branch protection matches required checks by name string.
+  # Two check runs called `changes` would make that matching ambiguous.
+  migration-scope:
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    outputs:
+      migrations: ${{ steps.filter.outputs.migrations }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            migrations:
+              - 'examples/backend/src/main/resources/db/migration/**'
+              - 'tools/check-migrations.sh'
+              - '.github/workflows/pr-validation.yml'
+
+  full-migration-validation:
+    needs: migration-scope
+    # The same scope the workflow-level `paths:` filter used to express. When it
+    # does not match, this reports "skipped" and a required check is satisfied,
+    # instead of never reporting at all.
+    if: needs.migration-scope.outputs.migrations == 'true'
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: ${{ vars.VALIDATE_DB_NAME || 'validatedb' }}
+          POSTGRES_USER: ${{ vars.VALIDATE_DB_USER || 'postgres' }}
+          POSTGRES_PASSWORD: ${{ secrets.VALIDATE_DB_PASSWORD || 'validate-pw' }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      # Cheap and file-level: two migrations claiming the same version number
+      # is a merge artefact that only shows up at deploy time otherwise.
+      - name: Check for duplicate migration versions
+        if: needs.migration-scope.outputs.migrations == 'true'
+        run: |
+          chmod +x tools/check-migrations.sh
+          ./tools/check-migrations.sh
+
+      # Applies the on-disk migration chain to a CLEAN database and validates
+      # it. Catches file-level drift the duplicate check above misses:
+      # hand-edited migrations, checksum collisions, parse errors and dependency
+      # ordering. "It worked against the database I already had" is not the same
+      # claim as "it applies from scratch", and only the second one survives a
+      # new environment.
+      - name: Apply migrations and validate against a fresh database
+        if: needs.migration-scope.outputs.migrations == 'true'
+        working-directory: ./examples/backend
+        run: mvn -B flyway:migrate flyway:validate -Dflyway.cleanDisabled=false
+
+      - name: Report drift on failure
+        if: failure()
+        run: |
+          echo "::error::Migration validation failed. A migration file is malformed, collides with another version, or has checksum drift. Read the output above."
+          exit 1

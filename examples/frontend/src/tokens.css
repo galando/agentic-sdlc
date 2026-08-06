@@ -1,0 +1,21 @@
+/*
+ * Design tokens — the one place a colour value is allowed to be a literal hex code.
+ * scripts/check-design-system.mjs (gate 14) fails the build on a hardcoded hex colour
+ * anywhere else under src/, so a component that wants a new colour edits this file
+ * instead of inventing one inline.
+ */
+:root {
+  --color-text: #1a1a1a;
+  --color-background: #ffffff;
+  --color-accent: #2f6fed;
+  --color-border: #d0d5dd;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+}
+
+body {
+  color: var(--color-text);
+  background: var(--color-background);
+  font-family: system-ui, sans-serif;
+  margin: var(--space-md);
+}

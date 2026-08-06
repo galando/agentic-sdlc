@@ -1,0 +1,215 @@
+# Reusable failure notifier for the nightly gates.
+#
+# Why this exists: without it, a red nightly appears in the Actions tab and
+# NOWHERE else. No mail, no chat, no issue. docs/QUALITY-GATES.md calls a
+# nightly failure an S2 to investigate, and docs/runbooks/agent-escalation.md
+# defines S2 as an issue AND a pushed alert — but that ladder is wired for the
+# scheduled agents, not for CI, so the nightly workflows never reached it.
+#
+# A gate nobody is told about is most of the way to a gate that is not running.
+# One gate in the source system had been dying on a missing interpreter for its
+# entire existence and nothing said so.
+#
+# Called with a per-gate `if:` from each nightly job. Does two things:
+#   1. Opens an issue, or comments on the existing open one for the SAME GATE,
+#      so a recurring failure does not spawn a new issue every night.
+#   2. Sends an alert-channel ping, if one is configured.
+#
+# The issue is the PRIMARY channel and needs only GITHUB_TOKEN, which every
+# workflow already has. A pushed channel is ADDITIVE: if its secret is absent
+# the job still files the issue and reports the missing ping in the step summary
+# rather than failing. That ordering is deliberate — the notifier must not be
+# the thing that breaks when a secret is rotated, or you lose the alert about losing the alert.
+#
+# ---------------------------------------------------------------------------
+# CALLERS MUST DECLARE `permissions: {contents: read, issues: write}` AT
+# WORKFLOW LEVEL.
+#
+# A reusable workflow's job permissions are capped by the caller's — a token's
+# permissions can only be narrowed down the call chain, never widened. The
+# repository default is read-only, so a caller that declares no `permissions:`
+# block, or one that declares only `contents: read`, makes the `issues: write`
+# below an ESCALATION.
+#
+# GitHub rejects that when it builds the run graph, and it surfaces as
+# `startup_failure`: the WHOLE workflow never starts, GATE JOB INCLUDED — not
+# just this notifier. The gate goes quiet rather than red, which is the worst
+# available outcome, because a silent gate looks exactly like a passing one.
+# That is how five nightly gates once came to be dead on arrival for two days.
+#
+# If you add a new caller: give it `permissions: {contents: read, issues: write}`
+# and dispatch it once to confirm the run actually STARTS.
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_call:
+    inputs:
+      gate:
+        description: 'Human-readable gate name, e.g. "Mutation testing (backend)"'
+        required: true
+        type: string
+      severity:
+        description: 'S2 (degraded) or S1 (needs eventual attention)'
+        required: false
+        default: 'S2'
+        type: string
+      what_red_means:
+        description: 'One line: what a human should conclude from this being red'
+        required: true
+        type: string
+      runbook:
+        description: 'Path or URL to the matching runbook section'
+        required: false
+        default: 'docs/runbooks/qa-procedures.md'
+        type: string
+      runner:
+        description: >-
+          Runner label for the notifier job. Leave unset to follow the NIGHTLY_RUNNER
+          repository variable like every other nightly job.
+
+          PASS AN EXPLICIT VALUE WHEN THE THING BEING ALARMED ABOUT IS THE RUNNER
+          ITSELF. A called workflow's `runs-on` cannot be overridden by its caller —
+          that is a platform rule, not an oversight — so without this input a
+          watchdog pinned to a hosted runner still hands its alerting to whatever
+          `NIGHTLY_RUNNER` points at. When that variable points at a self-hosted
+          fleet and the fleet is what died, the detection is perfect and the notifier
+          queues forever on the dead box. Nobody is ever told.
+
+          The rule, stated once: AN ALARM MUST NOT DEPEND ON THE THING IT IS
+          ALARMING ABOUT. See `.github/workflows/ci-health-watch.yml`, the only
+          caller that needs this today.
+        required: false
+        default: ''
+        type: string
+    secrets:
+      ALERT_WEBHOOK_URL:
+        required: false
+
+jobs:
+  notify:
+    # `inputs.runner` FIRST. GitHub's `||` yields the first truthy operand and an
+    # unsupplied input is the empty string, so an ordinary nightly caller that passes
+    # nothing lands on `vars.NIGHTLY_RUNNER` exactly as before and this is not a
+    # breaking change to the shared notifier. A caller that DOES pass a value is
+    # telling this job that the fleet is the subject of the alert, and it wins.
+    runs-on: ${{ inputs.runner || vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Open or update the tracking issue
+        id: issue
+        uses: actions/github-script@v7
+        env:
+          GATE: ${{ inputs.gate }}
+          SEVERITY: ${{ inputs.severity }}
+          MEANING: ${{ inputs.what_red_means }}
+          RUNBOOK: ${{ inputs.runbook }}
+        with:
+          script: |
+            const gate = process.env.GATE;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}` +
+                           `/actions/runs/${context.runId}`;
+            const title = `[nightly] ${gate} is failing`;
+
+            // One issue per gate, reopened or commented rather than duplicated:
+            // a gate that stays red for a week should be one thread with seven
+            // comments, not seven issues nobody closes.
+            //
+            // The title carries the GATE NAME, which is why every caller passes
+            // its own `gate:` input and why there is one notifier job per gate
+            // rather than one that ORs several gate results together. A single
+            // OR-ing notifier would collapse distinct gates into one issue, so a
+            // second gate going red while the first is still open would produce
+            // no new signal at all — and the issue would name the wrong gate.
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'agent-report',
+              per_page: 100,
+            });
+            const match = existing.find(i => i.title === title);
+
+            const body = [
+              `**${process.env.SEVERITY} — ${gate} failed on the nightly run.**`,
+              '',
+              `**What red means:** ${process.env.MEANING}`,
+              '',
+              `- Run: ${runUrl}`,
+              `- Commit: \`${context.sha.slice(0, 7)}\` on \`${context.ref}\``,
+              `- Runbook: \`${process.env.RUNBOOK}\``,
+              '',
+              'Nightly gates do not block merges, so this will not stop anyone from',
+              'shipping on top of it. That is deliberate for slow, real-browser and',
+              'external-provider checks — and exactly why it needs a human to look.',
+            ].join('\n');
+
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: match.number,
+                body,
+              });
+              core.setOutput('number', match.number);
+              core.setOutput('url', match.html_url);
+              core.info(`Commented on existing issue #${match.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['agent-report'],
+              });
+              core.setOutput('number', created.data.number);
+              core.setOutput('url', created.data.html_url);
+              core.info(`Opened issue #${created.data.number}`);
+            }
+
+      - name: Alert-channel ping
+        env:
+          WEBHOOK: ${{ secrets.ALERT_WEBHOOK_URL }}
+          GATE: ${{ inputs.gate }}
+          SEVERITY: ${{ inputs.severity }}
+          ISSUE_URL: ${{ steps.issue.outputs.url }}
+        run: |
+          set -uo pipefail
+          if [ -z "${WEBHOOK:-}" ]; then
+            # NOT a failure: the issue above is the primary channel and it
+            # landed. Say it loudly in the summary so a missing secret is
+            # visible rather than being mistaken for "no alerts to send".
+            {
+              echo "### Alert-channel ping NOT sent"
+              echo ""
+              echo "\`ALERT_WEBHOOK_URL\` is not set, so only the issue was filed."
+              echo "That is a supported configuration — \`alerts.channel: none\` in"
+              echo ".agents/config.yml means issues only. Set the secret to enable a push."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          TEXT="🔴 [nightly] ${GATE} failed (${SEVERITY}) — ${ISSUE_URL}"
+          HTTP=$(curl -sS -o /tmp/alert-response.json -w '%{http_code}' --max-time 20 \
+            -X POST "$WEBHOOK" \
+            -H 'content-type: application/json' \
+            --data "$(jq -nc --arg t "$TEXT" '{text: $t}')" || echo "000")
+
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "204" ]; then
+            echo "Alert-channel ping sent." >> "$GITHUB_STEP_SUMMARY"
+          else
+            # Never fail a ping silently, and never let a notifier failure bury
+            # the original gate failure. The issue is already filed, so surface
+            # this rather than exiting non-zero.
+            {
+              echo "### Alert-channel ping FAILED (HTTP ${HTTP})"
+              echo ""
+              echo "The issue was still filed: ${ISSUE_URL}"
+              echo '```'
+              head -c 500 /tmp/alert-response.json 2>/dev/null || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

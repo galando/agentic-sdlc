@@ -1,0 +1,172 @@
+# The five scheduled agents — health, quality, audit, chief-of-staff, challenger.
+#
+# Ships DISABLED BY DEFAULT: the cron schedule below is present and fires on time (the
+# schedule is not inert in the sense of "absent"), but every agent's own
+# `ledger.agents[].enabled` in .agents/config.yml starts `false`, so every scheduled run
+# resolves to a no-op that logs why and exits green. Nobody should meet this system as
+# five crons and an alert firehose on day one (docs/runbooks/agent-modes.md). The
+# one-line enable is flipping `enabled: false` to `true` for one agent in
+# .agents/config.yml — no workflow edit needed. README.md's "turning on the routines"
+# section documents the order (dry-run via workflow_dispatch first, then enable).
+#
+# ONE workflow, a matrix over agent names read from ledger.agents at runtime — never a
+# hard-coded list here, which would be a second source of truth alongside the config
+# (docs/runbooks/agent-routines.md, Decision D3). Each matrix entry decides for itself
+# whether it is the agent this trigger is for, and whether it is enabled, then calls
+# tools/run-agent.sh — the single entrypoint every workflow in this repo uses to reach
+# an agent.
+#
+# workflow_dispatch is both the dry-run path README.md requires before scheduling an
+# agent, and the manual recovery path when hosted CI's best-effort scheduler skips a
+# run — see docs/runbooks/agent-routines.md "Liveness on a best-effort scheduler".
+#
+# GitHub disables scheduled workflows automatically after ~60 days without repository
+# activity. No in-repo mechanism can restore that; README.md's "turning on the
+# routines" section states it and the manual re-enable step, and the external staleness
+# check in the health agent's liveness logic is what notices the resulting silence
+# (`liveness.staleness-hours` in .agents/config.yml).
+name: agents-scheduled
+
+on:
+  schedule:
+    # Odd minutes on purpose: the top of the hour is the most contended slot on a
+    # shared scheduler. These MUST match ledger.agents[].schedule in
+    # .agents/config.yml exactly — the runtime match below fails closed if they drift.
+    - cron: "17 6 * * *"   # health
+    - cron: "23 7 * * *"   # quality
+    - cron: "41 8 * * *"   # audit
+    - cron: "13 17 * * *"  # chief-of-staff
+    - cron: "37 18 * * *"  # challenger
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: >-
+          Agent id to run right now (health, quality, audit, chief-of-staff,
+          challenger), or "all" to dry-run every enabled agent.
+        required: true
+        default: all
+        type: string
+
+concurrency:
+  group: agents-scheduled-${{ github.event.schedule || github.event.inputs.agent || 'dispatch' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  list-agents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Read the agent ring from .agents/config.yml
+        id: list
+        run: |
+          . tools/lib/config.sh
+          matrix_json="$(cfg_agents | jq -R . | jq -sc .)"
+          echo "matrix=$matrix_json" >> "$GITHUB_OUTPUT"
+
+  run-agent:
+    needs: list-agents
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: ${{ fromJson(needs.list-agents.outputs.matrix) }}
+    runs-on: ${{ vars.AGENT_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 50
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Decide whether this matrix entry runs
+        id: gate
+        env:
+          AGENT: ${{ matrix.agent }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          DISPATCH_AGENT: ${{ github.event.inputs.agent }}
+        run: |
+          . tools/lib/config.sh
+          enabled="$(cfg_agent_field "$AGENT" enabled)"
+          schedule="$(cfg_agent_field "$AGENT" schedule)"
+
+          if [ -n "$EVENT_SCHEDULE" ]; then
+            # A scheduled trigger fires exactly ONE cron string. Only the matrix entry
+            # whose OWN schedule matches it is even a candidate to run.
+            if [ "$schedule" != "$EVENT_SCHEDULE" ]; then
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "reason=cron '$EVENT_SCHEDULE' is not $AGENT's schedule ('$schedule')" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            # workflow_dispatch: "all" is the dry-run path over every enabled agent; a
+            # specific id runs only that one, ignoring its own enabled flag (that is
+            # the point of a manual dispatch — see it run before you enable its cron).
+            if [ "$DISPATCH_AGENT" != "all" ] && [ "$DISPATCH_AGENT" != "$AGENT" ]; then
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "reason=dispatch requested '$DISPATCH_AGENT', not $AGENT" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$DISPATCH_AGENT" = "$AGENT" ]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          if [ "$enabled" != "true" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$AGENT is disabled (ledger.agents[].enabled: false in .agents/config.yml) — see README.md \"turning on the routines\"" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+      - name: Report why this entry was skipped
+        if: steps.gate.outputs.run == 'false'
+        run: echo "::notice title=${{ matrix.agent }} skipped::${{ steps.gate.outputs.reason }}"
+
+      # Same contract review.yml's challenge-review job uses for the same reason: the
+      # challenger agent's role resolves to the compatible-endpoint provider, whose
+      # credential is OPTIONAL BY DESIGN (.agents/config.yml auth.compatible-endpoint.
+      # required: false). run-agent.sh genuinely exits 6 for an absent optional
+      # credential, and an Actions bash step fails on any non-zero exit — so without
+      # this preflight, an adopter who enables the challenger without setting the key
+      # gets a red scheduled run every time, including the first manual dry-run meant
+      # to validate setup. A missing OPTIONAL credential must degrade this one run,
+      # never fail it; a REQUIRED credential missing (exit 5) is a real
+      # misconfiguration and is allowed to fail loudly.
+      - name: Check this agent's credentials are configured
+        if: steps.gate.outputs.run == 'true'
+        id: creds
+        env:
+          AGENT_CLI_TOKEN: ${{ secrets.AGENT_CLI_TOKEN }}
+          CHALLENGE_API_KEY: ${{ secrets.CHALLENGE_API_KEY }}
+        run: |
+          set +e
+          tools/run-agent.sh --check-credentials "${{ matrix.agent }}"
+          rc=$?
+          set -e
+          case "$rc" in
+            0) echo "ok=true"  >> "$GITHUB_OUTPUT" ;;
+            6) echo "ok=false" >> "$GITHUB_OUTPUT" ;;   # degrade, never cancel
+            *) exit "$rc" ;;
+          esac
+
+      - name: Report a degraded credential skip
+        if: steps.gate.outputs.run == 'true' && steps.creds.outputs.ok == 'false'
+        run: echo "::notice title=${{ matrix.agent }} skipped::optional credential absent for this agent's provider — see the run-agent.sh warning above"
+
+      - name: Run the agent
+        if: steps.gate.outputs.run == 'true' && steps.creds.outputs.ok == 'true'
+        env:
+          AGENT_CLI_TOKEN: ${{ secrets.AGENT_CLI_TOKEN }}
+          CHALLENGE_API_KEY: ${{ secrets.CHALLENGE_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tools/run-agent.sh "${{ matrix.agent }}" --timeout 2700

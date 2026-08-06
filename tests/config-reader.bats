@@ -1,0 +1,137 @@
+#!/usr/bin/env bats
+#
+# Gate: the yq reader and the restricted-awk fallback reader in tools/lib/config.sh must
+# agree, byte for byte, on every documented path. .agents/config.yml is written to the
+# restricted subset (two-space indent, no anchors/aliases/flow maps, list items are
+# `- key: value` maps or scalars) precisely so this can hold — see the header comment on
+# both config.sh and config.yml, and design.md section 2.2 (Decision D1).
+#
+# `--dry-run` (SC4) has to work with no agent CLI installed at all, and tools/init.sh must
+# make no network call (SC7) — a hard `yq` dependency would break both on a laptop that
+# never installed it. The awk fallback is what makes that true; this file is what makes
+# the fallback trustworthy instead of merely present.
+
+REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+LIB="$REPO_ROOT/tools/lib/config.sh"
+CONFIG="$REPO_ROOT/.agents/config.yml"
+
+both_readers_agree() {
+  local path="$1"
+  local yq_val awk_val yq_rc awk_rc
+  yq_val="$(AGENTS_CONFIG_READER=yq bash -c ". '$LIB'; cfg_get '$path'" 2>/dev/null)"
+  yq_rc=$?
+  awk_val="$(AGENTS_CONFIG_READER=awk bash -c ". '$LIB'; cfg_get '$path'" 2>/dev/null)"
+  awk_rc=$?
+  [ "$yq_rc" -eq "$awk_rc" ] || { echo "rc mismatch for $path: yq=$yq_rc awk=$awk_rc"; return 1; }
+  [ "$yq_val" = "$awk_val" ] || { echo "value mismatch for $path: yq=[$yq_val] awk=[$awk_val]"; return 1; }
+}
+
+@test "config reader: both readers agree on schema" {
+  run both_readers_agree "schema"
+  [ "$status" -eq 0 ]
+}
+
+@test "config reader: both readers agree on provider" {
+  run both_readers_agree "provider"
+  [ "$status" -eq 0 ]
+}
+
+@test "config reader: both readers agree on models.judge / execute / challenge" {
+  run both_readers_agree "models.judge"
+  [ "$status" -eq 0 ]
+  run both_readers_agree "models.execute"
+  [ "$status" -eq 0 ]
+  run both_readers_agree "models.challenge"
+  [ "$status" -eq 0 ]
+}
+
+@test "config reader: both readers agree on role_provider.challenge" {
+  run both_readers_agree "role_provider.challenge"
+  [ "$status" -eq 0 ]
+}
+
+@test "config reader: both readers agree on auth.<provider>.* including hyphenated keys" {
+  run both_readers_agree "auth.claude-code.mode"
+  [ "$status" -eq 0 ]
+  run both_readers_agree "auth.claude-code.token_secret"
+  [ "$status" -eq 0 ]
+  run both_readers_agree "auth.compatible-endpoint.required"
+  [ "$status" -eq 0 ]
+  run both_readers_agree "auth.compatible-endpoint.base_url"
+  [ "$status" -eq 0 ]
+}
+
+@test "config reader: both readers agree on mention.variable / default" {
+  run both_readers_agree "mention.variable"
+  [ "$status" -eq 0 ]
+  run both_readers_agree "mention.default"
+  [ "$status" -eq 0 ]
+}
+
+@test "config reader: both readers agree on alerts.*" {
+  run both_readers_agree "alerts.channel"
+  [ "$status" -eq 0 ]
+  run both_readers_agree "alerts.severity_floor"
+  [ "$status" -eq 0 ]
+}
+
+@test "config reader: both readers agree on liveness.*" {
+  run both_readers_agree "liveness.max-age-hours"
+  [ "$status" -eq 0 ]
+  run both_readers_agree "liveness.staleness-hours"
+  [ "$status" -eq 0 ]
+}
+
+@test "config reader: both readers agree on ledger.branch / identity.*" {
+  run both_readers_agree "ledger.branch"
+  [ "$status" -eq 0 ]
+  run both_readers_agree "ledger.identity.name"
+  [ "$status" -eq 0 ]
+  run both_readers_agree "ledger.identity.email"
+  [ "$status" -eq 0 ]
+}
+
+@test "config reader: both readers agree on spec_contract" {
+  run both_readers_agree "spec_contract"
+  [ "$status" -eq 0 ]
+}
+
+@test "config reader: both readers agree a missing required key is an error (exit 3)" {
+  run both_readers_agree "this.path.does.not.exist"
+  [ "$status" -eq 0 ]
+  yq_rc="$(AGENTS_CONFIG_READER=yq bash -c ". '$LIB'; cfg_get this.path.does.not.exist >/dev/null 2>&1; echo \$?")"
+  [ "$yq_rc" -eq 3 ]
+}
+
+@test "config reader: both readers agree on a default for a missing key" {
+  yq_val="$(AGENTS_CONFIG_READER=yq bash -c ". '$LIB'; cfg_get nope.nope default-val")"
+  awk_val="$(AGENTS_CONFIG_READER=awk bash -c ". '$LIB'; cfg_get nope.nope default-val")"
+  [ "$yq_val" = "default-val" ]
+  [ "$awk_val" = "default-val" ]
+}
+
+@test "config reader: cfg_agents returns the ring in list order under both readers" {
+  yq_val="$(AGENTS_CONFIG_READER=yq bash -c ". '$LIB'; cfg_agents" | tr '\n' ' ')"
+  awk_val="$(AGENTS_CONFIG_READER=awk bash -c ". '$LIB'; cfg_agents" | tr '\n' ' ')"
+  [ "$yq_val" = "$awk_val" ]
+  [ "$yq_val" = "health quality audit chief-of-staff challenger " ]
+}
+
+@test "config reader: cfg_predecessor wraps at the top under both readers" {
+  yq_val="$(AGENTS_CONFIG_READER=yq bash -c ". '$LIB'; cfg_predecessor health")"
+  awk_val="$(AGENTS_CONFIG_READER=awk bash -c ". '$LIB'; cfg_predecessor health")"
+  [ "$yq_val" = "challenger" ]
+  [ "$awk_val" = "challenger" ]
+}
+
+@test "cfg_assert_schema passes on the shipped config" {
+  run bash -c ". '$LIB'; cfg_assert_schema '$CONFIG' 1"
+  [ "$status" -eq 0 ]
+}
+
+@test "cfg_assert_schema fails loudly on an unsupported schema" {
+  run bash -c ". '$LIB'; cfg_assert_schema '$CONFIG' 99"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"not supported"* ]]
+  [[ "$output" == *"CHANGELOG.md"* ]]
+}

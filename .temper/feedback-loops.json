@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "active_loops": [
+    {
+      "id": "loop-1",
+      "from_stage": "review",
+      "to_stage": "build",
+      "reason": "1 critical: de-identification sweep returns 1 hit (agentsdlcrepoprompt.md:326 leaks the plugin marketplace author's handle), violating SC1's exactly-zero mandate. Plus 1 high: pins-discharge.bats docstring overclaims that pins.json's regex entries are asserted by the suite.",
+      "iteration": 2,
+      "max_iterations": 2,
+      "started": "2026-08-05T11:51:01Z"
+    },
+    {
+      "id": "loop-2",
+      "from_stage": "check",
+      "to_stage": "build",
+      "reason": "Check FAIL: frontend coverage 71.23% vs 80% (api.ts fetch wrapper effectively untested), and SC16 liveness never simulated end-to-end against a real ledger. Both fixable locally; the remaining two scenarios need a live Actions run.",
+      "iteration": 2,
+      "max_iterations": 2,
+      "started": "2026-08-06T04:58:32Z"
+    }
+  ],
+  "history": []
+}

@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  backend/pom.xml — the reference-stack backend for the bundled example product
+  (tasks.md Task 23/24, PR (c)).
+
+  This file arms SEVEN of the gauntlet's twelve stack-specific gates on its own:
+    gate 1  — unit tests (Surefire, no database, no network)
+    gate 2  — integration tests against the real dependency (Failsafe, `docker` group)
+    gate 3  — backend coverage ratchet (JaCoCo; FLOORS:BEGIN/END block, see below)
+    gate 4  — architecture rules + freeze store (ArchUnit + FreezingArchRule)
+    gate 8  — executable acceptance specs (Cucumber)
+    gate 13 — build hygiene (maven-enforcer-plugin, bound to validate — BEFORE compile)
+    gate 17 — diff-scoped mutation check (PIT, "mutation" profile; FLOORS:BEGIN/END block)
+
+  Every ratchet-bearing block below is marked FLOORS:BEGIN/END and rendered from
+  ../floors.yml by tools/render-floors.sh — see docs/QUALITY-GATES.md section
+  "Floors ship UNCALIBRATED" and design.md section 7.2. Do not hand-edit a marked block;
+  edit floors.yml and re-run tools/measure-floors.sh (or tools/render-floors.sh once
+  floors.yml already holds a real value).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.3.4</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.example</groupId>
+  <artifactId>agentsdlc-example</artifactId>
+  <version>0.1.0</version>
+  <name>agentsdlc-example-backend</name>
+  <description>
+    The bundled example product's backend — a minimal item-tracker API that exists so the
+    22-gate gauntlet has something real to run against on day one. Delete this whole
+    directory (tools/init.sh offers to) once your own product is wired in.
+  </description>
+
+  <properties>
+    <java.version>17</java.version>
+    <maven.compiler.release>17</maven.compiler.release>
+    <archunit.version>1.3.0</archunit.version>
+    <cucumber.version>7.18.1</cucumber.version>
+
+    <!-- FLOORS:BEGIN backend.mutation.score -->
+    <!-- floors.yml says `unset`. PIT's documented "no threshold" IS 0 — which is also
+         exactly what a switched-off gate looks like. That collision is the reason the
+         sentinel cannot live in this file. -->
+    <pit.mutationThreshold>0</pit.mutationThreshold>
+    <!-- FLOORS:END -->
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- Fast tier: unit and web-slice tests run against the embedded database, no
+         Docker, no network — gate 1's own contract. -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Gate 4 — architecture rules + freeze store. -->
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <version>${archunit.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Gate 8 — executable acceptance specs, Given-When-Then. -->
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-java</artifactId>
+      <version>${cucumber.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-junit-platform-engine</artifactId>
+      <version>${cucumber.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-spring</artifactId>
+      <version>${cucumber.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-suite</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+
+      <!-- Gate 13 — build hygiene. Bound to `validate`, BEFORE compile, so a wrong
+           toolchain or a banned duplicate dependency fails loudly and immediately
+           instead of producing a confusing downstream compiler or classpath error. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>3.5.0</version>
+        <executions>
+          <execution>
+            <id>build-hygiene</id>
+            <phase>validate</phase>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <requireJavaVersion>
+                  <version>[17,)</version>
+                </requireJavaVersion>
+                <requireMavenVersion>
+                  <version>[3.8,)</version>
+                </requireMavenVersion>
+                <banDuplicatePomDependencyVersions/>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Surefire: unit + web-slice tests only (gate 1). Its own default include
+           pattern (**/*Test.java, **/*Tests.java, ...) already excludes **/*IT.java, so
+           no explicit exclude is needed — that naming split IS the fast/full boundary. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+      </plugin>
+
+      <!-- Failsafe: integration tests against the real dependency (gate 2), tagged
+           `docker`. Bound to the standard integration-test/verify phases, so it only
+           runs on `mvn verify` — never on plain `mvn test` — and DskipITs (used by the
+           FAST-tier job) skips it entirely. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <groups>docker</groups>
+          <excludedGroups>live</excludedGroups>
+        </configuration>
+      </plugin>
+
+      <!-- Gate 3 — backend coverage ratchet. -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>0.8.12</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+          <!-- tools/measure-floors.sh reads target/site/jacoco/jacoco.csv, so the CSV
+               report must always be generated, calibrated or not. -->
+          <execution>
+            <id>report</id>
+            <phase>test</phase>
+            <goals><goal>report</goal></goals>
+            <configuration>
+              <formats>
+                <format>XML</format>
+                <format>CSV</format>
+                <format>HTML</format>
+              </formats>
+            </configuration>
+          </execution>
+          <execution>
+            <id>coverage-ratchet</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <!-- FLOORS:BEGIN backend.coverage.line backend.coverage.branch -->
+              <!-- floors.yml says `unset`. jacoco:check has no "no threshold" mode — a
+                   <minimum> must be a decimal — so the check execution itself is
+                   skipped and tools/floor-notice.sh prints the uncalibrated notice
+                   instead. This <skip> is indistinguishable from a permanently
+                   disabled gate BY DESIGN OF THE TOOL; floors.yml is what tells the
+                   two states apart, and gate 9 reads it, not this file.
+                   <rules> stays present-but-empty even while skipped: the plugin
+                   validates it as a required parameter BEFORE consulting <skip>, so an
+                   absent <rules> block fails the build regardless of skip's value. -->
+              <skip>true</skip>
+              <rules/>
+              <!-- FLOORS:END -->
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <!-- Gate 17 (diff-scoped, PR-time) and gate 5 (nightly, whole codebase) both run
+         through this profile — `mvn -Pmutation org.pitest:pitest-maven:mutationCoverage`.
+         Kept out of the default build: PIT is slow and has no business running on every
+         `mvn test`. -->
+    <profile>
+      <id>mutation</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>1.17.0</version>
+            <dependencies>
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>1.2.1</version>
+              </dependency>
+            </dependencies>
+            <configuration>
+              <targetClasses>
+                <param>com.example.agentsdlc.*</param>
+              </targetClasses>
+              <targetTests>
+                <param>com.example.agentsdlc.*</param>
+              </targetTests>
+              <!-- Same boundary as gate 1 vs gate 2: PIT has its own test-discovery
+                   path, separate from Surefire/Failsafe's file-naming convention, so it
+                   does not inherit `-DskipITs` and would otherwise try to run the
+                   docker-tagged repository IT against no database at all. Excluding the
+                   tag here keeps PIT on the FAST-tier, no-database test set. -->
+              <excludedGroups>
+                <param>docker</param>
+              </excludedGroups>
+              <mutationThreshold>${pit.mutationThreshold}</mutationThreshold>
+              <outputFormats>
+                <outputFormat>XML</outputFormat>
+                <outputFormat>HTML</outputFormat>
+              </outputFormats>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

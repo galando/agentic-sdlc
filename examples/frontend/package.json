@@ -1,0 +1,47 @@
+{
+  "name": "agentsdlc-example-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The bundled example product's frontend (tasks.md Task 23) — arms gates 6, 7, 9 (frontend half), 12, 14, 15, 17 (frontend half) and 19. Delete this whole directory (tools/init.sh offers to) once your own product is wired in.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "audit:ci": "node scripts/audit-ci.mjs",
+    "check:design-system": "node scripts/check-design-system.mjs",
+    "check:bundle": "node scripts/check-bundle.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "@eslint/js": "^9.10.0",
+    "@playwright/test": "^1.47.2",
+    "@stryker-mutator/core": "^8.6.0",
+    "@stryker-mutator/vitest-runner": "^8.6.0",
+    "@testing-library/jest-dom": "^6.5.0",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "@vitest/coverage-v8": "^2.1.1",
+    "eslint": "^9.10.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "globals": "^15.9.0",
+    "jsdom": "^25.0.0",
+    "typescript": "^5.6.2",
+    "typescript-eslint": "^8.5.0",
+    "vite": "^5.4.6",
+    "vitest": "^2.1.1"
+  },
+  "overrides": {
+    "mime-db": "^1.54.0"
+  }
+}

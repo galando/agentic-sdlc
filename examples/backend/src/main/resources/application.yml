@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: agentsdlc-example
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+# Production datasource comes from the standard Spring Boot env vars
+# (SPRING_DATASOURCE_URL / _USERNAME / _PASSWORD) — nothing to fill in here. The FAST
+# tier never reaches this file's datasource block at all; it runs against the
+# `test` profile (src/test/resources/application-test.yml), H2 in-memory, no network.

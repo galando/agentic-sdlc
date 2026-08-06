@@ -1,0 +1,451 @@
+# The blocking gauntlet — the checks that run on every pull request.
+#
+# ---------------------------------------------------------------------------
+# JOB NAMES ARE THE BRANCH-PROTECTION CONTRACT. DO NOT RENAME THEM.
+#
+# A required status check is identified by its CONTEXT STRING, which is a job's
+# `name:` when it has one and its job id otherwise. Every gate job below
+# therefore carries NO `name:` key at all, so the context is exactly the id —
+# one string per gate rather than two that can drift. A source system that got
+# this wrong had a job with id `gitleaks` and a sentence for its `name:`, so the
+# branch-protection context was the sentence, and its own runbook calls that
+# "the usual failure mode: GitHub accepts a context that never reports, and then
+# every pull request blocks forever waiting on it."
+#
+# Renaming one of these silently breaks branch protection in every downstream
+# repository that already required the old string: the pull request simply waits
+# forever on a context that will never report again. The exact strings are
+# listed in docs/runbooks/branch-protection.md.
+# ---------------------------------------------------------------------------
+#
+# TWO TIERS, BOTH LIVE. The difference is which are marked REQUIRED, not which
+# run. Nothing here is disabled, skipped-by-configuration, or advisory.
+#
+#   fast-*  — no container image, no browser download, no service container.
+#             Green in about two minutes. Safe to require on day one.
+#   full-*  — pulls an image, downloads a browser, or runs mutation testing.
+#             Runs and reports from day one; promoted to required in one
+#             documented step, expected within the first week.
+#
+# The tiering exists because the threat to a green first pull request is
+# INFRASTRUCTURE FLAKINESS, not gate strictness. A cold first run resolves a
+# dependency repository, installs packages, pulls a database image and downloads
+# a browser; each is a network dependency that can flake, and it flakes on the
+# adopter's very first pull request — teaching them the gauntlet is unreliable at
+# exactly the moment they decide whether to keep this template.
+name: pr-tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: pr-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # Detects which parts of the tree changed so unrelated jobs/steps below can
+  # skip. This job is PLUMBING and is never a required check — every job that
+  # depends on it reports in its own right.
+  #
+  # Its outputs gate each JOB and each STEP. That doubling is deliberate and it
+  # is what makes "a gate whose stack is absent reports skipped, not missing"
+  # true: the job-level `if:` produces a `skipped` conclusion, which GitHub
+  # counts as satisfying a required check, and the step-level `if:` keeps a job
+  # that ran for one stack from doing the other stack's work.
+  changes:
+    # The runner is switchable through a repository variable: unset gives the
+    # hosted runner, and setting it routes to your own. Flip it ONLY when a
+    # runner offering that label is actually online — a label no runner offers
+    # queues forever and this is a required check, so the pull request waits on
+    # a status that never arrives.
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'examples/backend/**'
+            frontend:
+              - 'examples/frontend/**'
+
+  # =========================================================================
+  # FAST TIER
+  # =========================================================================
+
+  # Gates 1 (unit tests), 3 (backend coverage ratchet), 4 (architecture rules +
+  # freeze store), 8 (executable acceptance specs), 13 (build hygiene), and the
+  # backend half of 9 (ratchet guards).
+  fast-unit-tests:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up the backend toolchain
+        if: needs.changes.outputs.backend == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '24'
+          cache: 'maven'
+
+      # Always exits 0. Prints the uncalibrated notice for every floor still
+      # holding the `unset` sentinel, so an unarmed ratchet is loud on every run
+      # rather than silently passing. See docs/QUALITY-GATES.md.
+      - name: Report uncalibrated floors
+        if: always() && needs.changes.outputs.backend == 'true'
+        run: |
+          if [ -x tools/floor-notice.sh ]; then tools/floor-notice.sh backend; fi
+
+      # `verify -DskipITs` rather than `test`: it runs the unit suite, packages
+      # the artifact, AND triggers the coverage ratchet and architecture checks
+      # bound to the verify phase. Integration tests are skipped here; they are
+      # the full tier's job.
+      - name: Backend unit tests, coverage ratchet, architecture rules
+        if: needs.changes.outputs.backend == 'true'
+        working-directory: ./examples/backend
+        run: mvn -B clean verify -DskipITs
+
+  # Gates 6 (lint at zero warnings), 7 (frontend tests + coverage ratchet),
+  # 12 (fast dependency CVE), 14 (design-system guardrail), and the frontend
+  # half of 9.
+  fast-frontend-checks:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up the frontend toolchain
+        if: needs.changes.outputs.frontend == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: examples/frontend/package-lock.json
+
+      - name: Report uncalibrated floors
+        if: always() && needs.changes.outputs.frontend == 'true'
+        run: |
+          if [ -x tools/floor-notice.sh ]; then tools/floor-notice.sh frontend; fi
+
+      - name: Install frontend dependencies
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: npm ci
+
+      # Supply-chain gate: fails on any high or critical advisory across the
+      # WHOLE dependency tree, production and development alike, except
+      # advisories explicitly allowlisted with a written exposure analysis.
+      #
+      # An all-or-nothing audit level is the wrong shape: a single unfixable
+      # advisory would force the bar down for everything else. Keeping the bar
+      # high and making each exception a named, reviewable decision is what
+      # stops that. It must also FAIL WHEN AN ALLOWLISTED ADVISORY DISAPPEARS,
+      # so stale exceptions cannot accumulate — the same ratchet as the
+      # architecture freeze store and the accessibility baseline.
+      #
+      # The nightly deep scan is the primary detector, because advisories get
+      # published against an unchanged lockfile, which no pull-request-triggered
+      # run would ever catch.
+      - name: Audit frontend dependencies
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: npm run audit:ci
+
+      - name: Lint frontend, zero warnings
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: npm run lint -- --max-warnings 0
+
+      - name: Frontend tests with the coverage ratchet
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: npm run test:coverage -- --run
+
+      - name: Design-system guardrail
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: npm run check:design-system
+
+      - name: Build frontend
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: npm run build
+
+      # Handed to full-bundle-budget rather than measured here, so the FULL tier
+      # does not have to install and build a second time.
+      - name: Upload the built bundle
+        if: needs.changes.outputs.frontend == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: examples/frontend/dist/
+          retention-days: 1
+
+  # Gate 22 — the harness guards. Deliberately carries NO `needs: changes` gate.
+  # A docs-only or spec-only pull request skips the stack jobs, and this is
+  # exactly the check that matters most on that class of change: it pins the
+  # load-bearing strings inside the agent workflows themselves. A required check
+  # that skips reports "passing".
+  fast-harness-guards:
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install the shell test runner
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bats
+
+      # Everything else in this gauntlet tests the product; nothing else tests
+      # the machine that builds it. A broken collector or a weakened prompt
+      # produces green runs and wrong answers, which is the worst combination
+      # available.
+      - name: Harness guards
+        run: bats tests/harness-guards/
+
+  # Placeholder check, generated-file sync, and the de-identification sweep.
+  # Also carries no `needs: changes`, for the same reason as the guards above.
+  fast-repo-hygiene:
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          # Full history: the sweep reads commit messages, not just the tree.
+          fetch-depth: 0
+
+      - name: Unresolved placeholders
+        run: |
+          if [ -x tools/check-placeholders.sh ]; then tools/check-placeholders.sh; fi
+
+      # ADOPTING.md is a pure function of the tracked tree's double-brace token occurrences
+      # (design.md section 4.4, decision D9) — regenerating it here and diffing catches a
+      # placeholder added anywhere without a row added to the map, and a hand-edit of the
+      # generated table itself. "A placeholder whose ADOPTING.md row is missing is
+      # invisible" is closed mechanically by this diff, not by review discipline.
+      - name: ADOPTING.md matches the tree's placeholders (regeneration diff)
+        run: |
+          if [ -x tools/gen-adopting.sh ]; then
+            tools/gen-adopting.sh
+            git diff --exit-code ADOPTING.md
+          fi
+
+      # Gate 9's hand-edit hole, closed mechanically (design.md section 7.5): floors.yml
+      # is the single ratchet ledger, and each tool config's FLOORS:BEGIN/END block is
+      # RENDERED from it, never hand-maintained. Regenerating here and diffing catches a
+      # `<minimum>` (or a vitest/Stryker threshold) hand-edited directly in the tool
+      # config without floors.yml changing to match — the config and the ledger would
+      # otherwise silently disagree, and floors.yml is what gate 9's own ratchet-guard
+      # tests (one per stack, bound into each stack's normal test run) read.
+      - name: Tool configs match floors.yml (regeneration diff)
+        run: |
+          if [ -x tools/render-floors.sh ]; then
+            tools/render-floors.sh
+            git diff --exit-code -- examples/backend/pom.xml examples/frontend/vitest.config.js examples/frontend/stryker.config.mjs
+          fi
+
+      # Gate 22's suite is a pure function of tests/harness-guards/pins.json (design.md
+      # Decision D10) — regenerating it here and diffing catches a pin added to the
+      # inventory without regenerating the committed suite, and a hand-edit of the
+      # generated file itself. Either one would otherwise let the suite silently drift
+      # smaller than the inventory it is supposed to be a complete function of.
+      - name: Gate 22 suite matches its inventory (regeneration diff)
+        run: |
+          if [ -x tests/harness-guards/gen-pin-tests.sh ]; then
+            tests/harness-guards/gen-pin-tests.sh
+            git diff --exit-code tests/harness-guards/pins.generated.bats
+          fi
+
+      # -------------------------------------------------------------------
+      # The sweep that proves SC1 — "the tree names nothing it should not".
+      #
+      # It has an awkward shape and the awkwardness is load-bearing: the check
+      # needs the list of forbidden names, and COMMITTING THAT LIST IS THE LEAK.
+      # A curated enumeration of exactly what a template claims to have removed
+      # is worse than a stray mention, because it is organised, and because it
+      # is the first file anyone opens to audit whether the extraction was
+      # clean. So the list cannot be in the tree, and a check run bare here has
+      # nothing to search for and passes on every possible input.
+      #
+      # The way out is a SECRET. `DEIDENT_TERMS` holds the list, it is
+      # materialised outside the working tree, and it never enters the index.
+      # Two branches, both of them loud, and no third:
+      #
+      #   secret present  -> the sweep really runs, and a hit fails the job.
+      #   secret absent   -> the script emits a `::notice ... not armed::`
+      #                      annotation saying it SKIPPED rather than passed.
+      #                      Visible on a green run, which is the only place it
+      #                      would ever be read.
+      #
+      # $RUNNER_TEMP, never the checkout: a term file inside the tree is one
+      # `git add -A` away from becoming the leak it was written to find, and the
+      # scanner reads tracked files only, so a path outside the repository costs
+      # nothing.
+      #
+      # Note when reading a failure: the runner masks secret values in logs, so
+      # a matched line may come back partly redacted. The file and line number
+      # are not masked, and those are the actionable part.
+      # -------------------------------------------------------------------
+      - name: De-identification sweep
+        env:
+          DEIDENT_TERMS: ${{ secrets.DEIDENT_TERMS }}
+        run: |
+          set -euo pipefail
+          if [ -n "${DEIDENT_TERMS:-}" ]; then
+            TERMS_FILE="${RUNNER_TEMP}/deident-terms.txt"
+            printf '%s\n' "$DEIDENT_TERMS" > "$TERMS_FILE"
+            trap 'rm -f "$TERMS_FILE"' EXIT
+            tools/check-deidentified.sh --terms "$TERMS_FILE"
+          else
+            # Deliberately the SAME script and the same exit-0 path, not a
+            # bespoke "skipping" echo here. One announcement, one place, so the
+            # CI branch and a developer's local run cannot drift into saying
+            # different things about the same state.
+            tools/check-deidentified.sh
+          fi
+
+  # =========================================================================
+  # FULL TIER — live and reporting from day one, required in one documented step
+  # =========================================================================
+
+  # Gate 2 — integration tests against the REAL dependency, with the whole
+  # migration chain applied from scratch. Not day-one required because it pulls
+  # a database image.
+  full-integration-tests:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ${{ vars.IT_DB_NAME || 'itdb' }}
+          POSTGRES_USER: ${{ vars.IT_DB_USER || 'it' }}
+          POSTGRES_PASSWORD: ${{ secrets.IT_DB_PASSWORD || 'it' }}
+        ports:
+          - 5433:5432
+        # The healthcheck is not optional: without it the application context
+        # refresh races a still-initialising database and fails on first
+        # connect, which reads as a test failure rather than a timing problem.
+        options: >-
+          --health-cmd "pg_isready"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up the backend toolchain
+        if: needs.changes.outputs.backend == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '24'
+          cache: 'maven'
+
+      # Coverage is skipped here on purpose: this job runs only the tagged
+      # integration classes, so its coverage data would be integration-only and
+      # the unit ratchet would trip spuriously. The ratchet runs in
+      # fast-unit-tests instead.
+      - name: Backend integration tests
+        if: needs.changes.outputs.backend == 'true'
+        working-directory: ./examples/backend
+        run: mvn -B clean verify -Dgroups=docker -DexcludedGroups=live -Djacoco.skip=true
+
+  # Gate 15 on the pull request — end-to-end in a real browser plus
+  # accessibility. The nightly run stays regardless. Not day-one required
+  # because it downloads a browser.
+  full-e2e-accessibility:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up the frontend toolchain
+        if: needs.changes.outputs.frontend == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: examples/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: npm ci
+
+      - name: Install the browser
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: npx playwright install --with-deps chromium
+
+      # Everything above can be green while the built artifact is blank. Keep
+      # the known-violations baseline EMPTY: adding an entry means shipping a
+      # known accessibility defect and needs a recorded human decision.
+      - name: End-to-end and accessibility
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: npm run test:e2e
+
+  # Gate 19 — the bundle-size budget. A CEILING, so its ratchet runs in
+  # reverse: lower it freely after a size win; raising it needs the same written
+  # justification as lowering a coverage floor.
+  #
+  # Downloads the artifact fast-frontend-checks already built rather than
+  # installing and building again, so the whole cost here is a filesystem walk
+  # and a compression pass.
+  full-bundle-budget:
+    needs: [changes, fast-frontend-checks]
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Download the built bundle
+        if: needs.changes.outputs.frontend == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: examples/frontend/dist/
+
+      # Nothing else in the gauntlet looks at bundle size, so a stray heavyweight
+      # import or a barrel that defeats tree-shaking currently ships green: lint,
+      # tests, coverage and mutation testing all pass while every visitor pays
+      # for it on first load. A per-chunk budget belongs alongside the total,
+      # because a large dependency landing in the entry chunk is worth catching
+      # on the pull request that caused it, not twenty commits later when the
+      # total finally tips over.
+      - name: Bundle-size budget
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: node scripts/check-bundle.mjs

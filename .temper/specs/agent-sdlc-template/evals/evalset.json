@@ -1,0 +1,171 @@
+{
+  "version": 1,
+  "feature": "agent-sdlc-template",
+  "draft": true,
+  "rubric": {
+    "dimensions": [
+      { "name": "task_success",     "weight": 0.35, "category": "artifact" },
+      { "name": "tool_use_quality", "weight": 0.15, "category": "process" },
+      { "name": "trajectory",       "weight": 0.20, "category": "process" },
+      { "name": "hallucination",    "weight": 0.15, "category": "artifact", "invert": true },
+      { "name": "response_quality", "weight": 0.15, "category": "artifact" }
+    ],
+    "pass_threshold": 0.75
+  },
+  "cases": [
+    {
+      "id": "c1",
+      "input": "Given the template tree has been built from the source repository, when a case-insensitive grep runs for the source project's name, domain, bespoke domain nouns and owner handle across file content, file names and commit messages",
+      "expected": "The total hit count is exactly 0, and the sweep is wired as a pre-PR step",
+      "labels": ["SC1", "de-identification"],
+      "must_not": ["any source project name, domain, issue number or author handle remaining in the tree"]
+    },
+    {
+      "id": "c2",
+      "input": "Given a scratch repo with a remote and no ledger branch, when the orphan branch is created and ledger.sh append/read/latest/trend are run for agent 'ops' with a metrics field",
+      "expected": "read prints the entry back with an agent field added; latest shows the date and green verdict; trend prints the metric series; the caller's working tree and branch are unchanged",
+      "labels": ["SC5", "ledger"],
+      "must_not": ["checking out the ledger branch in the caller's repo", "force-pushing", "cloning the local checkout instead of the remote"]
+    },
+    {
+      "id": "c3",
+      "input": "Given .agents/config.yml and a prompt file, when tools/run-agent.sh <agent> --dry-run is run once per provider (claude-code, codex, gemini-cli, compatible-endpoint)",
+      "expected": "Each run prints the full argv including the resolved role model id, headless flag and prompt path; nothing is invoked; the three stubs print an UNVERIFIED STUB banner and a docs URL",
+      "labels": ["SC4", "providers"],
+      "must_not": ["invoking a provider CLI", "making a network call", "printing an invented vendor flag as if verified"]
+    },
+    {
+      "id": "c4",
+      "input": "Given a repository created from the template with the example left in place, when init.sh has run and the first pull request is opened",
+      "expected": "Every blocking gate reports success or skipped, no gate fails, and the coverage and mutation floors sit at or just under the measured baseline of the example",
+      "labels": ["SC12", "day-one-green"],
+      "must_not": ["shipping the source product's measured floors as defaults", "any gate failing on a fresh instantiation"]
+    },
+    {
+      "id": "c5",
+      "input": "Given the template contains no Routine schedule and no branch-protection configuration, when README.md is read",
+      "expected": "It states the setup order explicitly with branch protection LAST, explains that Routine schedules live in a vendor scheduler and branch protection is an admin setting, and links to the two runbooks",
+      "labels": ["SC14", "non-extractable"],
+      "must_not": ["a committed file that claims to configure branch protection", "a simulated schedule presented as working"]
+    },
+    {
+      "id": "c6",
+      "input": "Given a PR labelled fix whose diff touches source files, contains no spec directory, and whose body has no 'temper: unavailable' line, when the spec-artifacts-present check runs",
+      "expected": "The check fails and names both accepted remedies: commit the spec directory, or state 'temper: unavailable — <real reason>' in the body",
+      "labels": ["SC6", "gate-21"],
+      "must_not": ["passing silently", "skipping because the changes job found no backend or frontend diff"]
+    },
+    {
+      "id": "c7",
+      "input": "Given a PR labelled fix with no spec directory but a body line 'temper: unavailable — plugin marketplace unreachable from the runner', when the spec-artifacts-present check runs",
+      "expected": "The check passes and emits a warning annotation recording the stated reason",
+      "labels": ["SC6", "gate-21"],
+      "must_not": ["failing the PR", "accepting a bare 'temper: unavailable' with no reason"]
+    },
+    {
+      "id": "c8",
+      "input": "Given a PR in a repo where the optional challenge-role credential is unset, when the review workflow runs",
+      "expected": "Reviewer A posts normally; reviewer B warns and performs no review; the referee is skipped because B did not run; the PR's checks are not failed",
+      "labels": ["SC10", "degradation"],
+      "must_not": ["failing the PR because an optional credential is missing", "cancelling reviewer A", "silently producing no review at all"]
+    },
+    {
+      "id": "c9",
+      "input": "Given a repository instantiated from the template with the frontend deleted, when a pull request is opened",
+      "expected": "Every frontend gate job reports a conclusion of skipped via its job-level if:, a status check context exists for each required check, and no required check is left permanently pending",
+      "labels": ["SC3", "clean-skip"],
+      "must_not": ["a workflow-level paths: filter gating a required check", "a check that never reports"]
+    },
+    {
+      "id": "c10",
+      "input": "Given the steward workflow ran on issues.opened and posted no comment and pushed no branch, when the visible-outcome step runs",
+      "expected": "It posts a marker comment on the issue explaining the run produced no outcome, and fails the job deliberately",
+      "labels": ["SC15", "gate-22", "visible-outcome"],
+      "must_not": ["a green run that said nothing"]
+    },
+    {
+      "id": "c11",
+      "input": "Given the harness guard suite, when it reads the review workflow file",
+      "expected": "It asserts each reviewer prompt requires its comment's FIRST line to be the exact marker '<!-- reviewer: <role> -->' and that downstream selection matches on that marker; the test comment records the lesson neutrally",
+      "labels": ["SC15", "gate-22", "marker"],
+      "must_not": ["identifying a producer by newest-comment ordering", "identifying by exclusion"]
+    },
+    {
+      "id": "c12",
+      "input": "Given a PR carrying one top-level conversation comment and one inline code-line comment from the review bot, when the collector step gathers agent output",
+      "expected": "It queries both the issue-comments and the pull-request review-comments endpoints and merges them; it reports neither as missing; any missing-report message names every place it looked",
+      "labels": ["SC15", "gate-22", "two-homes"],
+      "must_not": ["reading only one endpoint", "declaring an artifact lost without saying where it looked"]
+    },
+    {
+      "id": "c13",
+      "input": "Given a PR thread with 250 comments across three API pages, when the collector selects the last matching comment",
+      "expected": "It slurps all pages, flattens, then filters, returning exactly one comment overall; a harness guard pins the slurp-then-filter shape",
+      "labels": ["SC15", "gate-22", "pagination"],
+      "must_not": ["--paginate with a per-item --jq filter", "returning one result per page"]
+    },
+    {
+      "id": "c14",
+      "input": "Given the harness guard suite, when it reads the steward and review workflow files",
+      "expected": "It asserts each concurrency group expression interpolates the issue or pull request number and fails on any globally-scoped group; the comment records the eviction lesson",
+      "labels": ["SC15", "gate-22", "concurrency"],
+      "must_not": ["a global concurrency group", "workflow-level concurrency on the steward that a skipped job would enter"]
+    },
+    {
+      "id": "c15",
+      "input": "Given an issue comment created by an account whose sender type is Bot, when the steward workflow evaluates its job-level if:",
+      "expected": "The job does not run; the review workflow's handoff files an issue rather than commenting; when the elevated token is absent it still files the issue and states loudly that the handoff did not happen",
+      "labels": ["SC15", "gate-22", "bot-loop"],
+      "must_not": ["the reviewer waking the fixer by commenting", "a silent no-op when the PAT is missing"]
+    },
+    {
+      "id": "c16",
+      "input": "Given a nightly gate workflow whose job has failed, when the workflow completes",
+      "expected": "An if: failure() job calls the reusable notifier; the caller declares permissions contents:read and issues:write; the notifier opens or comments on a '[nightly] <gate> is failing' issue and sends the alert ping",
+      "labels": ["SC15", "notifier"],
+      "must_not": ["a caller omitting the permissions block", "a red nightly visible only in the Actions tab"]
+    },
+    {
+      "id": "c17",
+      "input": "Given every YAML file under .github/workflows/, when actionlint runs across the directory",
+      "expected": "It reports zero findings",
+      "labels": ["SC8", "actionlint"],
+      "must_not": ["handing over YAML that was never parsed", "a placeholder left inside an expression"]
+    },
+    {
+      "id": "c18",
+      "input": "Given a freshly instantiated repository, when tools/init.sh is run twice with the same answers and the first result is committed",
+      "expected": "The second run produces an empty diff and neither run makes a network call",
+      "labels": ["SC7", "init"],
+      "must_not": ["a network call", "duplicated substitutions on re-run"]
+    },
+    {
+      "id": "c19",
+      "input": "Given a freshly instantiated repository containing {{PLACEHOLDER}} tokens, when tools/init.sh completes",
+      "expected": "A grep for '{{' returns zero hits outside ADOPTING.md and the placeholder-syntax documentation, and the script prints the remaining manual steps: secrets, app install, ledger branch, dry-runs, branch protection",
+      "labels": ["SC7", "init"],
+      "must_not": ["an unresolved placeholder in a shipped file", "silently skipping a question"]
+    },
+    {
+      "id": "c20",
+      "input": "Given the finished template, when .github/workflows/, docs/runbooks/ and .agents/prompts/ are grepped for any specific model vendor or model id",
+      "expected": "The only hits are inside tools/providers/ and .agents/config.yml; every other reference addresses a model by role: judge, execute or challenge",
+      "labels": ["SC9", "provider-agnostic"],
+      "must_not": ["a vendor action called directly from a workflow", "a vendor name hard-coded in a mention condition"]
+    },
+    {
+      "id": "c21",
+      "input": "Given a freshly instantiated repository, when the scheduled-agents workflow is inspected",
+      "expected": "Its schedule is present but inert with a one-line documented enable, and README instructs enabling them one at a time after an interactive dry-run of that agent's prompt",
+      "labels": ["SC11", "minimal-mode"],
+      "must_not": ["five active crons on day one", "an enable path that is not documented"]
+    },
+    {
+      "id": "c22",
+      "input": "Given a checksum of every tracked file in the source repository taken before the build, when all three pull requests have been produced",
+      "expected": "Re-checksumming yields an identical result and the source repository's git status is unchanged",
+      "labels": ["SC13", "read-only-source"],
+      "must_not": ["any write to the source repo", "any git operation in the source repo", "a temp file created inside the source repo"]
+    }
+  ]
+}

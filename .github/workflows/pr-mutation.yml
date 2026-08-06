@@ -1,0 +1,218 @@
+# Gate 17 — diff-scoped mutation testing.
+#
+# The full mutation run is nightly, because it takes tens of minutes. That
+# leaves a real hole: a pull request can GUT ASSERTIONS — leaving line coverage
+# untouched, so the coverage ratchet stays green — and merge, with the damage
+# only visible the next morning. This job closes it by mutating ONLY the
+# production classes the diff actually touches, which costs minutes instead of
+# an hour.
+#
+# Deliberate design choices:
+#   * Skips the expensive work when the diff touches no mutatable production
+#     class (docs, tests, frontend, config-only pull requests) — but the JOB
+#     still runs and still reports. Do NOT move that filter back up into
+#     `on: paths:`. A path-filtered workflow produces no check run at all on a
+#     non-matching pull request, and if this is a required status check, branch
+#     protection then waits forever for a status that can never arrive: every
+#     docs-only pull request is permanently unmergeable. pr-tests.yml uses this
+#     same job-level pattern, which is why its checks report `skipped` rather
+#     than going missing. Filter inside the job; never in the trigger.
+#   * Requires a MINIMUM number of mutants before enforcing a score. A one-line
+#     change can generate two mutants, where a single unkillable-but-harmless
+#     one would read as "50%" and fail an otherwise good pull request. Below the
+#     floor the job reports and passes; the nightly full run is still the
+#     backstop.
+#   * The score floor comes from the same ledger the nightly gate reads, so the
+#     pull-request gate and the nightly gate cannot drift apart.
+#
+# The two ways to skip a job look equivalent and are not:
+#
+#   * workflow-level `paths:` — the workflow never triggers, so no check run is
+#     ever created. A required check that never reports does not fail; it sits
+#     at "Expected — waiting for status to be reported" forever.
+#   * job-level `if:` — the job reports conclusion "skipped", which GitHub
+#     counts as satisfying a required check.
+name: pr-mutation
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: pr-mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # Deliberately NOT named `changes`: pr-tests.yml already publishes a check by
+  # that name, and branch protection matches required checks by name string.
+  # Two check runs called `changes` would make that matching ambiguous.
+  scope:
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    outputs:
+      backend_main: ${{ steps.filter.outputs.backend_main }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend_main:
+              - 'examples/backend/src/main/java/**'
+
+  full-mutation-on-diff:
+    needs: scope
+    # The same scope a `paths:` filter would have expressed — production source
+    # only. When it does not match, this reports "skipped" and the required
+    # check is satisfied, instead of never reporting at all.
+    if: needs.scope.outputs.backend_main == 'true'
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          # Full history so the merge base against the target branch resolves.
+          fetch-depth: 0
+
+      # The scope computation decides what this gate mutates, so it can NARROW
+      # the gate. Test it before trusting it, on every run: a silently-broken
+      # filter would shrink the scope to nothing and report a green mutation check over an empty
+      # set. Seconds to run, and it fails the job outright if the filter breaks.
+      - name: Test the scope computation
+        if: needs.scope.outputs.backend_main == 'true'
+        run: bash tools/test-mutation-scope.sh
+
+      # Scope first, so a pull request that turns out to touch nothing mutatable
+      # pays for nothing beyond a git diff.
+      - name: Determine changed classes
+        if: needs.scope.outputs.backend_main == 'true'
+        id: mutscope
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          chmod +x tools/mutation-scope.sh
+          SCOPE="$(./tools/mutation-scope.sh "origin/$BASE_REF")"
+          echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
+          if [ -z "$SCOPE" ]; then
+            echo "No mutatable production classes in this diff — nothing to mutate."
+          else
+            echo "Mutating: $SCOPE"
+          fi
+
+      - name: Set up the backend toolchain
+        if: steps.mutscope.outputs.scope != ''
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '24'
+          cache: 'maven'
+
+      - name: Report uncalibrated floors
+        if: always() && steps.mutscope.outputs.scope != ''
+        run: |
+          if [ -x tools/floor-notice.sh ]; then tools/floor-notice.sh mutation; fi
+
+      # The tool's own threshold is set to zero HERE on purpose: the calibrated
+      # floor applies to the whole codebase and would otherwise be applied to a
+      # handful of mutants from one file, which is not a meaningful sample. The
+      # score is enforced by the step below, which first checks there are enough
+      # mutants for the number to mean anything.
+      #
+      # It must be the PROPERTY name, not a bare command-line override: a build
+      # tool ignores a `-D` override of a value hard-coded in a plugin's own
+      # configuration block, so the wrong spelling is silently a no-op — for as
+      # long as nobody checks.
+      - name: Run mutation testing on the changed classes
+        if: steps.mutscope.outputs.scope != ''
+        working-directory: ./examples/backend
+        env:
+          SCOPE: ${{ steps.mutscope.outputs.scope }}
+        run: |
+          mvn -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage \
+            -DtargetClasses="$SCOPE" \
+            -Dpit.mutationThreshold=0
+
+      # Pure shell and awk on purpose. This check was once written in another
+      # scripting language and exited 127 with "command not found", because only
+      # a different job installed that toolchain and this job sets up its own
+      # alone. The result was that the gate NEVER RAN ITS CHECK — the mutation
+      # run would finish green and then the step would die on the missing
+      # interpreter. Depending on a toolchain the job does not install is how a
+      # gate goes quietly missing, so this needs nothing beyond the shell.
+      - name: Enforce the mutation score on the diff
+        if: steps.mutscope.outputs.scope != ''
+        working-directory: ./examples/backend
+        run: |
+          set -euo pipefail
+          REPORT=target/pit-reports/mutations.xml
+
+          # Fail, do not skip. This step only runs when the scope was non-empty
+          # and the mutation run above succeeded, so a missing report means the
+          # run silently produced nothing — and treating that as a pass is
+          # precisely how a gate stops gating.
+          if [ ! -f "$REPORT" ]; then
+            echo "::error::Expected a mutation report at $REPORT and found none, despite a"
+            echo "non-empty scope and a successful run. Refusing to report success."
+            exit 1
+          fi
+
+          TOTAL=$(grep -oE "status=['\"][A-Z_]+['\"]" "$REPORT" | wc -l | tr -d ' ')
+          KILLED=$(grep -oE "status=['\"](KILLED|TIMED_OUT)['\"]" "$REPORT" | wc -l | tr -d ' ')
+          MIN_MUTANTS=20
+
+          # The floor is NOT a number in this file. It comes from floors.yml,
+          # the single ratchet ledger, and it ships as the literal `unset`
+          # sentinel until tools/measure-floors.sh is run against YOUR product.
+          #
+          # `unset` is not zero and it is not "switched off". Shipping this
+          # template's own measured baseline would make every adopter's first
+          # pull request permanently red; shipping 0 would be indistinguishable
+          # in the config from a gate somebody deliberately disabled. So an
+          # uncalibrated gate PASSES and SAYS SO, on every run, until it is
+          # armed against the adopter's own code.
+          FLOOR="unset"
+          if [ -x ../../tools/floor-get.sh ]; then
+            FLOOR="$(../../tools/floor-get.sh backend.mutation.score || echo unset)"
+          fi
+
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "No mutants generated — nothing to enforce."
+            exit 0
+          fi
+
+          SCORE=$(awk -v k="$KILLED" -v t="$TOTAL" 'BEGIN { printf "%.1f", 100 * k / t }')
+          echo "Changed-code mutation score: ${SCORE}% (${KILLED}/${TOTAL} killed)"
+
+          if [ "$FLOOR" = "unset" ]; then
+            echo "::notice title=Floor not calibrated::backend.mutation.score: floor not yet calibrated — run tools/measure-floors.sh against your product"
+            exit 0
+          fi
+
+          if [ "$TOTAL" -lt "$MIN_MUTANTS" ]; then
+            echo "Only ${TOTAL} mutants (< ${MIN_MUTANTS}) — too small a sample to gate on. Reporting only."
+            exit 0
+          fi
+
+          if awk -v s="$SCORE" -v f="$FLOOR" 'BEGIN { exit !(s < f) }'; then
+            echo "::error::Mutation score ${SCORE}% is below the ${FLOOR}% floor for changed code."
+            echo "A surviving mutant means a test runs this code without asserting on its behaviour."
+            echo "Open the mutation report artifact, find the survivors, add the killing assertions."
+            exit 1
+          fi
+          echo "OK: at or above the ${FLOOR}% floor."
+
+      - name: Upload the mutation report
+        if: always() && steps.mutscope.outputs.scope != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-mutation-report
+          path: examples/backend/target/pit-reports/
+          retention-days: 7

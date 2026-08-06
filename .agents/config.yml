@@ -1,0 +1,138 @@
+# .agents/config.yml — the ONE file an adopter edits to change provider or model.
+# Read by: tools/lib/config.sh (the only parser). Everything else asks that library —
+# no other file parses this one, so a schema change lands in exactly one place.
+#
+# FORMAT CONSTRAINT (enforced by tests/config-reader.bats): two-space indent, no tabs,
+# no anchors/aliases/merge keys/multi-line scalars/flow maps, list items are `- key: value`
+# maps or `- scalar`, comments start at column 0 or after two spaces. This lets a plain-awk
+# fallback reader agree byte-for-byte with yq when yq is not on PATH.
+#
+# Breaking-change policy: see the comment on `schema:` below.
+
+schema: 1                     # integer. Bumped ONLY on a breaking change — see CHANGELOG.md.
+
+provider: "{{PROVIDER}}"      # placeholder: claude-code | codex | gemini-cli | compatible-endpoint.
+                               # Must equal a filename in tools/providers/ without the .sh suffix.
+
+# ---------------------------------------------------------------------------
+# Models are addressed by ROLE, never by task and never by vendor name.
+# Pin EXACT ids. A floating alias ("opus", "sonnet", "latest") silently resolves to
+# whatever the platform default is that week, which defeats knowing which model reasoned.
+# ---------------------------------------------------------------------------
+models:
+  judge:     "{{MODEL_JUDGE}}"      # placeholder: strongest available model. Reviews, referee, triage decisions.
+  execute:   "{{MODEL_EXECUTE}}"    # placeholder: cheaper model. Mechanical edits, scheduled routines.
+  challenge: "{{MODEL_CHALLENGE}}"  # placeholder: a DIFFERENT MODEL FAMILY — a second draw from the same distribution shares the same blind spots.
+
+# Which provider delivers which role. Usually one provider for judge+execute and a
+# compatible endpoint for challenge — that split is the whole point of the role model.
+role_provider:
+  judge:     "{{PROVIDER}}"
+  execute:   "{{PROVIDER}}"
+  challenge: compatible-endpoint
+
+# ---------------------------------------------------------------------------
+# Auth, per provider. Subscription first; an API key is the fallback, not the norm.
+# `token_secret` names a GitHub Actions secret — never a value (AGENTS.md guardrail 5).
+# ---------------------------------------------------------------------------
+auth:
+  claude-code:
+    mode: subscription              # subscription | api-key
+    token_secret: AGENT_CLI_TOKEN
+    required: true                  # absent credential => exit 5, the job fails loudly
+  codex:
+    mode: subscription
+    token_secret: AGENT_CLI_TOKEN
+    required: true
+  gemini-cli:
+    mode: subscription
+    token_secret: AGENT_CLI_TOKEN
+    required: true
+  compatible-endpoint:
+    mode: api-key
+    token_secret: CHALLENGE_API_KEY
+    base_url: "{{CHALLENGE_BASE_URL}}"  # placeholder: the compatible endpoint's base URL.
+    required: false                 # OPTIONAL BY DESIGN. Absent => exit 6 => the caller
+                                     # degrades to one opinion and says so. Never a red PR.
+
+# ---------------------------------------------------------------------------
+# A workflow `if:` cannot read a file, so the trigger phrase lives in a repo variable
+# with a default. This block documents it; it does not set it — set the actual
+# `AGENT_MENTION` repository variable in GitHub, not here.
+# ---------------------------------------------------------------------------
+mention:
+  variable: AGENT_MENTION
+  default: "@agent"
+
+# ---------------------------------------------------------------------------
+# Alerting. `channel: none` is legal and means "GitHub issues only" — the issue is the
+# PRIMARY channel and needs only GITHUB_TOKEN. A pushed channel is additive: if it is
+# missing, the notifier still files the issue. Never let the notifier be the thing that
+# breaks when a secret rotates, or you lose the alert about losing the alert.
+# ---------------------------------------------------------------------------
+alerts:
+  channel: "{{ALERT_CHANNEL}}"      # placeholder: none | webhook | command
+  webhook_secret: ALERT_WEBHOOK_URL # used only when channel: webhook
+  command: ""                       # used only when channel: command; receives the message on stdin
+  severity_floor: S2                # do not push anything below this; S3 is issue-only
+
+# ---------------------------------------------------------------------------
+# Liveness. Absence must be the signal — but on a BEST-EFFORT scheduler, "did not run
+# today" fires on ordinary lateness. Escalate on the AGE of the newest entry, never on a
+# count of consecutive misses. See docs/runbooks/agent-routines.md "Liveness on a
+# best-effort scheduler" and Decision 11.
+# ---------------------------------------------------------------------------
+liveness:
+  max-age-hours: 12                 # default tolerance for a DAILY agent. Comfortably past
+                                     # normal cron drift. Tightening this below the scheduler's
+                                     # real drift converts liveness detection into alert
+                                     # fatigue, which ends with the check muted and nothing
+                                     # watching.
+  staleness-hours: 36                # EXTERNAL check: newest entry across ALL agents. A ring
+                                     # cannot detect its own total absence — there is nobody
+                                     # left to notice. Hosted CI also disables scheduled
+                                     # workflows after ~60 days of repository inactivity,
+                                     # which makes total silence a real scenario for a
+                                     # template repo — see README.md "turning on the routines".
+
+# ---------------------------------------------------------------------------
+# The ledger. `agents:` is THE list — ledger.sh validates against it, latest/trend iterate
+# it, agents-scheduled.yml builds its matrix from it, and the watcher ring's predecessor is
+# simply the PREVIOUS ENTRY IN THIS LIST, wrapping at the top. One list. A separate ring
+# table would be a second source of truth.
+# ---------------------------------------------------------------------------
+ledger:
+  branch: agent-ledger
+  identity:
+    name: "{{LEDGER_COMMIT_NAME}}"    # placeholder: commit author for ledger writes, e.g. "sdlc-agent"
+    email: "{{LEDGER_COMMIT_EMAIL}}"  # placeholder: commit email, e.g. "agent@example.invalid"
+  agents:
+    - id: health
+      prompt: .agents/prompts/health.md
+      role: execute
+      schedule: "17 6 * * *"          # odd minutes: the top of the hour is the most contended slot
+      enabled: false                  # minimal mode. One-line enable, see README.md setup order.
+    - id: quality
+      prompt: .agents/prompts/quality.md
+      role: execute
+      schedule: "23 7 * * *"
+      enabled: false
+    - id: audit
+      prompt: .agents/prompts/audit.md
+      role: execute
+      schedule: "41 8 * * *"
+      enabled: false
+      max-age-hours: 26               # per-agent override of liveness.max-age-hours
+    - id: chief-of-staff
+      prompt: .agents/prompts/chief-of-staff.md
+      role: judge
+      schedule: "13 17 * * *"
+      enabled: false
+    - id: challenger
+      prompt: .agents/prompts/challenger.md
+      role: challenge
+      schedule: "37 18 * * *"
+      enabled: false
+
+# The spec-artifact contract version that tools/spec-pipeline/validate.sh enforces.
+spec_contract: 1
