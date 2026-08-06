@@ -20,10 +20,16 @@ merges. `examples/` holds a deliberately small two-stack product so the gates ha
 something real to run against on day one — it is illustrative, and `tools/init.sh` offers
 to delete it.
 
-Consequence that catches people out: **the tree ships full of `{{PLACEHOLDER}}` tokens**
-and is *meant* to. `tools/init.sh` is the adoption interview that resolves them. Before it
-runs, `.agents/config.yml` says `provider: "{{PROVIDER}}"`, so anything reading the config
-resolves a literal placeholder rather than a provider name.
+Consequence that catches people out: **the tree ships full of unresolved
+double-brace tokens** and is *meant* to. `tools/init.sh` is the adoption interview that
+resolves them; `ADOPTING.md` maps every one to its file. Until the interview runs, the
+`provider:` key in `.agents/config.yml` still holds its token, so anything reading the
+config resolves a literal placeholder rather than a provider name — which is why a fresh
+clone cannot run an agent until it is initialised.
+
+(This file deliberately does not spell those tokens out literally. `init.sh` substitutes
+them wherever it finds them, so a live token quoted here as an example would be rewritten
+into a statement that is no longer true.)
 
 ## Commands
 
