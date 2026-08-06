@@ -8,9 +8,15 @@ any ad-hoc unattended run. They exist so agents can run around the clock without
 watching. They are non-negotiable; if a task appears to require breaking one, escalate
 instead (`docs/runbooks/agent-escalation.md`).
 
-**This file is canonical.** `CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md`
-are one-line pointers here. Never copy the rules into them: a second copy is a second
-source of truth, and it will drift.
+**This file is canonical for the RULES.** `GEMINI.md` and
+`.github/copilot-instructions.md` are one-line pointers here. `CLAUDE.md` carries build
+commands and architecture orientation — the things this file deliberately leaves out — and
+points here for every rule.
+
+The line that matters is not "those files must be one line". It is that a rule lives in
+exactly one place. Copy a guardrail, a severity ladder or a verification requirement into
+a second file and you have created a second source of truth, which will drift, and the
+next reader will obey whichever copy they happened to open.
 
 ## The seven guardrails
 

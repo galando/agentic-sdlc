@@ -88,10 +88,20 @@ scan() {
   # Without this, all three tests above pass just as happily against an empty pattern,
   # a broken find, or a scan() that silently returns nothing — the same vacuous-green
   # failure the whole harness-guard tier exists to prevent.
-  PLANT="$REPO_ROOT/.github/workflows/zz-vendor-neutrality-probe.yml"
-  printf 'name: probe\non: workflow_dispatch\njobs:\n  p:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "model: claude-opus-4"\n' > "$PLANT"
-  run scan "$REPO_ROOT/.github/workflows"
-  rm -f "$PLANT"
+  #
+  # The probe is planted in a THROWAWAY COPY, never in the live .github/workflows/.
+  # Writing into the real tree makes this suite non-reentrant: a second run overlapping
+  # the first sees a probe it did not plant, and one of the three scans above goes red
+  # for no reason anyone can reproduce. That matters here more than most places — gate 20
+  # runs the suite three times and diffs the per-test outcomes, so a self-inflicted race
+  # would be reported as a flaky test in the very harness meant to detect them.
+  PROBE_DIR="$BATS_TEST_TMPDIR/workflows"
+  mkdir -p "$PROBE_DIR"
+  cp "$REPO_ROOT"/.github/workflows/*.yml "$PROBE_DIR/"
+  printf 'name: probe\non: workflow_dispatch\njobs:\n  p:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "model: claude-opus-4"\n' \
+    > "$PROBE_DIR/zz-vendor-neutrality-probe.yml"
+
+  run scan "$PROBE_DIR"
   [ -n "$output" ]
   [[ "$output" == *"zz-vendor-neutrality-probe.yml"* ]]
 }

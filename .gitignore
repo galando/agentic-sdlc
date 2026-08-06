@@ -40,3 +40,7 @@ examples/backend/archunit_store/*.tmp
 .scratch/
 
 *.tsbuildinfo
+
+# Local Claude Code state. Personal to each contributor: session statistics,
+# machine-specific settings. Never template content, and never public.
+.claude/
