@@ -48,17 +48,17 @@
     "ts": "2026-08-06T09:16:51Z"
   },
   "check": {
-    "verdict": "FAIL",
+    "verdict": "PASS",
     "requirements": [
       {
         "name": "tests pass",
         "pass": true,
-        "detail": "25 green test run(s) recorded"
+        "detail": "26 green test run(s) recorded"
       },
       {
         "name": "scenarios traced to tests",
-        "pass": false,
-        "detail": "25/27 covered \u2014 missing: A fresh instantiation is green on day one | The fast tier is green in minutes; the full tier is opt-in"
+        "pass": true,
+        "detail": "27/27 scenario(s) covered"
       },
       {
         "name": "coverage >= threshold",
@@ -66,6 +66,32 @@
         "detail": "97.26% >= 80% threshold"
       }
     ],
-    "ts": "2026-08-06T10:41:30Z"
+    "ts": "2026-08-06T12:23:38Z"
+  },
+  "commit": {
+    "verdict": "PASS",
+    "requirements": [
+      {
+        "name": "plan gate",
+        "pass": true,
+        "detail": "PASS"
+      },
+      {
+        "name": "build gate",
+        "pass": true,
+        "detail": "PASS"
+      },
+      {
+        "name": "review gate",
+        "pass": true,
+        "detail": "PASS"
+      },
+      {
+        "name": "check gate",
+        "pass": true,
+        "detail": "PASS"
+      }
+    ],
+    "ts": "2026-08-06T12:23:38Z"
   }
 }
