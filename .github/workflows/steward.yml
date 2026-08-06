@@ -156,12 +156,18 @@ jobs:
         id: harness-gate
         run: |
           . tools/lib/config.sh
-          provider="$(cfg_get role_provider.judge)"
-          status="$(adapter_status "$provider")"
+          # Neither call may abort the step — see the identical guard in review.yml.
+          # On a fresh template the provider is an unresolved token, adapter_status exits
+          # non-zero, and `bash -e` would fail the job on a repository nobody has touched.
+          provider="$(cfg_get role_provider.judge 2>/dev/null || true)"
+          status="$(adapter_status "$provider" 2>/dev/null || true)"
           if [ "$status" = "verified" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$status" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Steward not configured::No provider is configured yet (role_provider.judge reads '$provider'). Run tools/init.sh to choose one. The steward is inert until then — this is the expected state of a fresh template, not a failure."
           else
-            docs_url="$(adapter_docs_url "$provider")"
+            docs_url="$(adapter_docs_url "$provider" 2>/dev/null || echo 'tools/providers/')"
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=Steward disabled::Provider '$provider' is an UNVERIFIED STUB (see tools/providers/$provider.sh). The steward is inert until it is promoted: confirm its flags ($docs_url), set ADAPTER_STATUS=verified, then re-run tools/init.sh."
           fi

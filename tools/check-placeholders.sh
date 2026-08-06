@@ -109,6 +109,40 @@ while IFS= read -r f; do
   done <<<"$matches"
 done < <(git ls-files)
 
+# ---------------------------------------------------------------------------
+# Has the interview run yet?
+#
+# A freshly instantiated template is SUPPOSED to be full of unresolved placeholders —
+# that is the entire premise of tools/init.sh. Failing the build for them means the very
+# first pull request on a brand-new repository is red for doing nothing wrong, and
+# "green on day one, or adoption dies" is not a slogan: a red check on an untouched
+# template reads as "this thing is broken", and it gets deleted the same afternoon.
+#
+# So before init has run, this reports LOUDLY and passes; afterwards it fails, because
+# then an unresolved token really is an unfinished job. The signal is .agents/config.yml,
+# the one file init.sh certainly rewrites — if its tokens are still there, nothing has
+# been configured. There is no flag and no environment variable for this: a switch is a
+# thing someone sets in CI to keep a genuinely red check quiet.
+# ---------------------------------------------------------------------------
+initialised=1
+if [ -f .agents/config.yml ] && grep -qE '\{\{[A-Z][A-Z0-9_]*\}\}' .agents/config.yml; then
+  initialised=0
+fi
+
+if [ "$hits" -gt 0 ] && [ "$initialised" -eq 0 ]; then
+  echo
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    echo "::warning title=Template not initialised::$hits unresolved placeholder(s). This repository has not run tools/init.sh yet, so this is EXPECTED and not a failure. This check starts failing as soon as .agents/config.yml is filled in."
+  fi
+  echo "check-placeholders: $hits unresolved placeholder(s) — and .agents/config.yml is"
+  echo "  still unresolved too, so tools/init.sh has not been run. That is the expected"
+  echo "  state of a freshly instantiated template, so this is NOT a failure."
+  echo
+  echo "  Run tools/init.sh to configure the repository. From then on this check is"
+  echo "  strict, and an unresolved placeholder fails the build."
+  exit 0
+fi
+
 if [ "$hits" -gt 0 ]; then
   echo
   echo "check-placeholders: $hits unresolved placeholder(s). Run tools/init.sh, or fill" >&2

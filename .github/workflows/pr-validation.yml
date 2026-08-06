@@ -128,7 +128,18 @@ jobs:
       - name: Apply migrations and validate against a fresh database
         if: needs.migration-scope.outputs.migrations == 'true'
         working-directory: ./examples/backend
-        run: mvn -B flyway:migrate flyway:validate -Dflyway.cleanDisabled=false
+        # Connection details reach the plugin through env, never spliced into the command
+        # line, so they cannot surface in a process listing or an echoed step.
+        env:
+          FLYWAY_URL: jdbc:postgresql://localhost:5432/${{ vars.VALIDATE_DB_NAME || 'validatedb' }}
+          FLYWAY_USER: ${{ vars.VALIDATE_DB_USER || 'postgres' }}
+          FLYWAY_PASSWORD: ${{ secrets.VALIDATE_DB_PASSWORD || 'validate-pw' }}
+        run: |
+          mvn -B flyway:migrate flyway:validate \
+            -Dflyway.url="$FLYWAY_URL" \
+            -Dflyway.user="$FLYWAY_USER" \
+            -Dflyway.password="$FLYWAY_PASSWORD" \
+            -Dflyway.cleanDisabled=false
 
       - name: Report drift on failure
         if: failure()

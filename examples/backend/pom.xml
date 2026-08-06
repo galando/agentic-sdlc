@@ -165,10 +165,31 @@
 
       <!-- Surefire: unit + web-slice tests only (gate 1). Its own default include
            pattern (**/*Test.java, **/*Tests.java, ...) already excludes **/*IT.java, so
-           no explicit exclude is needed — that naming split IS the fast/full boundary. -->
+           no explicit exclude is needed — that naming split IS the fast/full boundary.
+
+           The tag routing is declared HERE rather than passed on the command line,
+           because `-Dgroups=` is read by surefire and failsafe ALIKE. A job that meant
+           "run the docker-tagged integration tests" and said so on the command line was
+           also silently telling surefire to run only docker-tagged unit tests — and the
+           acceptance suite, which is a JUnit @Suite rather than a tagged class, then
+           discovered nothing and failed the build with NoTestsDiscoveredException. The
+           gate that proves the agreed business rules still hold was being reported as
+           broken by the flag meant for a different plugin.
+
+           An explicit element beats the property: a value set here is not overridden by
+           -Dgroups on the command line, so the routing cannot drift back. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- Surefire must never run the docker- or live-tagged classes; failsafe owns
+               those. Note this element alone does NOT make surefire immune to a
+               -Dgroups=docker on the command line — `groups` is a separate parameter, and
+               an empty <groups/> is read as unset, so the property still wins. The tag
+               routing therefore has to stay off the command line entirely; the
+               harness guard in tests/harness-guards/ asserts that it does. -->
+          <excludedGroups>docker,live</excludedGroups>
+        </configuration>
       </plugin>
 
       <!-- Failsafe: integration tests against the real dependency (gate 2), tagged
@@ -190,6 +211,38 @@
           <groups>docker</groups>
           <excludedGroups>live</excludedGroups>
         </configuration>
+      </plugin>
+
+      <!-- Gate 10 — migration validation. The plugin has to be DECLARED, not merely
+           invoked: `mvn flyway:migrate` with nothing here resolves whatever version the
+           prefix currently points at, with no JDBC driver and no connection details, and
+           fails on contact with the database rather than on anything about the
+           migrations. The gate then reports drift that does not exist.
+
+           Version tracks the flyway-core Spring Boot manages (${flyway.version}), so the
+           plugin applying the chain and the runtime reading it can never disagree about
+           checksum format — a mismatch there produces exactly the false "checksum drift"
+           this gate exists to report truthfully.
+
+           url/user/password are intentionally absent: they are the plugin's own
+           `flyway.*` properties, supplied per-environment by the caller, so nothing that
+           looks like a credential lives in this file. -->
+      <plugin>
+        <groupId>org.flywaydb</groupId>
+        <artifactId>flyway-maven-plugin</artifactId>
+        <version>${flyway.version}</version>
+        <dependencies>
+          <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <version>${flyway.version}</version>
+          </dependency>
+          <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${postgresql.version}</version>
+          </dependency>
+        </dependencies>
       </plugin>
 
       <!-- Gate 3 — backend coverage ratchet. -->

@@ -372,10 +372,16 @@ jobs:
       # integration classes, so its coverage data would be integration-only and
       # the unit ratchet would trip spuriously. The ratchet runs in
       # fast-unit-tests instead.
+      # The tag routing lives in pom.xml, NOT here. `-Dgroups=` is read by surefire and
+      # failsafe alike, so passing it on the command line to select the docker-tagged
+      # integration tests also told surefire to run only docker-tagged unit tests — and
+      # the acceptance suite, a JUnit @Suite rather than a tagged class, then discovered
+      # nothing and failed the build. Gate 8 reported the agreed business rules as broken
+      # because of a flag aimed at a different plugin.
       - name: Backend integration tests
         if: needs.changes.outputs.backend == 'true'
         working-directory: ./examples/backend
-        run: mvn -B clean verify -Dgroups=docker -DexcludedGroups=live -Djacoco.skip=true
+        run: mvn -B clean verify -Djacoco.skip=true
 
   # Gate 15 on the pull request — end-to-end in a real browser plus
   # accessibility. The nightly run stays regardless. Not day-one required

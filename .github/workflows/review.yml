@@ -103,12 +103,21 @@ jobs:
         id: harness-gate
         run: |
           . tools/lib/config.sh
-          provider="$(cfg_get role_provider.judge)"
-          status="$(adapter_status "$provider")"
+          # Neither call may abort the step. On a freshly instantiated template the
+          # provider is still an unresolved token, so there is no adapter file and
+          # adapter_status exits non-zero — under `bash -e` that failed the whole job and
+          # made an untouched template look broken to someone who had not yet done
+          # anything. Not-configured is a state to ANNOUNCE, not to die on.
+          provider="$(cfg_get role_provider.judge 2>/dev/null || true)"
+          status="$(adapter_status "$provider" 2>/dev/null || true)"
           if [ "$status" = "verified" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$status" ]; then
+            # No adapter resolved at all — the interview has not run.
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Reviewer not configured::No provider is configured yet (role_provider.judge reads '$provider'). Run tools/init.sh to choose one. The automated review is inert until then — this is the expected state of a fresh template, not a failure."
           else
-            docs_url="$(adapter_docs_url "$provider")"
+            docs_url="$(adapter_docs_url "$provider" 2>/dev/null || echo 'tools/providers/')"
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=Reviewer disabled::Provider '$provider' is an UNVERIFIED STUB (see tools/providers/$provider.sh). The judge-role reviewer is inert until it is promoted: confirm its flags ($docs_url), set ADAPTER_STATUS=verified, then re-run tools/init.sh."
           fi

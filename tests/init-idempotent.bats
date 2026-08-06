@@ -266,10 +266,26 @@ $line" ;;
 
 @test "check-placeholders.sh fails loudly on a real unresolved placeholder" {
   cd "$FIXTURE"
+  # The interview has to run FIRST. Before it does, unresolved placeholders are the
+  # expected state of a fresh template and the check passes loudly by design — failing
+  # there would make the first pull request on an untouched repository red. Strictness
+  # is what applies AFTERWARDS, and that is what this asserts: once the tree is
+  # configured, a leftover token is an unfinished job and fails the build.
+  bash tools/init.sh --answers answers.env >/dev/null
   echo 'stray {{UNRESOLVED_TOKEN}} here' >> AGENTS.md
   run bash tools/check-placeholders.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"UNRESOLVED_TOKEN"* ]]
+}
+
+@test "check-placeholders.sh passes loudly BEFORE the interview has run" {
+  # The other half of the same rule, and the one a real Actions run caught: an
+  # uninitialised template must not be reported as broken.
+  cd "$FIXTURE"
+  echo 'stray {{UNRESOLVED_TOKEN}} here' >> AGENTS.md
+  run bash tools/check-placeholders.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"NOT a failure"* ]]
 }
 
 @test "check-placeholders.sh passes on a fully-resolved tree" {
