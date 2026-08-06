@@ -33,78 +33,83 @@ the whole point.
 
 ## Success Criteria
 
-- [ ] SC1 — The finished tree contains zero traces of the source project: no project
+- [x] SC1 — The finished tree contains zero traces of the source project: no project
       name, domain, URL, issue/PR number, author handle, or bespoke domain noun, in file
       content, file names, commit messages or code comments alike.
   Validate: scenario — covered by "De-identification sweep finds zero source-project traces"
-- [ ] SC2 — All 22 gates from the prompt (1–22, including the new gate 21) appear in
+- [x] SC2 — All 22 gates from the prompt (1–22, including the new gate 21) appear in
       `docs/QUALITY-GATES.md` with the ratchet policy intact; the reference stack
       (Java/Spring Boot + React/TypeScript) carries a real, executing implementation for
       each blocking gate.
   Validate: code — every gate row names a workflow job that exists in `.github/workflows/`
-- [ ] SC3 — Every gate job skips cleanly via a job-level `if:` when its stack is absent,
+- [x] SC3 — Every gate job skips cleanly via a job-level `if:` when its stack is absent,
       and no required status check is ever gated behind a workflow-level `paths:` filter.
   Validate: scenario — covered by "A gate whose stack is absent reports skipped, not missing"
-- [ ] SC4 — `tools/run-agent.sh <agent> --dry-run` prints the exact command that would be
+- [x] SC4 — `tools/run-agent.sh <agent> --dry-run` prints the exact command that would be
       executed, for each of the four providers, without invoking anything.
   Validate: scenario — covered by "Dry-run prints the exact command for every provider"
-- [ ] SC5 — `tools/ledger.sh` demonstrably round-trips against a real orphan branch:
+- [x] SC5 — `tools/ledger.sh` demonstrably round-trips against a real orphan branch:
       append, read, latest, trend — with a captured transcript.
   Validate: scenario — covered by "Ledger round-trips on a fresh orphan branch"
-- [ ] SC6 — Gate 21 mechanically fails a PR labelled fix/feature whose diff carries no
+- [x] SC6 — Gate 21 mechanically fails a PR labelled fix/feature whose diff carries no
       spec directory and whose body carries no `temper: unavailable — …` line.
   Validate: scenario — covered by "Gate 21 fails a fix PR with no spec artifacts"
-- [ ] SC7 — `tools/init.sh` is idempotent, makes no network calls, resolves every
+- [x] SC7 — `tools/init.sh` is idempotent, makes no network calls, resolves every
       `{{PLACEHOLDER}}`, offers to delete the example, and prints what remains manual.
   Validate: scenario — covered by "init.sh is idempotent" and "init.sh leaves no unresolved placeholder"
-- [ ] SC8 — Every workflow file parses and passes actionlint with zero findings.
+- [x] SC8 — Every workflow file parses and passes actionlint with zero findings.
   Validate: scenario — covered by "actionlint passes on every workflow"
-- [ ] SC9 — `.agents/config.yml` is the single provider config; it addresses models by
+- [x] SC9 — `.agents/config.yml` is the single provider config; it addresses models by
       ROLE (`judge`, `execute`, `challenge`), and no vendor name appears in any workflow,
       runbook or agent prompt.
   Validate: scenario — covered by "No vendor name leaks into workflows, runbooks or prompts"
-- [ ] SC10 — A missing optional credential degrades a check and never cancels or fails
+- [x] SC10 — A missing optional credential degrades a check and never cancels or fails
       one: reviewer B absent ⇒ B and the referee skip with a warning, A's review stands,
       the PR is not failed.
   Validate: scenario — covered by "Missing second-reviewer credential degrades, never fails"
-- [ ] SC11 — Minimal mode is the default: on a VERIFIED adapter the steward, PR review and
+- [x] SC11 — Minimal mode is the default: on a VERIFIED adapter the steward, PR review and
       gates are live and all scheduled agents ship disabled, each with a documented
       one-line enable.
   Validate: scenario — covered by "Scheduled agents ship disabled by default"
-- [ ] SC11b — On an UNVERIFIED adapter, init.sh additionally ships the steward and PR
+- [x] SC11b — On an UNVERIFIED adapter, init.sh additionally ships the steward and PR
       review disabled and says why, so day-one green holds for every provider. The gates
       remain live on all providers, because no gate invokes an agent CLI.
   Validate: scenario — covered by "An unverified adapter disables the agents, not the gauntlet"
-- [ ] SC12 — A fresh instantiation reaches all-green CI on the bundled example product
+- [x] SC12 — A fresh instantiation reaches all-green CI on the bundled example product
       (~200 lines + tests) with no adopter code. Floors ship UNCALIBRATED (an explicit
       `unset` sentinel, not a number), and the ratchet is armed only by
       `tools/measure-floors.sh` run against the adopter's OWN product.
   Validate: scenario — covered by "A fresh instantiation is green on day one" and
       "Uncalibrated floors pass loudly, then arm against the adopter's own baseline"
-- [ ] SC12c — The blocking gates are tiered by cost, not by importance: a FAST tier
+- [x] SC12c — The blocking gates are tiered by cost, not by importance: a FAST tier
       (no containers, no browsers) is green in ≈2 minutes and safe to require on day one;
       a FULL tier runs and reports from day one and is promoted to required in one
       documented step. No gate is removed, disabled or made permanently advisory. The
       example's config surface is counted and reported, not left as unowned adoption cost.
   Validate: scenario — covered by "The fast tier is green in minutes; the full tier is opt-in"
-- [ ] SC12b — No floor is ever derived from the example product. A ratchet calibrated to
+- [x] SC12b — No floor is ever derived from the example product. A ratchet calibrated to
       a toy service that init.sh then offers to delete is a floor the adopter can never
       meet, which produces the same abandonment that aspirational floors do.
   Validate: scenario — covered by "Uncalibrated floors pass loudly, then arm against the adopter's own baseline"
-- [ ] SC16 — Liveness detection is re-based for the substitute scheduler: escalation keys
+- [x] SC16 — Liveness detection is re-based for the substitute scheduler: escalation keys
       on the AGE of the predecessor's newest entry against a configured tolerance, never on
       a count of consecutive misses; and an external staleness check covers the case a ring
       structurally cannot see — every agent stopping at once, which GitHub's ~60-day
       auto-disable of scheduled workflows makes a real scenario for a template repo.
   Validate: scenario — covered by "Liveness survives a late scheduler and catches a stopped one"
-- [ ] SC13 — The source repository at `{{SOURCE_REPO}}` is byte-identical
+- [x] SC13 — The source repository at `{{SOURCE_REPO}}` is byte-identical
       before and after the build; nothing is ever written to it.
   Validate: scenario — covered by "The source repository is never written to"
-- [ ] SC14 — What cannot be extracted is documented rather than faked: Routine schedules
+  NOTE: the "byte-identical" half is literally false and honestly so — the source
+  repository moved during the build window because its owner kept working in it
+  (ordinary commits and merges, verified by author and timestamp). What this criterion
+  actually protects is that THIS build never wrote there, and that holds: every access
+  was a read, and the checksum manifest was recorded for exactly this comparison.
+- [x] SC14 — What cannot be extracted is documented rather than faked: Routine schedules
       (vendor scheduler) and branch protection (admin setting) each become an explicit,
       ordered setup step that the README points at.
   Validate: scenario — covered by "Non-extractable setup steps are documented, not simulated"
-- [ ] SC15 — The load-bearing strings inside the agent workflows are text-pinned by
+- [x] SC15 — The load-bearing strings inside the agent workflows are text-pinned by
       harness guard tests (gate 22), each carrying its incident as a comment.
   Validate: scenario — covered by the four harness-guard scenarios (marker, endpoints,
       pagination, concurrency)

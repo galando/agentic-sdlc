@@ -34,6 +34,15 @@ role_provider:
 # ---------------------------------------------------------------------------
 # Auth, per provider. Subscription first; an API key is the fallback, not the norm.
 # `token_secret` names a GitHub Actions secret — never a value (AGENTS.md guardrail 5).
+#
+# CONSTRAINT, and it is not obvious: a workflow cannot read this file to decide what to
+# put in an `env:` block, so the workflows forward a FIXED list of secret names.
+# run-agent.sh then looks that name up in its own environment. Point `token_secret` at a
+# name no workflow forwards and you get "required credential $X is not set" on a
+# repository where you did add secret $X — the config is right, the secret exists, and
+# the error names neither. If you change a name here, add it to the `env:` of every step
+# that runs tools/run-agent.sh. tests/harness-guards/secret-wiring.bats fails if you
+# forget, and tells you which name is unwired.
 # ---------------------------------------------------------------------------
 auth:
   claude-code:
