@@ -298,8 +298,12 @@ cat <<'EOF'
 === init.sh is done. What remains is manual, in this order: ===
 
   1. Create the ledger orphan branch (docs/runbooks/agent-ledgers.md).
-  2. Add repository secrets: AGENT_CLI_TOKEN, and CHALLENGE_API_KEY / ALERT_WEBHOOK_URL
-     if you use them (README.md's secrets table names what each one is for).
+  2. Add repository secrets. AGENT_CLI_TOKEN is REQUIRED and is normally a
+     SUBSCRIPTION TOKEN, not an API key — run
+       tools/run-agent.sh --check-credentials <agent>
+     and it prints, for the provider you just chose, which secret is missing, how to
+     mint it, and where to paste it. CHALLENGE_API_KEY (a real API key, optional, buys
+     the second reviewer) and ALERT_WEBHOOK_URL follow the same table in README.md.
   3. Grant read-only observability access if you have a health-signal source
      (docs/runbooks/agent-access-setup.md), then fill in .agents/health-signals.yml.
   4. Install the agent's GitHub App / CLI integration for this repository.

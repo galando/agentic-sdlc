@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # ADAPTER_* are read from OUTSIDE this file: tools/lib/config.sh
+# greps them out of the source text (adapter_status / adapter_docs_url / adapter_auth_hint)
+# rather than sourcing it, precisely so reading an adapter's metadata never executes it.
+# shellcheck cannot see a use that happens in another process, so it reports them unused.
 ADAPTER_STATUS=verified                                        # verified | unverified — THE source of truth (design.md 3.4)
 ADAPTER_DOCS_URL=https://code.claude.com/docs/en/headless       # confirm flags here before changing this file
+ADAPTER_AUTH_HINT='SUBSCRIPTION MODE (the default): run `claude setup-token` on a machine already signed in to a Pro or Max plan, and paste the OAuth token it prints. This is NOT an API key, it is not billed per token, and it is not the key from the developer console. API-KEY MODE: use a console API key instead, and set auth.claude-code.mode to api-key.'
 #
 # tools/providers/claude-code.sh — the Claude Code CLI adapter.
 #

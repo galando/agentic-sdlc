@@ -266,11 +266,22 @@ if [ "$CHECK_CREDS_ONLY" -eq 0 ] && [ "$STATUS" = "unverified" ]; then
 fi
 
 if [ -z "$AUTH_TOKEN_VALUE" ]; then
+  # Say what the credential IS and how to get one. "Required credential X is not set" is
+  # true and useless: the reader still has to work out whether X is a subscription token
+  # or an API key, and where either comes from. That answer is vendor-specific, so it is
+  # quoted from the adapter rather than duplicated into a provider-neutral runbook.
+  AUTH_HINT="$(adapter_auth_hint "$PROVIDER" 2>/dev/null || true)"
+  AUTH_DOCS="$(adapter_docs_url "$PROVIDER" 2>/dev/null || true)"
   if [ "$AUTH_REQUIRED" -eq 1 ]; then
     echo "run-agent.sh: required credential \$${TOKEN_SECRET_NAME} is not set for provider '$PROVIDER' (agent '$AGENT', role '$ROLE')" >&2
+    echo "  auth mode: ${AUTH_MODE}" >&2
+    [ -n "$AUTH_HINT" ] && echo "  how to obtain it: $AUTH_HINT" >&2
+    [ -n "$AUTH_DOCS" ] && echo "  provider docs: $AUTH_DOCS" >&2
+    echo "  then add it as repository secret \$${TOKEN_SECRET_NAME} (Settings > Secrets and variables > Actions)." >&2
     exit 5
   fi
   echo "::warning::run-agent.sh: optional credential \$${TOKEN_SECRET_NAME} is not set for provider '$PROVIDER' (agent '$AGENT', role '$ROLE') — degrading, this run is skipped" >&2
+  [ -n "$AUTH_HINT" ] && echo "  how to obtain it: $AUTH_HINT" >&2
   exit 6
 fi
 

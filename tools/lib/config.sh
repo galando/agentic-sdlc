@@ -345,6 +345,22 @@ adapter_status() {
   printf '%s\n' "$val"
 }
 
+adapter_auth_hint() { # HOW TO OBTAIN this provider's credential, in prose.
+                      # Vendor-specific by nature, so it lives in the adapter — the one
+                      # place a vendor name is legitimate — rather than in a runbook that
+                      # is supposed to read the same on every provider.
+                      # Absent is not fatal and never prints to stderr: a missing hint
+                      # must not turn a credential problem into a second, louder failure.
+  local provider="$1" file matches val
+  file="$(_cfg_root)/tools/providers/${provider}.sh"
+  [ -f "$file" ] || return 0
+  matches="$(grep -E '^ADAPTER_AUTH_HINT=' "$file" 2>/dev/null | head -1 || true)"
+  [ -z "$matches" ] && return 0
+  val="${matches#ADAPTER_AUTH_HINT=}"
+  val="${val#\'}"; val="${val%\'}"
+  printf '%s\n' "$val"
+}
+
 adapter_docs_url() {
   local provider="$1" file matches n val
   file="$(_cfg_root)/tools/providers/${provider}.sh"

@@ -95,7 +95,7 @@ store). Names, and what breaks when each is absent, are in the README's secrets 
 
 | Secret | What it is | Absent ⇒ |
 |---|---|---|
-| `AGENT_CLI_TOKEN` | the subscription token or API key for the `judge`/`execute` provider | the agent cannot run at all — `run-agent.sh` exits 5, loudly |
+| `AGENT_CLI_TOKEN` | the credential for the `judge`/`execute` provider. Which KIND depends on `auth.<provider>.mode`: a subscription token when `subscription` (the default), an API key when `api-key`. The two are not interchangeable. Run `tools/run-agent.sh --check-credentials <agent>` — it names the mode and the exact way to obtain one for your configured provider, so this page never has to name a vendor | the agent cannot run at all — `run-agent.sh` exits 5, loudly, with the how-to-obtain line included |
 | `CHALLENGE_API_KEY` | the optional `challenge`-role credential | **degrades**: one opinion instead of two, with a warning. Never a red pull request |
 | `ALERT_WEBHOOK_URL` | the pushed alert channel, if any | the notifier still files the issue. The issue is the primary channel |
 | `STEWARD_HANDOFF_PAT` | an elevated token so one agent's action can wake another workflow | the handoff issue is still filed, and the run says loudly that the handoff did not happen |

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # ADAPTER_* are read from OUTSIDE this file: tools/lib/config.sh
+# greps them out of the source text (adapter_status / adapter_docs_url / adapter_auth_hint)
+# rather than sourcing it, precisely so reading an adapter's metadata never executes it.
+# shellcheck cannot see a use that happens in another process, so it reports them unused.
 ADAPTER_STATUS=unverified                                   # verified | unverified — THE source of truth (design.md 3.4)
 ADAPTER_DOCS_URL=https://geminicli.com/docs/cli/headless/   # confirm every flag below against this before flipping to verified
+ADAPTER_AUTH_HINT='SUBSCRIPTION MODE: authenticate the CLI and store the credential it issues. Confirm the exact command at ADAPTER_DOCS_URL before relying on this — this adapter is an UNVERIFIED STUB and refuses to run.'
 #
 # tools/providers/gemini-cli.sh — the Gemini CLI adapter. UNVERIFIED STUB.
 #

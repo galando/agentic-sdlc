@@ -49,9 +49,11 @@ system. Nothing an agent does reaches your default branch without passing the ga
    It asks your product name, provider, model ids per role, alert channel and a
    handful more, rewrites every `{{PLACEHOLDER}}` those answers resolve, and prints
    exactly what is left for you to do by hand.
-3. Add the credentials it lists — at minimum your agent CLI's subscription token
-   (`AGENT_CLI_TOKEN`); an API key (`CHALLENGE_API_KEY`) only if you want the optional
-   second reviewer from day one. The full table is in section 8.
+3. Add the credentials it lists — at minimum `AGENT_CLI_TOKEN`, which is your agent
+   CLI's **subscription token, not an API key** (run
+   `tools/run-agent.sh --check-credentials <agent>` and it prints the exact command to
+   mint one for the provider you just chose). `CHALLENGE_API_KEY` is a real API key and
+   is optional — it buys the adversarial second review. Full table in section 8.
 4. Open **issue #1** against the bundled example (`examples/`) and mention your agent
    (see `AGENTS.md` for the exact phrase). Watch the steward triage it, open a PR, and
    watch two reviews and the gauntlet fire.
@@ -179,7 +181,7 @@ full table.
 
 | Secret | Enables | If it is missing |
 |---|---|---|
-| `AGENT_CLI_TOKEN` | The steward, PR review's judge, and every scheduled routine — the agent CLI's own auth | **Required.** The job fails loudly (exit 5) — never a silent no-op |
+| `AGENT_CLI_TOKEN` | The steward, PR review's judge, and every scheduled routine — the agent CLI's own auth. **This is normally a SUBSCRIPTION TOKEN, not an API key** (see below) | **Required.** The job fails loudly (exit 5) — never a silent no-op, and the message tells you how to mint one |
 | `CHALLENGE_API_KEY` | Reviewer B (the adversarial second opinion, a *different* model family) and the challenger routine | Optional. Reviewer B and the referee skip with a `::warning::`; reviewer A's review stands and the PR is never failed for it (see "Missing second-reviewer credential degrades, never fails" in the spec) |
 | `STEWARD_HANDOFF_PAT` | Lets a lost-review handoff issue actually retrigger the steward | Optional. Falls back to the default `GITHUB_TOKEN`, which GitHub will not let start a new workflow run — the filed issue says so explicitly and tells you to mention the agent by hand |
 | `ALERT_WEBHOOK_URL` | The push side of a nightly-failure alert (chat/webhook ping) | Optional. The GitHub issue — the primary channel — still opens; only the push is skipped, and the run's summary says so |
@@ -187,6 +189,31 @@ full table.
 | `DEIDENT_TERMS` | The de-identification sweep in `fast-repo-hygiene`, for your own fork's naming hygiene | Optional, adopter-supplied. The sweep announces it is unarmed and skips — never a false "clean" |
 | `VALIDATE_DB_PASSWORD` | `full-migration-validation`'s scratch Postgres service | Optional — defaults to a fixed password scoped to that ephemeral CI container |
 | `IT_DB_PASSWORD` | `full-integration-tests`'s scratch Postgres service | Optional — same default-password pattern as above |
+
+#### Subscription token or API key? The two are not interchangeable
+
+This trips people up, so it is worth being blunt. `AGENT_CLI_TOKEN` is a **name**, not a
+kind. What belongs in it is decided by `auth.<provider>.mode` in `.agents/config.yml`:
+
+| `mode` | What `AGENT_CLI_TOKEN` holds | Billing |
+|---|---|---|
+| `subscription` *(the default)* | An **OAuth token minted from your existing plan** — the thing your agent CLI's own "set up a token" command prints. **Not** the key from a developer console. | Covered by your flat monthly plan. A run costs nothing extra. |
+| `api-key` | A real API key. | Per token. |
+
+Ask the repository itself rather than guessing — it prints the exact command for the
+provider *you* configured, and prints nothing vendor-specific for one you did not:
+
+```bash
+tools/run-agent.sh --check-credentials <agent>
+```
+
+With the credential missing, that exits 5 and tells you which secret is absent, which
+mode it is in, how to mint it, and where to paste it. With it present, it exits 0.
+
+`CHALLENGE_API_KEY` is the one place a **per-token API key is genuinely required**: it
+reaches a second model family, and no subscription covers somebody else's model. It is
+optional by design — without it the adversarial second opinion degrades to one reviewer
+and says so, and a pull request is never failed for its absence.
 
 ### Cost, honestly
 
