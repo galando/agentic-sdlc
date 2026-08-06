@@ -15,6 +15,23 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 LIB="$REPO_ROOT/tools/lib/config.sh"
 CONFIG="$REPO_ROOT/.agents/config.yml"
 
+# The `config reader:` tests force AGENTS_CONFIG_READER=yq for one half of each
+# comparison. When no usable mikefarah/yq is on PATH that force is refused and the
+# library answers from awk instead, which would quietly turn "both readers agree"
+# into awk agreeing with itself — every assertion still green, nothing compared.
+# A suite that cannot run its own subject says so rather than passing.
+#
+# Scoped by name on purpose: the cfg_assert_schema tests below do NOT force a
+# reader, so they are meaningful under either one and must keep running here.
+setup() {
+  case "$BATS_TEST_DESCRIPTION" in
+    "config reader: "*)
+      AGENTS_CONFIG_READER=yq bash -c ". '$LIB'; _cfg_has_yq" 2>/dev/null ||
+        skip "no usable mikefarah/yq v4 on PATH — no second reader for awk to agree with"
+      ;;
+  esac
+}
+
 both_readers_agree() {
   local path="$1"
   local yq_val awk_val yq_rc awk_rc
@@ -134,4 +151,49 @@ both_readers_agree() {
   [ "$status" -eq 3 ]
   [[ "$output" == *"not supported"* ]]
   [[ "$output" == *"CHANGELOG.md"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# `yq` names two different programs and only one of them is this one.
+# kislyuk/yq — the Python jq wrapper, and what `apt-get install yq` gives you on
+# Debian and Ubuntu — has no `eval` subcommand. A presence-only check (`command -v
+# yq`) accepts it, every read then fails, and cfg_get reports "required path 'x'
+# not found" about a key sitting right there in the file. Right config, wrong
+# error, and an awk reader on hand the whole time that would have answered.
+# ---------------------------------------------------------------------------
+
+@test "the yq probe tests behaviour, not the name on PATH" {
+  # A `yq` that exists and cannot do the job must not be selected. Shadow PATH with
+  # a stub that behaves like the Python one: exits non-zero on `eval`.
+  local shim="$BATS_TEST_TMPDIR/shim"
+  mkdir -p "$shim"
+  printf '#!/bin/sh\nexit 2\n' > "$shim/yq"
+  chmod +x "$shim/yq"
+
+  run env PATH="$shim:$PATH" AGENTS_CONFIG_READER= bash -c ". '$LIB'; _cfg_has_yq"
+  [ "$status" -ne 0 ]
+}
+
+@test "a wrong-flavour yq falls back to awk and still reads the config correctly" {
+  # The payoff: the value comes back, rather than a lie about a missing key.
+  local shim="$BATS_TEST_TMPDIR/shim2"
+  mkdir -p "$shim"
+  printf '#!/bin/sh\nexit 2\n' > "$shim/yq"
+  chmod +x "$shim/yq"
+
+  run env PATH="$shim:$PATH" AGENTS_CONFIG="$CONFIG" bash -c ". '$LIB'; cfg_get schema"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+}
+
+@test "forcing the yq reader when yq is unusable says so instead of silently using awk" {
+  # Otherwise the reader-agreement tests above compare awk with awk and pass.
+  local shim="$BATS_TEST_TMPDIR/shim3"
+  mkdir -p "$shim"
+  printf '#!/bin/sh\nexit 2\n' > "$shim/yq"
+  chmod +x "$shim/yq"
+
+  run env PATH="$shim:$PATH" AGENTS_CONFIG_READER=yq bash -c ". '$LIB'; _cfg_has_yq"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"kislyuk"* ]]
 }

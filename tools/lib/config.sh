@@ -52,11 +52,47 @@ _floors_file() {
   printf '%s\n' "${FLOORS_CONFIG:-$(_cfg_root)/floors.yml}"
 }
 
+# `yq` NAMES TWO DIFFERENT PROGRAMS, and only one of them is the one meant here.
+# mikefarah/yq (Go) takes `yq eval '<path>' <file>`. kislyuk/yq (Python) is a jq
+# wrapper with no `eval` subcommand at all — it reads "eval" as the jq filter and
+# the path as a filename. It is also what `apt-get install yq` installs on Debian
+# and Ubuntu, so it is not an exotic thing to have on PATH.
+#
+# Presence alone therefore proves nothing, and getting this wrong is silent: every
+# `yq eval` fails, its empty output is indistinguishable from a genuinely absent
+# key, and the caller reports "required path 'x' not found" about a path sitting
+# right there in the file. The config is right, the key exists, and the error names
+# neither — with an awk reader on hand the whole time that would have answered
+# correctly.
+#
+# So probe for the BEHAVIOUR rather than the name or a version banner: run the one
+# operation this library actually depends on and check the answer. A version-string
+# match would re-break on the next release that reformats it. Cached because it
+# costs a subprocess and every reader calls it.
+_cfg_yq_usable() {
+  if [ -z "${_CFG_YQ_USABLE:-}" ]; then
+    if command -v yq >/dev/null 2>&1 &&
+       [ "$(printf 'probe: ok\n' | yq eval '.probe' - 2>/dev/null)" = "ok" ]; then
+      _CFG_YQ_USABLE=yes
+    else
+      _CFG_YQ_USABLE=no
+    fi
+  fi
+  [ "$_CFG_YQ_USABLE" = yes ]
+}
+
 _cfg_has_yq() {
   case "${AGENTS_CONFIG_READER:-}" in
     awk) return 1 ;;
-    yq)  command -v yq >/dev/null 2>&1 ;;
-    *)   command -v yq >/dev/null 2>&1 ;;
+    # Forcing the yq reader is a TEST affordance (the reader-agreement suite), and
+    # a silent fall back to awk there would turn "both readers agree" into awk
+    # agreeing with itself — a test that passes while testing nothing. Say so, then
+    # still answer no, because answering yes would call a yq that cannot do the job.
+    yq)  _cfg_yq_usable || {
+           echo "AGENTS_CONFIG_READER=yq, but no usable mikefarah/yq v4 is on PATH (kislyuk/yq — the Python jq wrapper — does not implement 'eval')" >&2
+           return 1
+         } ;;
+    *)   _cfg_yq_usable ;;
   esac
 }
 

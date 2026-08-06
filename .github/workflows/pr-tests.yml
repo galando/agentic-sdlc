@@ -225,6 +225,23 @@ jobs:
       - name: Harness guards
         run: bats tests/harness-guards/
 
+      # The OTHER half of the harness suite, and for a while the half nothing ran.
+      # `bats tests/harness-guards/` was the only bats invocation in this repository,
+      # so the 142 tests directly under tests/ — the config reader's two-reader
+      # agreement, adapter hygiene, the de-identification sweep, init idempotency,
+      # the ledger round-trip, the run-agent dry run — were executed on contributors'
+      # laptops and nowhere else. Local runs counted them (212 + 142 is the "354/354"
+      # quoted in this branch's own commit messages) which is precisely why the gap
+      # was invisible: the number looked complete.
+      #
+      # It cost what an unrun test always costs. One of them had been failing since
+      # this branch's first commit and no pull request ever said so.
+      #
+      # Two steps rather than one `-r`, so a red job names which half broke. bats
+      # does not recurse without -r, so this runs tests/*.bats and nothing twice.
+      - name: Harness tests
+        run: bats tests/
+
   # Placeholder check, generated-file sync, and the de-identification sweep.
   # Also carries no `needs: changes`, for the same reason as the guards above.
   fast-repo-hygiene:

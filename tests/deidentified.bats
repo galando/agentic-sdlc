@@ -215,7 +215,13 @@ teardown() {
   run "$SCAN" --terms "$WORK/bad-terms.txt"
   [ "$status" -ne 0 ]
   [ "$status" -ne 1 ]                # not "found hits" — it could not look at all
-  [[ "$output" != *"clean"* ]]       # and it must never claim cleanliness
+  # Match the VERDICT LINE, not the bare word. The refusal message explains itself
+  # in prose that necessarily contains "clean" ("'found nothing' is exactly what a
+  # clean tree looks like"), so a substring test on "clean" fails against a script
+  # that is behaving correctly — and would keep failing for whoever next reworded
+  # the explanation. `check-deidentified: clean` is the one sentence that means the
+  # sweep ran and passed, and it is what may never appear here.
+  [[ "$output" != *"check-deidentified: clean"* ]]
   [[ "$output" == *"widget(ron"* ]]  # and it must name the term that broke
 }
 
@@ -225,7 +231,9 @@ teardown() {
   cd "$WORK/repo"
   run "$SCAN" --terms "$WORK/terms.txt"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"clean"* ]]
+  # Same verdict line as the negative case above, for the same reason: the two
+  # tests are only each other's mirror if they key on the same string.
+  [[ "$output" == *"check-deidentified: clean"* ]]
 }
 
 @test "the scanner itself contains no project-specific string — it passes its own sweep" {

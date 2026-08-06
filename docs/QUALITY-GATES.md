@@ -72,7 +72,7 @@ uncalibrated" — this is not an omission, it is the design.
 | 17 | **Diff-scoped mutation check** — floor `{{FLOOR_MUTATION}}`, skipped below ~20 mutants | `full-mutation-on-diff` | FULL | Assertions were weakened in the changed code — caught at pull-request time rather than the next morning |
 | 19 | **Bundle-size budget** — ceiling `{{CEILING_BUNDLE_KIB}}` | `full-bundle-budget` | FULL | The shipped bundle grew: a heavyweight import, a barrel that defeats tree-shaking, or a large dependency landing in the entry chunk |
 | 21 | **Spec artifacts present** | `fast-spec-artifacts` | FAST | A pull request labelled fix or feature carries no spec directory in its diff and no `temper: unavailable — …` line in its body |
-| 22 | **HARNESS guard tests** — text-pin the load-bearing strings inside the agent workflows | `fast-harness-guards` | FAST | The agents' own plumbing has no other safety net. If a collector stops reading an endpoint, or a prompt loses the line that makes an agent identifiable, **every run still goes GREEN** and the loss shows up only as a wrong conclusion later |
+| 22 | **HARNESS tests** — text-pin the load-bearing strings inside the agent workflows (`tests/harness-guards/`), and exercise the tooling those workflows call (`tests/`) | `fast-harness-guards` | FAST | The agents' own plumbing has no other safety net. If a collector stops reading an endpoint, or a prompt loses the line that makes an agent identifiable, **every run still goes GREEN** and the loss shows up only as a wrong conclusion later. Both halves run as separate steps of the one job: until this was fixed CI ran only the guards, and the 142 tests under `tests/` — including the check that the config reader's two readers agree — were executed on contributors' laptops and nowhere else |
 | — | Workflow lint | `fast-actionlint` | FAST | A workflow will not parse. A startup failure creates no status check at all, so it goes quiet rather than red |
 
 ### Nightly — too slow or too flaky to block a merge
@@ -350,8 +350,12 @@ cd examples/frontend && npm run build && npm run test:e2e
 # Bundle-size budget (needs a build first)
 cd examples/frontend && npm run build && node scripts/check-bundle.mjs
 
-# Gate 22 — the harness guards. Text only; seconds.
+# Gate 22 — the harness suite. Text only; seconds. BOTH halves: the guards pin the
+# load-bearing strings inside the agent workflows, and tests/ exercises the tooling
+# those workflows call. CI runs the two as separate steps of the same job, so run
+# both here too — for a while only the first of them ran anywhere but a laptop.
 bats tests/harness-guards/
+bats tests/
 
 # Gate 21 — spec artifacts
 tools/spec-pipeline/validate.sh
