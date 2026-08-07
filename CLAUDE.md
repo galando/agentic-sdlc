@@ -34,7 +34,7 @@ into a statement that is no longer true.)
 ## Commands
 
 ```bash
-# The harness suite — the main one. ~330 tests, seconds to run.
+# The harness suite — the main one. ~365 tests, seconds to run.
 bats tests/ tests/harness-guards/
 
 # A single file, or a single test by name

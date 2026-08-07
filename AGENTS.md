@@ -33,8 +33,10 @@ next reader will obey whichever copy they happened to open.
    bind a session to a platform-assigned working branch; that is scheduler plumbing, not
    your deliverable. Whatever branch the session starts on, create and push your work to an
    `agent/<purpose>-<date>` branch.)*
-3. **Follow the escalation runbook.** Every run ends with **exactly one** ledger entry
-   (`tools/ledger.sh append`); problems follow the severity ladder in
+3. **Follow the escalation runbook.** Every scheduled run ends with **exactly one** ledger
+   entry (`tools/ledger.sh append`) — the event-driven steward is the one exemption: it is
+   not in `ledger.agents`, and its visible outcome is the comment or pull request it
+   leaves (see `.agents/prompts/steward-triage.md`). Problems follow the severity ladder in
    `docs/runbooks/agent-escalation.md`. When unsure, escalate one level up. **Never fail
    silently** — a dead agent and a healthy agent must never look the same.
 4. **Stay in scope, on budget, and efficient.** Do exactly what your prompt defines — one
