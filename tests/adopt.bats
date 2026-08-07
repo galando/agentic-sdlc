@@ -44,8 +44,14 @@ STUB
   chmod +x "$FIXTURE/tools/run-agent.sh"
 
   git -C "$FIXTURE" init -q -b main
-  git -C "$FIXTURE" -c user.email=t@t -c user.name=t add -A
-  git -C "$FIXTURE" -c user.email=t@t -c user.name=t commit -qm seed
+  # A committer identity, configured in the FIXTURE repo — an adopter's machine
+  # has one, a bare CI runner does not, and adopt.sh's commit offer runs plain
+  # `git commit`. Without this the offer's honest [FAIL] path fires in CI and
+  # the commit assertion below fails there while passing on any dev machine.
+  git -C "$FIXTURE" config user.email t@t
+  git -C "$FIXTURE" config user.name t
+  git -C "$FIXTURE" add -A
+  git -C "$FIXTURE" commit -qm seed
 
   # No gh on PATH for any test unless a test adds a stub itself: a restricted
   # PATH proves the degradation story instead of depending on runner state.
@@ -71,7 +77,7 @@ run_adopt() {
 
 @test "an unanswered interview stops the non-interactive run at step 1" {
   sed -i 's/^provider: some-provider/provider: "{{PROVIDER}}"/' "$FIXTURE/.agents/config.yml"
-  git -C "$FIXTURE" -c user.email=t@t -c user.name=t commit -aqm token
+  git -C "$FIXTURE" commit -aqm token
   run run_adopt
   [ "$status" -eq 0 ]
   [[ "$output" == *"tools/init.sh"* ]]
@@ -123,7 +129,7 @@ run_adopt() {
 
 @test "calibrated floors read as done" {
   sed -i 's/value: unset/value: 0.9/' "$FIXTURE/floors.yml"
-  git -C "$FIXTURE" -c user.email=t@t -c user.name=t commit -aqm armed
+  git -C "$FIXTURE" commit -aqm armed
   run run_adopt
   [ "$status" -eq 0 ]
   [[ "$output" == *"all floors calibrated"* ]]
