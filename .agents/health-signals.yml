@@ -1,0 +1,14 @@
+# The health checker reads its signals from here. Ships EMPTY on purpose.
+# An empty list means the health agent reports "no health signals configured" and exits
+# green. It does NOT mean a broken query — see docs/runbooks/agent-routines.md "Health
+# signals live in a config file, not in a prompt".
+schema: 1
+signals: []
+# Example (delete the comment markers and fill in when you have a metrics source).
+# The query below is illustrative PromQL — write it in your own metrics system's query
+# language. The placeholder-syntax convention this template uses elsewhere is
+# documented, with an example, in docs/runbooks/agent-routines.md.
+#   - id: disk_saturation
+#     query: 'node_filesystem_avail_bytes / node_filesystem_size_bytes'
+#     warn_below: 0.20
+#     severity: S2

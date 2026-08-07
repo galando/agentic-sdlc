@@ -1,0 +1,274 @@
+# CI health watch — is the machine that runs the gauntlet still there?
+#
+# Every other check in this repository has an opinion about the product. This one has an
+# opinion about CI itself, and it watches the two conditions that stop the gauntlet
+# without stopping a single check from reporting green the day before:
+#
+#  1. A self-hosted runner going offline. The queue simply stops draining. Nothing
+#     fails, nothing is reported, and the backlog is discovered by a human wondering
+#     why their pull request has been "queued" since breakfast.
+#  2. The hosted-minutes allowance running out. At 100% every hosted job dies within
+#     seconds with no runner assigned. It looks like a mystery infrastructure fault
+#     rather than the perfectly ordinary, entirely predictable state it is, so it gets
+#     debugged instead of recognised. Alerting at a threshold turns that cliff into a
+#     planned flip of the `PR_RUNNER` repository variable onto your own runner.
+#
+# ---------------------------------------------------------------------------
+# THIS WORKFLOW MUST RUN ON THE HOSTED RUNNER. DO NOT ROUTE IT THROUGH THE
+# `PR_RUNNER` / `NIGHTLY_RUNNER` / `AGENT_RUNNER` VARIABLES.
+#
+# A watchdog scheduled onto the runner it watches cannot report that runner dead: when
+# the box goes down the watchdog goes down with it and the silence is indistinguishable
+# from health. It survives the thing it watches only by not living there.
+#
+# THAT APPLIES TO THE WHOLE ALERTING PATH, NOT JUST TO THE JOB THAT DETECTS. This
+# workflow delegates the telling to the shared notifier in `nightly-alert.yml`, and a
+# called workflow's `runs-on` cannot be overridden by its caller — so the notifier is
+# pinned across the call, with an explicit `runner:` input, at the `notify-ci-health` job
+# below. A detector on a safe runner handing off to an alarm on the dead one detects
+# perfectly and tells nobody, which is the failure mode this whole file exists to remove.
+#
+# This reads like an inconsistency to anyone standardising runners across the repo,
+# which is exactly why the reason is written here rather than assumed.
+# ---------------------------------------------------------------------------
+#
+# ---------------------------------------------------------------------------
+# "COULD NOT CHECK" IS NOT AN INCIDENT.
+#
+# An expired token, a 5xx from the API or a rate-limit blip degrade to a `::warning::`
+# annotation on a GREEN run. Only a runner that is actually offline, or an allowance
+# actually at or above the threshold, fails the job and files an issue.
+#
+# Without that split, a token expiry pages four times a day about a problem that is not
+# there, and the channel learns to skim past the alert that matters. The accepted
+# tradeoff is real and worth stating: a silently broken token stops the alerting
+# entirely. The warnings stay visible on every run in the Actions tab, and the provider
+# mails the token's owner before a fine-grained token expires.
+# ---------------------------------------------------------------------------
+#
+# ---------------------------------------------------------------------------
+# NEVER BE MARKED AS A REQUIRED STATUS CHECK.
+#
+# Same rule, same reason, as every `nightly-*` job: this does not run on pull requests
+# at all, so a required context here would leave every pull request waiting forever on a
+# status that can never arrive. docs/runbooks/branch-protection.md lists it under
+# "never required".
+# ---------------------------------------------------------------------------
+#
+# OPTIONAL, AND IT SHIPS INERT. Until the `CI_HEALTH_PAT` secret exists this workflow
+# runs, ANNOUNCES that it checked nothing, and exits 0 — the same announced-skip shape
+# `tools/check-deidentified.sh` and gate 18 use, and for the same reason: a check that
+# quietly did nothing looks exactly like a check that found nothing.
+#
+# To arm it, one line of setup: create a fine-grained token with repository
+# "Administration: read-only" (to list self-hosted runners) and account "Plan: read-only"
+# (to read Actions usage), and add it as the `CI_HEALTH_PAT` repository secret.
+#
+# Cost, stated because an inert watchdog is not a free one: four runs a day, each
+# billed at the one-minute minimum, is roughly 120 minutes a month of the very
+# allowance it is watching. Lower the cadence below if that is the wrong trade for you.
+#
+# placeholder: {{RUNNER_LABEL}} — the label of the self-hosted runner you route work to
+#   with the PR_RUNNER / NIGHTLY_RUNNER / AGENT_RUNNER repository variables.
+#   tools/init.sh asks for it once. It is named here and NOT interpolated into any
+#   `run:` body on purpose: an unresolved placeholder inside a live command or a live
+#   alert message is a run that executes and reports having checked something it never
+#   looked at, which is this template's own named failure mode.
+name: ci-health-watch
+
+on:
+  schedule:
+    # Odd minutes on purpose: the top of the hour is the most contended slot on a shared
+    # scheduler, so a `0 */6 * * *` cron is the one most likely to be delayed or dropped.
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+# `issues: write` is required by the notifier job below. A reusable workflow cannot hold
+# more permission than its caller, and a caller that omits this is rejected at STARTUP —
+# the whole workflow never runs, the watch job included, so the watchdog goes quiet
+# rather than red. See the header of nightly-alert.yml.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  # Not per-ref: there is only ever one meaningful answer to "is CI alive", and a run
+  # superseded by a newer one has nothing to add. Cancelling is safe here only because
+  # the notifier keys on `result == 'failure'` rather than `failure()` — a cancelled run
+  # is not a failed gate and must not file an issue saying it was.
+  group: ci-health-watch
+  cancel-in-progress: true
+
+jobs:
+  watch-ci-health:
+    # MUST be GitHub-hosted. See the header: its whole purpose is to run when your own
+    # runner is not.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # No checkout: this job reads the API and touches no file in the tree. Skipping it
+      # keeps an inert run down to a few seconds.
+      - name: Check runner liveness and the hosted-minutes allowance
+        env:
+          CI_HEALTH_PAT: ${{ secrets.CI_HEALTH_PAT }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          ALERT_PCT: ${{ vars.CI_MINUTES_ALERT_PCT || '75' }}
+          # Concatenated on purpose: non-empty when ANY runner variable routes work to a
+          # self-hosted runner. That is what makes "zero runners registered" a finding
+          # for a repository that expects one and a non-event for a hosted-only
+          # repository — otherwise every hosted-only adopter is paged four times a day,
+          # forever, for a runner they never had.
+          EXPECT_SELF_HOSTED: ${{ vars.PR_RUNNER }}${{ vars.NIGHTLY_RUNNER }}${{ vars.AGENT_RUNNER }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CI_HEALTH_PAT:-}" ]; then
+            echo "::notice title=CI health watch not armed::No CI_HEALTH_PAT secret, so runner liveness and the minutes allowance were SKIPPED, not passed. Add a fine-grained token (repository Administration:read + account Plan:read) as the CI_HEALTH_PAT repository secret to arm this watch."
+            exit 0
+          fi
+
+          # -f makes curl fail (exit 22) on an HTTP error like 403 or 404 instead of
+          # exiting 0 and handing the JSON error body to jq. Without it an expired token
+          # is indistinguishable from a real finding below.
+          api() {
+            curl -sSf -H "Authorization: Bearer ${CI_HEALTH_PAT}" \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "X-GitHub-Api-Version: 2022-11-28" "$1"
+          }
+
+          # Two accumulators, deliberately separate — see the header. ALERTS fails the
+          # job and files an issue; WARNINGS annotates and stays green.
+          ALERTS=""
+          WARNINGS=""
+
+          # An unvalidated threshold is a self-inflicted false alarm: a non-numeric
+          # variable makes the comparison below fail, `set -e` kills the job, and the
+          # notifier files an S2 about CI health when the only broken thing is a typo in
+          # a repository variable.
+          case "${ALERT_PCT}" in
+            ''|*[!0-9]*)
+              WARNINGS="${WARNINGS}CI_MINUTES_ALERT_PCT is not a whole number ('${ALERT_PCT}') — falling back to 75.\n"
+              ALERT_PCT=75
+              ;;
+          esac
+
+          # --- 1. self-hosted runner liveness --------------------------------
+          RUNNERS_JSON="$(api "https://api.github.com/repos/${REPO}/actions/runners?per_page=100")" || RUNNERS_JSON=""
+          if [ -z "${RUNNERS_JSON}" ] || ! printf '%s' "${RUNNERS_JSON}" | jq -e '.runners' >/dev/null 2>&1; then
+            WARNINGS="${WARNINGS}Could not list self-hosted runners — HTTP or API error. Check CI_HEALTH_PAT is valid and carries repository Administration:read.\n"
+          else
+            TOTAL="$(printf '%s' "${RUNNERS_JSON}" | jq '.runners | length')"
+            OFFLINE="$(printf '%s' "${RUNNERS_JSON}" | jq -r '.runners[] | select(.status != "online") | .name')"
+            if [ "${TOTAL}" -eq 0 ] && [ -n "${EXPECT_SELF_HOSTED}" ]; then
+              ALERTS="${ALERTS}No self-hosted runners are registered at all, but a runner variable points work at one. Every job routed to that label will queue forever rather than fail.\n"
+            elif [ "${TOTAL}" -eq 0 ]; then
+              echo "No self-hosted runners registered and no runner variable points at one — liveness not applicable."
+            elif [ -n "${OFFLINE}" ]; then
+              ALERTS="${ALERTS}Self-hosted runner(s) OFFLINE: $(printf '%s' "${OFFLINE}" | tr '\n' ' ').\n"
+            else
+              echo "Runners: all ${TOTAL} online."
+            fi
+          fi
+
+          # --- 2. hosted Actions minutes allowance ---------------------------
+          # The usage endpoint differs between a personal account and an organisation and
+          # a template cannot know which this is, so try both. If NEITHER answers, this
+          # is a could-not-check and degrades to a warning — an allowance this job cannot
+          # read is not an allowance that has run out.
+          BILLING_JSON="$(api "https://api.github.com/users/${OWNER}/settings/billing/actions")" \
+            || BILLING_JSON="$(api "https://api.github.com/orgs/${OWNER}/settings/billing/actions")" \
+            || BILLING_JSON=""
+          USED="$(printf '%s' "${BILLING_JSON}" | jq -r '.total_minutes_used // empty' 2>/dev/null || true)"
+          INCLUDED="$(printf '%s' "${BILLING_JSON}" | jq -r '.included_minutes // empty' 2>/dev/null || true)"
+          if [ -z "${USED}" ] || [ -z "${INCLUDED}" ] || [ "${INCLUDED}" = "0" ]; then
+            WARNINGS="${WARNINGS}Could not read Actions usage — HTTP or API error, or an account whose usage is not exposed on this endpoint. Check CI_HEALTH_PAT is valid and carries account Plan:read.\n"
+          else
+            PCT=$(( USED * 100 / INCLUDED ))
+            echo "Hosted minutes: ${USED}/${INCLUDED} used (${PCT}%)."
+            if [ "${PCT}" -ge "${ALERT_PCT}" ]; then
+              # The remediation names the VARIABLE, not a label. See the placeholder note
+              # in the header for why {{RUNNER_LABEL}} is not interpolated here.
+              ALERTS="${ALERTS}Hosted Actions minutes at ${PCT}% (${USED}/${INCLUDED}), at or above the ${ALERT_PCT}% threshold. At 100% every hosted job dies within seconds with no runner assigned. Set the PR_RUNNER repository variable to your self-hosted runner's label now to move pull-request checks off the hosted allowance.\n"
+            fi
+          fi
+
+          if [ -n "${WARNINGS}" ]; then
+            printf '%b' "${WARNINGS}" | while IFS= read -r line; do
+              if [ -n "${line}" ]; then echo "::warning::${line}"; fi
+            done
+          fi
+
+          if [ -z "${ALERTS}" ]; then
+            echo "CI health watch: nothing to report."
+            exit 0
+          fi
+
+          {
+            echo "### CI health watch — action needed"
+            echo ""
+            printf '%b' "${ALERTS}" | sed '/^$/d; s/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          printf '%b' "${ALERTS}"
+
+          # Fail the job so the finding is red in the Actions tab as well as in the issue
+          # the notifier files. A watchdog whose only output is a step summary is a
+          # watchdog nobody reads.
+          exit 1
+
+  # =========================================================================
+  # NOTIFIER — ONE JOB, FOR THIS GATE ONLY.
+  #
+  # It does not OR anything together with the nightly gates, and nothing there ORs this
+  # one in. The issue title carries the gate name, so a shared notifier would collapse
+  # two gates into one `[nightly] <gate> is failing` thread and the second gate to go red
+  # would produce no new signal at all.
+  #
+  # `needs.<job>.result == 'failure'` rather than `if: failure()`: a run cancelled by the
+  # concurrency group above must not be reported as a failed gate. `result` is 'failure'
+  # only when the job RAN and FAILED.
+  #
+  # -------------------------------------------------------------------------
+  # THE ALARM CANNOT DEPEND ON THE THING IT IS ALARMING ABOUT.
+  #
+  # The header pins the WATCH job to the hosted runner. That is only half the property,
+  # and the missing half is invisible because it lives in another file: this job delegates
+  # the telling to a reusable workflow, and A CALLED WORKFLOW'S `runs-on` CANNOT BE
+  # OVERRIDDEN BY ITS CALLER. `nightly-alert.yml` follows `NIGHTLY_RUNNER` by default,
+  # like every other nightly job — correct there, fatal here. The self-hosted runner dies,
+  # this watchdog correctly detects it, and the notifier then queues forever on the dead
+  # runner. Detection without delivery is silence, and it is a worse silence than no
+  # watchdog at all, because the Actions tab shows a job that ran.
+  #
+  # So the runner is pinned explicitly, ACROSS the call, and it is passed as a value
+  # rather than inherited so that reading this job tells you what it will run on.
+  #
+  # The honest limit of what this buys, because over-claiming a safety property is how the
+  # next person deletes it: hosted minutes at 100% stop every hosted job, this watch job
+  # included, and nothing inside this repository can survive that. It is why the minutes
+  # half of this check alerts at a THRESHOLD, below the cliff, rather than at exhaustion.
+  # What is guaranteed here is the case that IS survivable — the self-hosted fleet going
+  # away — and it is guaranteed by keeping the entire alerting path off that fleet.
+  # -------------------------------------------------------------------------
+  notify-ci-health:
+    if: ${{ always() && needs.watch-ci-health.result == 'failure' }}
+    needs: [watch-ci-health]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      runner: 'ubuntu-latest'
+      gate: 'CI health — runner liveness and hosted minutes'
+      severity: 'S2'
+      what_red_means: >-
+        CI itself is degraded, not the product. Read which of the two it is before reacting.
+        A runner OFFLINE means the queue has stopped draining and nothing else will report —
+        no other check will go red to tell you, which is the entire reason this job exists.
+        MINUTES at or above the threshold is a countdown, not an outage: at 100% every hosted
+        job dies within seconds with no runner assigned, and it looks like a mystery
+        infrastructure fault rather than the predictable state it is. Move pull-request checks
+        onto your own runner with the PR_RUNNER repository variable before that happens. A
+        warning annotation on a GREEN run is neither of these — that is a could-not-check, and
+        it means this watch is blind rather than that something is wrong.
+      runbook: 'docs/runbooks/qa-procedures.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}

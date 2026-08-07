@@ -1,0 +1,23 @@
+# The ratchet ledger — the SINGLE authoritative source for every coverage/mutation/
+# bundle floor. Tool configs (examples/backend/pom.xml, examples/frontend/vitest.config.js,
+# examples/frontend/stryker.config.mjs, the bundle-check script) are RENDERED from this file by
+# tools/render-floors.sh; nobody hand-edits a `<minimum>` or a `thresholds:` block
+# directly — see docs/QUALITY-GATES.md's ratchet policy and
+# .temper/specs/agent-sdlc-template/design.md section 7.
+#
+# `value: unset` means NOT YET CALIBRATED. It is not zero and it is not "switched off" —
+# two of the four tools this maps to (PIT, Stryker) encode "no threshold" identically to
+# "disabled", so this file is the only place a machine can tell the two states apart.
+# tools/measure-floors.sh replaces `unset` with a real number, measured against YOUR
+# product; gate 9 then fails any pull request that lowers one.
+schema: 1
+floors:
+  backend.coverage.line:        { value: unset, direction: up,   tool: jacoco }
+  backend.coverage.branch:      { value: unset, direction: up,   tool: jacoco }
+  backend.mutation.score:       { value: unset, direction: up,   tool: pit }
+  frontend.coverage.statements: { value: unset, direction: up,   tool: vitest }
+  frontend.coverage.branches:   { value: unset, direction: up,   tool: vitest }
+  frontend.coverage.functions:  { value: unset, direction: up,   tool: vitest }
+  frontend.coverage.lines:      { value: unset, direction: up,   tool: vitest }
+  frontend.mutation.score:      { value: unset, direction: up,   tool: stryker }
+  frontend.bundle.total_kib:    { value: unset, direction: down, tool: bundle-check }

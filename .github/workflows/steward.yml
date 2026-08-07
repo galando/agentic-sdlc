@@ -1,0 +1,462 @@
+# The steward — the event-driven agent.
+#
+# Responds to the configured mention on issues and pull requests, and triages
+# every newly-opened issue automatically. Installing an agent app is not by
+# itself sufficient: THIS WORKFLOW is the listener that actually invokes the
+# agent.
+#
+# A newly-OPENED issue triggers the steward automatically — no mention needed.
+# Everything else stays tag-gated: issue comments, pull-request comments,
+# pull-request reviews and issue `assigned` events all still require an explicit
+# mention. Assigning yourself an old issue should not re-run the steward on it.
+#
+# What this does NOT do is turn the steward loose: the triage brief tells it to
+# COMMENT rather than push when an issue is not concretely actionable, and
+# AGENTS.md still forbids merging its own pull requests. A human merge remains
+# the gate.
+#
+# Note on agent-filed issues: nightly-alert.yml files its gate-failure issues
+# with GITHUB_TOKEN, and GitHub deliberately does not re-trigger workflows from
+# GITHUB_TOKEN activity — so those do NOT wake the steward. Issues filed under a
+# user identity DO. Automatic pull-request review is a separate workflow:
+# review.yml.
+#
+# The agent is invoked through tools/run-agent.sh, never through a vendor
+# action. That indirection is the seam that makes this workflow portable: the
+# provider, the model per role and the auth mode all live in .agents/config.yml,
+# and nothing vendor-specific appears in this file.
+name: steward
+
+# ---------------------------------------------------------------------------
+# CONCURRENCY IS DECLARED AT JOB LEVEL (see `jobs.steward.concurrency`), NOT
+# HERE. Two separate lessons are stacked in that one decision.
+#
+# 1. Scope it PER ISSUE OR PULL REQUEST, never globally.
+#    A single global group silently DROPS requests. GitHub allows one RUNNING
+#    plus exactly one PENDING run per group, and a third event evicts the
+#    pending one. `cancel-in-progress: false` protects only the running job — it
+#    does nothing for the queue, and there is no way to ask for a deeper one.
+#
+#    Measured, on a system with a global group: four steward events inside 97
+#    seconds. The first took the group; the second was cancelled; the THIRD sat
+#    pending for 44 seconds and was then evicted by the fourth. It produced no
+#    run, no comment and no notification — indistinguishable from the tag never
+#    having worked at all. Two issues being worked at once is normal. Losing one
+#    of them silently is not.
+#
+# 2. Declare it at JOB level so the job `if:` is evaluated FIRST.
+#    Workflow-level concurrency is evaluated when the RUN is created — before any
+#    job-level `if:` — so an event this workflow deliberately ignores still
+#    entered the group and still evicted whatever was pending, then skipped. The
+#    agent comments on every steward run, and that bot echo is filtered at the
+#    job `if:`, so the workflow was reliably generating its own evictions.
+#    Worse, the eviction reporter could not cover it: `if: always()` overrides a
+#    failed previous STEP, not a job-level `if:`, so a skipped job takes the
+#    reporter down with it.
+#
+#    A skipped job never enters a job-level group, so filtered events now cost
+#    nothing and displace nothing.
+# ---------------------------------------------------------------------------
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [opened, assigned]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  steward:
+    # GitHub's `on:` layer cannot filter by comment author or content, so every
+    # comment — including the agent's own replies — technically fires this
+    # workflow. This gate runs on GitHub's side BEFORE the job reaches a runner,
+    # so bot echoes and anything without an explicit mention show up as
+    # instantly skipped rather than queueing.
+    #
+    # `github.event.sender.type != 'Bot'` is load-bearing and it is not
+    # defensive. Without it the reviewer wakes the fixer, which pushes, which
+    # triggers a review, forever. The consequence to design around is in
+    # review.yml: a review from this repository's own bot can NEVER reach the
+    # steward by commenting, which is why the handoff FILES AN ISSUE instead.
+    #
+    # `issues.opened` is the one unconditional case — that is the auto-triage
+    # path and by design it needs no tag. It is also, for the same reason, the
+    # ONE path with no sender check, which is what makes the review workflow's
+    # issue-filing handoff reachable at all.
+    #
+    # `issues.assigned` stays tag-gated: assigning an old issue to yourself
+    # should not re-run the steward on it.
+    #
+    # The mention phrase comes from a repository VARIABLE with a default,
+    # because a workflow `if:` cannot read a file. Do not hard-code a vendor's
+    # name in this condition.
+    if: |
+      (github.event_name == 'issues' && github.event.action == 'opened') ||
+      (github.event_name == 'issues' && github.event.action == 'assigned' && github.event.sender.type != 'Bot' && contains(github.event.issue.body, vars.AGENT_MENTION || '@agent')) ||
+      (github.event_name == 'issue_comment' && github.event.sender.type != 'Bot' && contains(github.event.comment.body, vars.AGENT_MENTION || '@agent')) ||
+      (github.event_name == 'pull_request_review_comment' && github.event.sender.type != 'Bot' && contains(github.event.comment.body, vars.AGENT_MENTION || '@agent')) ||
+      (github.event_name == 'pull_request_review' && github.event.sender.type != 'Bot' && contains(github.event.review.body, vars.AGENT_MENTION || '@agent'))
+
+    # Per issue or pull request, and at JOB level so the `if:` above is
+    # evaluated first — a skipped job never enters the group and so can never
+    # displace a pending request. See the block above `on:` for why workflow
+    # level was wrong.
+    #
+    # One running + one pending per group is all GitHub offers; a third event on
+    # the SAME issue still evicts the pending one, which is why the last step of
+    # this job reports evictions rather than letting them stay silent.
+    concurrency:
+      group: steward-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
+
+    runs-on: ${{ vars.AGENT_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      # Stamped before the agent runs so the outcome check below can tell "a
+      # comment this run produced" from "a comment that was already on the
+      # issue".
+      - name: Record job start time
+        id: jobstart
+        run: echo "iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # Fail LOUDLY, never quietly, when the agent entrypoint is missing.
+      # A no-op here would produce a green run that did nothing, which is the
+      # single failure mode this whole workflow is built to make impossible.
+      - name: Verify the agent entrypoint exists
+        run: |
+          if [ ! -x tools/run-agent.sh ]; then
+            echo "::error::tools/run-agent.sh is missing or not executable."
+            echo "The steward cannot run without it. It is the single entrypoint every"
+            echo "workflow uses to reach an agent; the provider, the model per role and"
+            echo "the auth mode all come from .agents/config.yml behind it."
+            exit 1
+          fi
+
+      # An UNVERIFIED STUB provider (Decision 8, tasks.md Task 21) ships this job
+      # inert rather than red: the same ADAPTER_STATUS line tools/init.sh reads is
+      # read here, at run time, so a provider promoted to verified — and
+      # tools/init.sh re-run — enables this job on its very next trigger with no
+      # further edit. Never a second list; one source of truth, two readers.
+      - name: Check whether the harness is enabled for this provider
+        id: harness-gate
+        run: |
+          . tools/lib/config.sh
+          # Neither call may abort the step — see the identical guard in review.yml.
+          # On a fresh template the provider is an unresolved token, adapter_status exits
+          # non-zero, and `bash -e` would fail the job on a repository nobody has touched.
+          provider="$(cfg_get role_provider.judge 2>/dev/null || true)"
+          status="$(adapter_status "$provider" 2>/dev/null || true)"
+          if [ "$status" = "verified" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$status" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Steward not configured::No provider is configured yet (role_provider.judge reads '$provider'). Run tools/init.sh to choose one. The steward is inert until then — this is the expected state of a fresh template, not a failure."
+          else
+            docs_url="$(adapter_docs_url "$provider" 2>/dev/null || echo 'tools/providers/')"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Steward disabled::Provider '$provider' is an UNVERIFIED STUB (see tools/providers/$provider.sh). The steward is inert until it is promoted: confirm its flags ($docs_url), set ADAPTER_STATUS=verified, then re-run tools/init.sh."
+          fi
+
+      - name: Run the steward
+        id: agent
+        if: steps.harness-gate.outputs.enabled == 'true'
+        env:
+          # Auto-triage brief, selected ONLY for issues.opened. Every other
+          # event uses the mention-handling prompt, so the agent acts on the
+          # tagged instruction rather than re-triaging an existing thread.
+          AGENT_PROMPT_FILE: >-
+            ${{ (github.event_name == 'issues' && github.event.action == 'opened')
+            && '.agents/prompts/steward-triage.md'
+            || '.agents/prompts/steward-mention.md' }}
+          AGENT_CLI_TOKEN: ${{ secrets.AGENT_CLI_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        # Written as a FOLDED BLOCK SCALAR (>-) above, not a plain scalar.
+        # In a PLAIN YAML scalar the two-character sequence " #" opens a YAML comment, so
+        # a value containing it is silently truncated mid-expression and
+        # GitHub refuses to parse the file at all — a whole-workflow startup
+        # failure, which creates no status check and therefore goes quiet rather
+        # than red. Inside a block scalar, # is a literal character. Folding
+        # joins the lines with single spaces, so the expression arrives as one
+        # line and the prose still reads normally.
+        run: |
+          tools/run-agent.sh steward --role judge \
+            --prompt-file "$AGENT_PROMPT_FILE" \
+            --timeout 3300
+
+      # Title and body are built in a heredoc from ENV VARS, never spliced into
+      # the shell or into a YAML expression. Two reasons, and both have bitten:
+      # a value containing " #" inside a plain YAML scalar truncates the whole
+      # file (see above), and an untrusted issue title spliced into a shell
+      # command is an injection. Env-var indirection keeps untrusted issue titles out of the shell.
+      - name: Open a pull request for the agent's branch, if any
+        if: steps.agent.outputs.branch_name != ''
+        env:
+          GH_TOKEN: ${{ secrets.STEWARD_HANDOFF_PAT || github.token }}
+          BRANCH: ${{ steps.agent.outputs.branch_name }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code origin "$BRANCH" >/dev/null 2>&1; then
+            echo "$BRANCH was never pushed (no changes made) — nothing to open a pull request for."
+            exit 0
+          fi
+          git fetch origin "$BASE" "$BRANCH" --depth=50
+          # `branch_name` is set even when nothing was committed, so the branch
+          # existing is not enough — it must be AHEAD of the base. Upstream this
+          # read `git log origin/main..origin/$BRANCH`; the base is resolved from
+          # the repository's actual default branch here, because a template that
+          # hard-codes `main` silently does nothing on a repo that does not use it.
+          if [ -z "$(git log "origin/$BASE..origin/$BRANCH" --oneline 2>/dev/null)" ]; then
+            echo "No commits ahead of $BASE on $BRANCH — nothing to open a pull request for."
+            exit 0
+          fi
+          if [ -n "$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            echo "A pull request already exists for $BRANCH."
+            exit 0
+          fi
+          BODY_FILE="$(mktemp)"
+          {
+            echo "Opened automatically by the steward for issue #${ISSUE_NUMBER}."
+            echo
+            echo "A human merges. See AGENTS.md guardrail 2."
+          } > "$BODY_FILE"
+          gh pr create --repo "$REPO" --base "$BASE" --head "$BRANCH" \
+            --title "${ISSUE_TITLE:-Automated change from $BRANCH}" \
+            --body-file "$BODY_FILE"
+
+      # -----------------------------------------------------------------------
+      # Auto-triage MUST leave a visible outcome — a comment or a pushed branch
+      # — or fail the job on purpose.
+      #
+      # On the auto-triage path there may be no tracking comment for the agent
+      # to update, so posting falls to the agent deciding to post. When it does,
+      # you get a reply; when it does not, the run is GREEN, the issue looks
+      # untouched, and nothing anywhere records that a triage was lost. One such
+      # run spent several minutes and real money exactly that way and sat
+      # unanswered for hours.
+      #
+      # The eviction reporter below cannot cover this: it only considers runs
+      # cancelled with zero jobs, so a run that starts, succeeds and says
+      # nothing is filtered out by design. The headless playbook already
+      # requires "never end silently" — this is the thing that ENFORCES it.
+      #
+      # A red run is recoverable (re-run it, or mention the agent again); a
+      # green silent one is not, because nobody knows to look.
+      #
+      # `!cancelled()` rather than `always()`: a run an operator killed
+      # deliberately — to clear a backed-up queue, say — is not a lost triage,
+      # and claiming otherwise would post a misleading notice and a red run for
+      # something they chose. It still fires when the agent step FAILS, which is
+      # a genuine silent-outcome case.
+      # -----------------------------------------------------------------------
+      - name: Require a visible outcome on auto-triage runs
+        # Also gated on the harness being enabled: with an unverified provider the
+        # steward deliberately did not run, so there is no outcome to be missing —
+        # failing this job over an absence the harness itself chose would turn
+        # "day one is green for every provider" (SC11b) false on the first issue.
+        if: ${{ !cancelled() && github.event_name == 'issues' && github.event.action == 'opened' && steps.harness-gate.outputs.enabled == 'true' }}
+        uses: actions/github-script@v7
+        env:
+          AGENT_BRANCH: ${{ steps.agent.outputs.branch_name }}
+          STARTED_AT: ${{ steps.jobstart.outputs.iso }}
+        with:
+          script: |
+            const issueNumber = context.payload.issue.number;
+            const startedAt = new Date(process.env.STARTED_AT);
+
+            // Outcome 1: a comment appeared on the issue while this job was
+            // running. ANYONE's comment counts — if a human already replied,
+            // the issue is not silently unanswered and failing the job would
+            // be noise. Paginated: a long thread must not hide the reply.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              per_page: 100,
+            });
+            const posted = comments.find(c => new Date(c.created_at) >= startedAt);
+
+            // Outcome 2: a branch was actually pushed. `branch_name` is set
+            // even when nothing was committed, so existence on the remote is the real signal
+            // — the same check the pull-request step makes.
+            let pushed = false;
+            const branch = process.env.AGENT_BRANCH;
+            if (branch) {
+              try {
+                await github.rest.repos.getBranch({
+                  owner: context.repo.owner, repo: context.repo.repo, branch,
+                });
+                pushed = true;
+              } catch (err) {
+                if (err.status !== 404) throw err;
+              }
+            }
+
+            if (posted || pushed) {
+              core.info(`Visible outcome present (comment=${!!posted}, branch=${pushed}).`);
+              return;
+            }
+
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}` +
+                           `/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: [
+                `<!-- steward-no-outcome:${context.runId} -->`,
+                '⚠️ **Auto-triage ran on this issue but produced no reply and no branch.**',
+                '',
+                `[Run ${context.runId}](${runUrl}) started and finished, so this is not a`,
+                'dropped trigger — the steward simply left nothing behind. That is a harness',
+                'fault, not a verdict on the issue: **no triage conclusion should be inferred',
+                'from this silence.**',
+                '',
+                'Mention the agent on this issue to run it again.',
+              ].join('\n'),
+            });
+            core.setFailed(
+              `Auto-triage produced no visible outcome on issue #${issueNumber} — ` +
+              `no comment and no pushed branch. Notice posted on the issue.`);
+
+      # -----------------------------------------------------------------------
+      # Per-issue concurrency (the group above) stops the common case: steward
+      # requests on DIFFERENT issues can no longer evict each other. It cannot
+      # stop the residual one — three events on the SAME issue in quick
+      # succession still leave the middle one evicted, because GitHub's pending
+      # slot is one deep and there is no way to ask for more.
+      #
+      # That residual is usually benign (a later comment on the same thread
+      # supersedes an earlier one) but it must never be SILENT: an evicted run
+      # executes nothing, so it cannot report itself, and the requester sees
+      # exactly what they saw before this workflow existed — no run, no comment,
+      # no notification. That is what makes dropped requests so hard to
+      # diagnose.
+      #
+      # So the run that took the slot reports on the ones it displaced. An
+      # evicted run has a precise signature: conclusion `cancelled` with ZERO
+      # jobs ever created, i.e. it never reached a runner. A human cancelling a
+      # RUNNING job leaves jobs behind and is deliberately not reported.
+      #
+      # Best-effort by design: never fail the steward run over its own
+      # bookkeeping.
+      # -----------------------------------------------------------------------
+      - name: Report any steward requests that were evicted from the queue
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const SIX_HOURS = 6 * 60 * 60 * 1000;
+            const since = Date.now() - SIX_HOURS;
+            try {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'steward.yml',
+                status: 'cancelled',
+                per_page: 20,
+              });
+
+              const candidates = runs.data.workflow_runs
+                .filter(r => r.id !== context.runId)
+                .filter(r => new Date(r.created_at).getTime() >= since);
+              if (!candidates.length) {
+                core.info('No cancelled steward runs in the last 6h.');
+                return;
+              }
+
+              // Only currently-open issues can be commented on usefully; the
+              // run object carries no issue number, so match on display_title,
+              // which for these events is the issue or pull-request title
+              // verbatim.
+              const issues = await github.paginate(github.rest.issues.listForRepo, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100,
+              });
+              // .filter(i => !i.pull_request) is load-bearing, not defensive.
+              // listForRepo returns PULL REQUESTS as well as issues, and this
+              // Map is last-wins. The pull-request step above copies the issue
+              // title verbatim into the pull-request title, so every steward
+              // pull request carries a byte-identical title to the issue that
+              // spawned it — and since the pull request is created after the
+              // issue and AGENTS.md forbids the steward merging its own, both
+              // stay open and the pull request overwrites the issue here.
+              // Eviction notices would then land on the steward's own pull
+              // request instead of the issue the requester is watching, and the
+              // marker dedupe below would make that permanent rather than
+              // self-correcting.
+              const byTitle = new Map(
+                issues.filter(i => !i.pull_request).map(i => [i.title, i]));
+
+              for (const run of candidates) {
+                const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  run_id: run.id,
+                });
+                // Jobs exist => it actually started and someone cancelled it.
+                // That is a deliberate act, not a silent drop. Leave it alone.
+                if (jobs.data.total_count > 0) continue;
+
+                const issue = byTitle.get(run.display_title);
+                if (!issue) {
+                  core.warning(
+                    `Run ${run.id} was evicted before starting but its issue could not be ` +
+                    `resolved from title ${JSON.stringify(run.display_title)} — reporting here only.`);
+                  continue;
+                }
+
+                const marker = `<!-- steward-eviction:${run.id} -->`;
+                const existing = await github.paginate(github.rest.issues.listComments, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  per_page: 100,
+                });
+                if (existing.some(c => c.body && c.body.includes(marker))) continue;
+
+                const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}` +
+                               `/actions/runs/${run.id}`;
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: [
+                    `${marker}`,
+                    `⚠️ **A steward request on this issue was dropped before it ran.**`,
+                    '',
+                    `[Run ${run.id}](${runUrl}) was queued and then cancelled without ever`,
+                    'starting, because another steward event took the single pending slot',
+                    'GitHub allows per concurrency group. Nothing ran, so nothing replied —',
+                    'this notice exists so that is visible rather than looking like the',
+                    'mention simply did nothing.',
+                    '',
+                    '**Nothing was lost except the trigger: mention the agent again to retry.**',
+                  ].join('\n'),
+                });
+                core.info(`Reported evicted run ${run.id} on issue #${issue.number}`);
+              }
+            } catch (err) {
+              core.warning(`Eviction reporting failed (non-fatal): ${err.message}`);
+            }

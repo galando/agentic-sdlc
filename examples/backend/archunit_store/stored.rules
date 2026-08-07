@@ -1,0 +1,4 @@
+#
+#Thu Aug 06 09:01:14 CEST 2026
+Layered\ architecture\ considering\ all\ dependencies,\ consisting\ of\nlayer\ 'Web'\ ('com.example.agentsdlc.web..')\nlayer\ 'Service'\ ('com.example.agentsdlc.service..')\nlayer\ 'Repository'\ ('com.example.agentsdlc.repository..')\nlayer\ 'Domain'\ ('com.example.agentsdlc.domain..')\nwhere\ layer\ 'Web'\ may\ not\ be\ accessed\ by\ any\ layer\nwhere\ layer\ 'Service'\ may\ only\ be\ accessed\ by\ layers\ ['Web']\nwhere\ layer\ 'Repository'\ may\ only\ be\ accessed\ by\ layers\ ['Service']\nwhere\ layer\ 'Domain'\ may\ only\ be\ accessed\ by\ layers\ ['Web',\ 'Service',\ 'Repository']=cb18c103-4f64-4eb3-a968-05a7963e07df
+classes\ that\ have\ simple\ name\ ending\ with\ 'Controller'\ should\ reside\ in\ a\ package\ '..web..'\ and\ should\ be\ annotated\ with\ @RestController=d11c3946-1228-4569-b254-e61df8dbe5e3

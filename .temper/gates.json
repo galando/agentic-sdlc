@@ -1,0 +1,97 @@
+{
+  "plan": {
+    "verdict": "PASS",
+    "requirements": [
+      {
+        "name": "artifacts exist",
+        "pass": true,
+        "detail": "intent.md + tasks.md present"
+      },
+      {
+        "name": "criteria -> scenarios",
+        "pass": true,
+        "detail": "27 scenario(s) for 19 success criterion/criteria"
+      },
+      {
+        "name": "blast radius documented",
+        "pass": true,
+        "detail": "plan.md has a Blast Radius section (complex change)"
+      }
+    ],
+    "ts": "2026-08-05T08:01:21Z"
+  },
+  "build": {
+    "verdict": "PASS",
+    "requirements": [
+      {
+        "name": "RED then GREEN",
+        "pass": true,
+        "detail": "2 failing-first run(s), 2 passing run(s) recorded"
+      },
+      {
+        "name": "all tasks complete",
+        "pass": true,
+        "detail": "no unchecked tasks in tasks.md"
+      }
+    ],
+    "ts": "2026-08-06T10:12:01Z"
+  },
+  "review": {
+    "verdict": "PASS",
+    "requirements": [
+      {
+        "name": "no blocking findings",
+        "pass": true,
+        "detail": "0 open findings at severity [critical]"
+      }
+    ],
+    "ts": "2026-08-06T09:16:51Z"
+  },
+  "check": {
+    "verdict": "PASS",
+    "requirements": [
+      {
+        "name": "tests pass",
+        "pass": true,
+        "detail": "26 green test run(s) recorded"
+      },
+      {
+        "name": "scenarios traced to tests",
+        "pass": true,
+        "detail": "27/27 scenario(s) covered"
+      },
+      {
+        "name": "coverage >= threshold",
+        "pass": true,
+        "detail": "97.26% >= 80% threshold"
+      }
+    ],
+    "ts": "2026-08-06T12:23:38Z"
+  },
+  "commit": {
+    "verdict": "PASS",
+    "requirements": [
+      {
+        "name": "plan gate",
+        "pass": true,
+        "detail": "PASS"
+      },
+      {
+        "name": "build gate",
+        "pass": true,
+        "detail": "PASS"
+      },
+      {
+        "name": "review gate",
+        "pass": true,
+        "detail": "PASS"
+      },
+      {
+        "name": "check gate",
+        "pass": true,
+        "detail": "PASS"
+      }
+    ],
+    "ts": "2026-08-06T12:23:38Z"
+  }
+}

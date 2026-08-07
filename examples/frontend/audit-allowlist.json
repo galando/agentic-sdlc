@@ -1,0 +1,37 @@
+[
+  {
+    "id": 1109537,
+    "package": "tmp",
+    "reason": "Symlink-based arbitrary temp-file write (GHSA-52f5-9888-hmc6), reached only through @stryker-mutator/core's optional interactive 'external editor' prompt (inquirer/editor). Gate 17/5 invoke `stryker run` non-interactively in CI and locally; that code path is never entered. Exposure requires a local attacker who can already plant a symlink at a predictable temp path before an operator manually chooses the interactive editor flow."
+  },
+  {
+    "id": 1120654,
+    "package": "tmp",
+    "reason": "Path traversal via unsanitized prefix/postfix (GHSA-ph9p-34f9-6g65), same transitive path and same non-interactive-CI reasoning as 1109537 above."
+  },
+  {
+    "id": 1116229,
+    "package": "vite",
+    "reason": "Path traversal in optimized-deps .map handling (GHSA-4w7w-66w2-5vf9) — a `vite dev`-server-only request-handling bug. This pipeline never runs `vite dev`; CI only runs `vite build` and `vite preview` against a build already produced from trusted source, and the fix requires a Vite 6+ major bump not yet scheduled."
+  },
+  {
+    "id": 1120784,
+    "package": "vite",
+    "reason": "launch-editor NTLMv2 hash disclosure on Windows (GHSA-v6wh-96g9-6wx3) — dev-server-only, Windows-only, and triggered by opening a file in an external editor from the dev server's error overlay. This template's CI runs on Linux runners and never starts the dev server."
+  },
+  {
+    "id": 1123525,
+    "package": "vite",
+    "reason": "server.fs.deny bypass on Windows alternate data streams (GHSA-fx2h-pf6j-xcff) — dev-server-only, Windows-only; same reasoning as 1120784."
+  },
+  {
+    "id": 1120126,
+    "package": "vitest",
+    "reason": "Arbitrary file read/execute via the Vitest UI server (GHSA-5xrq-8626-4rwp) — only reachable when `vitest --ui` is running and listening. Neither `npm run test`, `npm run test:coverage`, nor any CI job in this repository starts the UI server; @vitest/coverage-v8 inherits this advisory transitively from vitest for the same reason."
+  },
+  {
+    "id": "@vitest/coverage-v8",
+    "package": "@vitest/coverage-v8",
+    "reason": "npm audit reports this package's only advisory as inherited from 'vitest' with no advisory id of its own attached at this level — it is the same GHSA-5xrq-8626-4rwp (Vitest UI server) covered by the 1120126 entry above, listed again here because audit-ci.mjs falls back to the package name when npm's JSON carries no numeric id at this node."
+  }
+]

@@ -1,0 +1,46 @@
+# Build-time de-identification evidence. NEVER committed.
+#
+# .temper/evidence/deident-terms.txt is the list of strings this template was
+# scrubbed of. Committing it would ship a curated enumeration of precisely what
+# the template claims to have removed — a worse leak than a stray mention,
+# because it is organised, and because it is the first file a reader opens to
+# audit whether the extraction was clean.
+#
+# tools/check-deidentified.sh is deliberately term-agnostic (`--terms <file>`)
+# so that it is subject to its own sweep with no self-exclusion. A check that
+# must exempt itself to pass is not a check.
+.temper/evidence/
+
+# Adopters: put your own fork's term list here. tools/check-deidentified.sh
+# defaults to this path.
+.deident-terms
+
+# The build prompt this template was extracted against. It is the requirements
+# input for this build, not template content — it names the source project by
+# design, so it can never pass the de-identification sweep. It stays on disk for
+# the operator; it must never be tracked.
+/agentsdlcrepoprompt.md
+
+# Reference-stack build output — examples/ is the bundled example product
+# (tasks.md Task 23); tools/init.sh offers to delete the whole directory once an
+# adopter's own product is wired in.
+examples/backend/target/
+examples/frontend/node_modules/
+examples/frontend/dist/
+examples/frontend/coverage/
+examples/frontend/reports/
+examples/frontend/playwright-report/
+examples/frontend/test-results/
+examples/frontend/e2e/.cache/
+examples/backend/archunit_store/*.tmp
+
+.DS_Store
+
+# scratch dirs used by the round-trip transcript
+.scratch/
+
+*.tsbuildinfo
+
+# Local Claude Code state. Personal to each contributor: session statistics,
+# machine-specific settings. Never template content, and never public.
+.claude/

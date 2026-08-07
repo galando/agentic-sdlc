@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "stage": "build",
+  "timestamp": "2026-08-06T06:20:00Z",
+  "files_created": [
+    ".agents/config.yml",
+    ".agents/health-signals.yml",
+    ".agents/prompts/audit.md",
+    ".agents/prompts/challenger.md",
+    ".agents/prompts/chief-of-staff.md",
+    ".agents/prompts/health.md",
+    ".agents/prompts/quality.md",
+    ".agents/prompts/review-challenge.md",
+    ".agents/prompts/review-judge.md",
+    ".agents/prompts/review-referee.md",
+    ".agents/prompts/steward-mention.md",
+    ".agents/prompts/steward-triage.md",
+    ".github/workflows/actionlint.yml",
+    ".github/workflows/agents-scheduled.yml",
+    ".github/workflows/spec-artifacts.yml",
+    "floors.yml",
+    "tests/adapter-hygiene.bats",
+    "tests/config-reader.bats",
+    "tests/floors-sentinel.bats",
+    "tests/harness-guards/adapter-gate.bats",
+    "tests/harness-guards/agents-scheduled.bats",
+    "tests/harness-guards/gen-pin-tests.sh",
+    "tests/harness-guards/pin-count.bats",
+    "tests/harness-guards/pins-schema.bats",
+    "tests/harness-guards/pins.generated.bats",
+    "tests/init-idempotent.bats",
+    "tests/run-agent-dryrun.bats",
+    "tests/spec-artifacts.bats",
+    "tools/check-placeholders.sh",
+    "tools/floor-notice.sh",
+    "tools/init.sh",
+    "tools/lib/config.sh",
+    "tools/measure-floors.sh",
+    "tools/providers/claude-code.sh",
+    "tools/providers/codex.sh",
+    "tools/providers/compatible-endpoint.sh",
+    "tools/providers/gemini-cli.sh",
+    "tools/render-floors.sh",
+    "tools/run-agent.sh",
+    "tools/spec-pipeline/CONTRACT.md",
+    "tools/spec-pipeline/new-spec.sh",
+    "tools/spec-pipeline/record-gate.sh",
+    "tools/spec-pipeline/templates/design.md",
+    "tools/spec-pipeline/templates/intent.md",
+    "tools/spec-pipeline/templates/plan.md",
+    "tools/spec-pipeline/templates/tasks.md",
+    "tools/spec-pipeline/validate.sh"
+  ],
+  "files_modified": [
+    ".github/workflows/pr-tests.yml",
+    ".github/workflows/review.yml",
+    ".github/workflows/steward.yml",
+    ".temper/specs/agent-sdlc-template/intent.md",
+    ".temper/specs/agent-sdlc-template/tasks.md"
+  ],
+  "test_results": {
+    "total": 291,
+    "passed": 291,
+    "failed": 0
+  },
+  "deviations": {
+    "unplanned_files": [
+      {
+        "file": ".agents/prompts/steward-triage.md",
+        "reason": "steward.yml (PR a) hard-references this path via --prompt-file; required for the workflow to function"
+      },
+      {
+        "file": ".agents/prompts/steward-mention.md",
+        "reason": "same as above"
+      },
+      {
+        "file": ".agents/prompts/review-judge.md",
+        "reason": "review.yml (PR a) hard-references this path via --prompt-file"
+      },
+      {
+        "file": ".agents/prompts/review-challenge.md",
+        "reason": "review.yml (PR a) hard-references this path via --prompt-file"
+      },
+      {
+        "file": ".agents/prompts/review-referee.md",
+        "reason": "review.yml (PR a) hard-references this path via --prompt-file"
+      },
+      {
+        "file": "tools/render-floors.sh",
+        "reason": "named in design.md's architecture diagram as a sibling of measure-floors.sh; documented no-op until PR (c)'s reference-stack tool configs exist"
+      },
+      {
+        "file": "tools/floor-notice.sh",
+        "reason": "named in design.md section 7.3 as the CI-step counterpart to floors.yml; not yet wired into a workflow since no ratchet-bearing job exists until PR (c)"
+      }
+    ],
+    "skipped_tasks": [],
+    "approach_changes": [
+      {
+        "item": "SPEC_PIPELINE resolution",
+        "reason": "design.md 8.4 has claude-code.sh probe for a build plugin; simplified to report 'fallback' unconditionally for all adapters. Does not affect gate 21 (contract is the artifacts)."
+      },
+      {
+        "item": "steward.yml/review.yml adapter gating",
+        "reason": "design.md's Decision 8 scenario implies init.sh writes the workflows disabled; implemented instead as a runtime step-level gate reading the same ADAPTER_STATUS line, so promotion + re-running init.sh enables both on their next trigger with no file edit needed."
+      }
+    ]
+  },
+  "scenarios_covered": [
+    "Dry-run prints the exact command for every provider",
+    "Gate 21 fails a fix PR with no spec artifacts",
+    "Gate 21 accepts a declared-unavailable pipeline",
+    "Scheduled agents ship disabled by default",
+    "An unverified adapter disables the agents, not the gauntlet",
+    "init.sh is idempotent",
+    "init.sh leaves no unresolved placeholder",
+    "actionlint passes on every workflow",
+    "Uncalibrated floors pass loudly, then arm against the adopter's own baseline (sentinel half)"
+  ],
+  "tasks_completed": 9,
+  "tasks_total": 9
+}

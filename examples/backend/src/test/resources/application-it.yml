@@ -1,0 +1,14 @@
+# Gate 2 — integration tests against the REAL dependency. Matches the postgres
+# `services:` block in .github/workflows/pr-tests.yml's full-integration-tests job
+# exactly: same default db/user/password, same host port (5433 -> 5432).
+spring:
+  datasource:
+    url: "jdbc:postgresql://localhost:5433/${IT_DB_NAME:itdb}"
+    username: "${IT_DB_USER:it}"
+    password: "${IT_DB_PASSWORD:it}"
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration

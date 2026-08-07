@@ -1,0 +1,68 @@
+# Gate 21 — spec-artifacts-present.
+#
+# A STANDALONE workflow, deliberately not a step inside pr-tests.yml: that workflow's
+# jobs are gated on the `changes` paths-filter outputs (see pr-tests.yml), so a
+# spec-only or docs-only pull request would skip exactly the check that matters most on
+# that class of change. This workflow carries no `changes` gate and no workflow-level
+# `paths:` filter, so it reports on every pull request, including one that touches
+# nothing but a spec directory.
+#
+# Job id is `fast-spec-artifacts` and the job carries NO `name:` key, so the
+# branch-protection context string is exactly the id — see docs/runbooks/
+# branch-protection.md: a context that never reports blocks a pull request forever, and
+# a mismatched `name:`/id is how that happens by accident.
+#
+# The check itself is ONE script, called here and runnable locally the same way:
+# tools/spec-pipeline/validate.sh. Two implementations (one inline in this file, one in
+# the script) is exactly how the CI path and the local pre-flight drift until this gate
+# becomes plugin-shaped after all — see tools/spec-pipeline/CONTRACT.md.
+name: spec-artifacts
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: spec-artifacts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  fast-spec-artifacts:
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          # Full history: the diff below needs both the base and head commits, and a
+          # shallow clone of just the head cannot produce it.
+          fetch-depth: 0
+
+      - name: Write the pull request body to a file
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+
+      - name: List the files changed in this pull request
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/changed-files.txt"
+
+      - name: Validate spec artifacts (gate 21)
+        env:
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          REQUIRED_LABELS: ${{ vars.SPEC_REQUIRED_LABELS || 'fix,feature' }}
+        run: |
+          tools/spec-pipeline/validate.sh \
+            --pr-body-file "$RUNNER_TEMP/pr-body.md" \
+            --changed-files "$RUNNER_TEMP/changed-files.txt" \
+            --labels "$PR_LABELS" \
+            --required-labels "$REQUIRED_LABELS"
