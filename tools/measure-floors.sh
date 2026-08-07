@@ -112,7 +112,12 @@ measure_backend_mutation() {
   xml="$(find "$ROOT/backend/target/pit-reports" -name mutations.xml 2>/dev/null | head -n1)"
   [ -n "$xml" ] || { echo "SKIP: mutations.xml not produced"; return 1; }
   total="$(grep -c '<mutation ' "$xml" || true)"
-  killed="$(grep -c 'status="KILLED"' "$xml" || true)"
+  # status=.KILLED. with either quote style: PIT writes SINGLE-quoted attributes
+  # (status='KILLED'), and a double-quote-only grep counts zero kills — the first
+  # real calibration scored a fully-tested product 0.0000 and wrote a floor of 0,
+  # which is exactly the "indistinguishable from disabled" state floors.yml exists
+  # to prevent.
+  killed="$(grep -cE "status=[\"']KILLED[\"']" "$xml" || true)"
   [ "$total" -gt 0 ] || { echo "SKIP: PIT reported zero mutants"; return 1; }
   awk -v k="$killed" -v t="$total" 'BEGIN{printf "%.4f\n", k/t}'
 }
@@ -133,7 +138,9 @@ measure_frontend_mutation() {
   ( cd "$ROOT/frontend" && npx --yes stryker run ) >&2
   report="$ROOT/frontend/reports/mutation/mutation.json"
   [ -f "$report" ] || { echo "SKIP: mutation.json not produced"; return 1; }
-  jq -r '.mutationScore' "$report"
+  # Stryker's mutationScore is a PERCENTAGE (e.g. 87.88); floors.yml stores
+  # coverage/mutation floors as 0..1 ratios and write_floor scales by 100 itself.
+  jq -r '.mutationScore / 100' "$report"
 }
 
 measure_frontend_bundle() {
