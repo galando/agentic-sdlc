@@ -4,7 +4,10 @@
 
 *A GitHub template for running your software delivery lifecycle with autonomous
 agents — guarded, gated, provider-neutral, and always merged by a human. Guided
-tour: **[the project site](https://galando.github.io/agentic-sdlc/)**.*
+tour: **[the project site](https://galando.github.io/agentic-sdlc/)**. Proof it
+works: **[agentic-sdlc-demo](https://github.com/galando/agentic-sdlc-demo)** — a
+real product adopted from this template, its adoption logged step by step in
+its `ADOPTION-LOG.md`.*
 
 ```
   issue opened  ──▶  steward triages  ──▶  PR opened  ──▶  two reviews
