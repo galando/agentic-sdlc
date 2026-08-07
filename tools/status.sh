@@ -34,7 +34,12 @@ echo "=== Adoption status — four steps, in order ==="
 echo
 
 # --- 1. The interview --------------------------------------------------------
-if grep -qF '{{PROVIDER}}' "$ROOT/.agents/config.yml" 2>/dev/null; then
+# The token is BUILT at runtime, never written literally in this file: a literal
+# token here would (a) be substituted by init.sh during adoption, silently
+# inverting this very check on every adopted tree, and (b) drag this file into
+# ADOPTING.md's placeholder map. CI's hygiene gate caught exactly that.
+PROVIDER_TOKEN="$(printf '{{%s}}' PROVIDER)"
+if grep -qF "$PROVIDER_TOKEN" "$ROOT/.agents/config.yml" 2>/dev/null; then
   todo "1. Answer the interview (writes your answers into the tree)" "tools/init.sh"
 else
   provider="$(cfg_get provider '?' 2>/dev/null || echo '?')"
