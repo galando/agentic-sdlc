@@ -44,6 +44,32 @@ system. Nothing an agent does reaches your default branch without passing the ga
 - **Rough cost:** the normal case is your existing subscription's flat monthly price —
   see section 8, "Cost, honestly," below before you budget anything else.
 
+### Any language? Three layers, three answers
+
+- **The agent process — any repo, any language, zero changes.** The steward, both
+  reviews and the referee, the spec-artifact gate, secret scanning, actionlint, the
+  harness guards, the ledger and alerting know nothing about your stack: they operate
+  on issues, diffs and workflows. An automated review of a Rust or Python diff works
+  on day one.
+- **The measured gates ship as reference implementations** for two stacks
+  (Java/Spring/Maven and React/TypeScript/Vite): tests, coverage and mutation
+  ratchets, architecture rules, migrations, e2e, bundle budget. On any other stack
+  they are **swap points, not assumptions** — the table in section 8 lists exactly
+  which commands and config files to replace, and `docs/QUALITY-GATES.md` states each
+  gate's stack-agnostic *claim* to keep while you swap the tool that proves it.
+  Until you swap them, keep your product outside `backend/`/`frontend/` — the gates
+  skip cleanly when those paths are absent, but a different stack placed *at* them
+  would run the reference commands and fail honestly rather than adapt.
+- **The ratchet machinery is already tool-neutral.** `floors.yml` stores plain
+  ratios; `tools/measure-floors.sh` announces a clean skip when it finds no
+  instrument it knows, and a ported stack's own guard test reads `floors.yml`
+  directly, exactly as the reference ratchet-guard tests do.
+
+The porting move worth knowing: once the process layer is live, **open an issue
+asking the agent to port the gauntlet to your stack** and merge its pull request —
+the system wiring its own gates, under its own review, is the same loop as any other
+change.
+
 ## 3. Quickstart (target: under 30 minutes)
 
 1. Click **Use this template** on GitHub, or `git clone` and re-point the remote.
