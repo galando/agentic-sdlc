@@ -17,19 +17,31 @@
 
 REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 
-@test "placeholder check passes, loudly, while the template is uninitialised" {
-  # The shipped tree IS the uninitialised state: .agents/config.yml still holds tokens.
+@test "placeholder check passes loudly pre-init, and strictly clean post-init" {
+  # The shipped tree is the uninitialised state; an adopted tree is the strict state.
+  # Both must exit 0 on a clean tree — what changes is which message proves the check
+  # actually looked.
   run "$REPO_ROOT/tools/check-placeholders.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"NOT a failure"* ]]
-  [[ "$output" == *"init.sh"* ]]
+  if grep -qF '{{PROVIDER}}' "$REPO_ROOT/.agents/config.yml"; then
+    [[ "$output" == *"NOT a failure"* ]]
+    [[ "$output" == *"init.sh"* ]]
+  else
+    [[ "$output" == *"clean"* ]]
+  fi
 }
 
 @test "placeholder check announces itself in CI, where the reader actually looks" {
-  # Printed prose scrolls past in a log. An annotation is what surfaces on the run.
+  # Printed prose scrolls past in a log. An annotation is what surfaces on the run —
+  # and on an adopted tree the annotation must be ABSENT, or every CI run carries a
+  # stale "not initialised" warning forever.
   run env GITHUB_ACTIONS=true "$REPO_ROOT/tools/check-placeholders.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"::warning title=Template not initialised::"* ]]
+  if grep -qF '{{PROVIDER}}' "$REPO_ROOT/.agents/config.yml"; then
+    [[ "$output" == *"::warning title=Template not initialised::"* ]]
+  else
+    [[ "$output" != *"Template not initialised"* ]]
+  fi
 }
 
 @test "placeholder check turns STRICT the moment the config is filled in" {
