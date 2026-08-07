@@ -1,8 +1,10 @@
-# {{PRODUCT_NAME}}
-
-<!-- placeholder: {{PRODUCT_NAME}} — the system your agents watch. tools/init.sh fills it in. -->
+# Agentic SDLC
 
 **Agents propose, a human merges, CI decides.**
+
+*A GitHub template for running your software delivery lifecycle with autonomous
+agents — guarded, gated, provider-neutral, and always merged by a human. Guided
+tour: **[the project site](https://galando.github.io/agentic-sdlc/)**.*
 
 ```
   issue opened  ──▶  steward triages  ──▶  PR opened  ──▶  two reviews
@@ -54,9 +56,10 @@ system. Nothing an agent does reaches your default branch without passing the ga
    `tools/run-agent.sh --check-credentials <agent>` and it prints the exact command to
    mint one for the provider you just chose). `CHALLENGE_API_KEY` is a real API key and
    is optional — it buys the adversarial second review. Full table in section 8.
-4. Open **issue #1** against the bundled example (`examples/`) and mention your agent
-   (see `AGENTS.md` for the exact phrase). Watch the steward triage it, open a PR, and
-   watch two reviews and the gauntlet fire.
+4. Open **issue #1** against the bundled example (`examples/`) and mention your agent —
+   the trigger phrase is the `AGENT_MENTION` repository variable, default `@agent`
+   (see the `mention:` block in `.agents/config.yml`). Watch the steward triage it,
+   open a PR, and watch two reviews and the gauntlet fire.
 5. Make your **first human merge.**
 
 That is the whole loop, once, before any of your own code exists. If you are past 30
@@ -224,7 +227,8 @@ end of the month.
 
 The only place real per-token spend can enter is the **optional** `challenge` role
 (`CHALLENGE_API_KEY`, a different model family via `compatible-endpoint`). Losing that
-key costs you a second opinion on reviews — never the system; see SC10 above. If you
+key costs you a second opinion on reviews — never the system; see the secrets table
+above. If you
 must run on API keys throughout instead of a subscription, the pieces that spend tokens,
 roughly in ramp order, are: each steward run, two reviews per pull request (one if the
 challenge key is absent), and each enabled routine once per day. Turn routines on one at

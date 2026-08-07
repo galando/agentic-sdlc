@@ -1,0 +1,44 @@
+# .github/workflows/pages.yml — publish the static explainer site (site/) to GitHub Pages.
+#
+# One-time repository setting required before the first deploy: Settings → Pages →
+# Build and deployment → Source: "GitHub Actions". Until that is set, the deploy job
+# fails with a clear "Pages is not enabled" error — it never fails a pull request,
+# because this workflow only runs on pushes to the default branch (and manual dispatch).
+#
+# Deliberately NOT part of the gauntlet: the site is documentation, publishes only from
+# the default branch, and must never appear in branch protection's required contexts
+# (see docs/runbooks/branch-protection.md — a check that does not report on every PR
+# must not be required).
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+      - id: deployment
+        uses: actions/deploy-pages@v4
