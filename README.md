@@ -17,6 +17,14 @@ its `ADOPTION-LOG.md`.*
   22-gate gauntlet  ──▶  YOU merge  ──▶  filing agent verifies the fix landed
 ```
 
+> **Just created a repo from this template? Start here — one command, re-run it
+> until done:**
+> ```bash
+> tools/adopt.sh
+> ```
+> It walks the entire adoption with you and never acts without your yes.
+> Details: section 3. Lost later? `tools/status.sh`.
+
 Every step an agent takes is reviewable in a diff, gated by 22 automated checks, and
 merged by a human. This repository is a **GitHub template**: the process scaffolding —
 guardrails, ledger, gauntlet, agent prompts — with no product code of yours in it yet.
