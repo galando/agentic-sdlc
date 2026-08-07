@@ -405,6 +405,9 @@ cat <<'EOF'
 
 === init.sh is done. What remains is manual, in this order: ===
 
+  (Guided mode: tools/adopt.sh walks this whole list with you — it verifies each
+   item where it can, offers to do the automatable ones, and is safe to re-run.)
+
   1. Create the ledger orphan branch — one idempotent command, done already if
      you said yes to the offer above:
        tools/create-ledger-branch.sh
