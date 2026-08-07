@@ -18,10 +18,12 @@
 # becomes plugin-shaped after all — see tools/spec-pipeline/CONTRACT.md.
 name: spec-artifacts
 
+# No workflow_dispatch: every step below reads github.event.pull_request.*,
+# which a dispatch run does not have — it could only ever produce a red run
+# (`git diff "" ""` fails) that looks like a broken gate.
 on:
   pull_request:
     types: [opened, reopened, synchronize, edited, labeled, unlabeled, ready_for_review]
-  workflow_dispatch:
 
 concurrency:
   group: spec-artifacts-${{ github.event.pull_request.number || github.ref }}

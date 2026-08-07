@@ -6,13 +6,20 @@
 # landed; this file pins the fix so it cannot regress unnoticed.
 #
 # ---------------------------------------------------------------------------
-# FINDINGS 1 & 2 — gate 10 and gate 17 pointed at a top-level `backend/` that has never
-# existed in this tree. The product lives at `examples/backend/`. A paths-filter that
-# never matches makes its job report "skipped", which satisfies a required check exactly
-# as cleanly as a real pass — so the gate went quiet instead of red, and nobody watching
-# CI could tell the difference from "nothing changed here". `nightly.yml` already used
-# `examples/backend` correctly; these two workflows drifted from it, silently, and only a
-# change under the real path — not the dead one — proves the drift is gone.
+# FINDINGS 1 & 2 — gate 10 and gate 17 once pointed at a path where the product does
+# not live. A paths-filter that never matches makes its job report "skipped", which
+# satisfies a required check exactly as cleanly as a real pass — so the gate went quiet
+# instead of red, and nobody watching CI could tell the difference from "nothing
+# changed here". Only a change under the real path — not the dead one — proves the
+# drift is gone.
+#
+# LAYOUT-AWARE: the guarded invariant is "every filter targets where the product
+# ACTUALLY lives, and the dead path appears nowhere" — and where the product lives has
+# two legitimate answers. The template ships it at examples/backend (the bundled
+# example); an adopted tree carries it at top-level backend/ (the layout
+# tools/adopt-layout.sh re-points to and tools/measure-floors.sh calibrates against).
+# The guards detect which tree they are on and pin the SAME invariant either way, so
+# adopting the layout never requires editing a test file.
 # ---------------------------------------------------------------------------
 
 REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
@@ -21,6 +28,25 @@ MUTATION="$REPO_ROOT/.github/workflows/pr-mutation.yml"
 SCHEDULED="$REPO_ROOT/.github/workflows/agents-scheduled.yml"
 STEWARD="$REPO_ROOT/.github/workflows/steward.yml"
 REVIEW="$REPO_ROOT/.github/workflows/review.yml"
+
+if [ -d "$REPO_ROOT/examples/backend" ]; then
+  # Template layout. The dead path is anchored as a list item ('backend/ at the start
+  # of a filter entry) because bare "backend/" is a substring of the live path.
+  PRODUCT_BACKEND="examples/backend"
+  DEAD_FILTER_RE="^[[:space:]]*-[[:space:]]*'backend/"
+  DEAD_WD_RE='working-directory: \./backend[^/a-zA-Z]'
+  DEAD_ARTIFACT_RE='^[[:space:]]*path: backend/'
+  TOOLS_UP="../../"
+  DEAD_TOOLS_UP="../"
+else
+  # Adopter layout (post tools/adopt-layout.sh). The roles reverse exactly.
+  PRODUCT_BACKEND="backend"
+  DEAD_FILTER_RE="'examples/backend/"
+  DEAD_WD_RE='working-directory: \./examples/backend'
+  DEAD_ARTIFACT_RE='^[[:space:]]*path: examples/backend/'
+  TOOLS_UP="../"
+  DEAD_TOOLS_UP="../../"
+fi
 
 # A minimal, faithful re-implementation of dorny/paths-filter matching for the one glob
 # shape every filter in this repo uses: `<dir>/**` (match anything at or under <dir>).
@@ -38,63 +64,61 @@ path_matches_dir_glob() {
   esac
 }
 
-@test "gate 10: pr-validation.yml's migration filter targets examples/backend, never top-level backend" {
-  grep -qF "'examples/backend/src/main/resources/db/migration/**'" "$VALIDATION"
-  ! grep -qE "^\s*-\s*'backend/" "$VALIDATION"
+@test "gate 10: pr-validation.yml's migration filter targets the live product path, never the dead one" {
+  grep -qF "'${PRODUCT_BACKEND}/src/main/resources/db/migration/**'" "$VALIDATION"
+  ! grep -qE "$DEAD_FILTER_RE" "$VALIDATION"
 }
 
-@test "gate 10: pr-validation.yml's working-directory targets examples/backend" {
-  grep -qF 'working-directory: ./examples/backend' "$VALIDATION"
-  ! grep -qE 'working-directory: \./backend[^/a-zA-Z]' "$VALIDATION"
+@test "gate 10: pr-validation.yml's working-directory targets the live product path" {
+  grep -qF "working-directory: ./${PRODUCT_BACKEND}" "$VALIDATION"
+  ! grep -qE "$DEAD_WD_RE" "$VALIDATION"
 }
 
 @test "gate 10 DEMONSTRATION: a real migration file trips the corrected filter, and would have missed the old one" {
-  glob="examples/backend/src/main/resources/db/migration/**"
-  real_file="examples/backend/src/main/resources/db/migration/V1__create_items_table.sql"
-  [ -f "$REPO_ROOT/$real_file" ]
+  glob="${PRODUCT_BACKEND}/src/main/resources/db/migration/**"
+  real_file="$(cd "$REPO_ROOT" && ls "${PRODUCT_BACKEND}"/src/main/resources/db/migration/V*__*.sql 2>/dev/null | head -n1 || true)"
+  [ -n "$real_file" ] || skip "no product migration at ${PRODUCT_BACKEND} yet — this re-arms once the product is wired in"
   path_matches_dir_glob "$glob" "$real_file"
 
-  # The OLD (buggy) glob would never have matched this real file — proving the bug was
-  # real, not just a naming preference.
-  old_glob="backend/src/main/resources/db/migration/**"
+  # The dead path's glob would never match this real file — proving the filter guards
+  # the layout the product actually has, not a naming preference.
+  old_glob="$([ "$PRODUCT_BACKEND" = "examples/backend" ] && echo "backend" || echo "examples/backend")/src/main/resources/db/migration/**"
   ! path_matches_dir_glob "$old_glob" "$real_file"
 }
 
-@test "gate 17: pr-mutation.yml's scope filter targets examples/backend, never top-level backend" {
-  grep -qF "'examples/backend/src/main/java/**'" "$MUTATION"
-  ! grep -qE "^\s*-\s*'backend/" "$MUTATION"
+@test "gate 17: pr-mutation.yml's scope filter targets the live product path, never the dead one" {
+  grep -qF "'${PRODUCT_BACKEND}/src/main/java/**'" "$MUTATION"
+  ! grep -qE "$DEAD_FILTER_RE" "$MUTATION"
 }
 
-@test "gate 17: pr-mutation.yml's working-directory entries all target examples/backend" {
-  wd_count="$(grep -cF 'working-directory: ./examples/backend' "$MUTATION")"
+@test "gate 17: pr-mutation.yml's working-directory entries all target the live product path" {
+  wd_count="$(grep -cF "working-directory: ./${PRODUCT_BACKEND}" "$MUTATION")"
   [ "$wd_count" -eq 2 ]
-  ! grep -qE 'working-directory: \./backend[^/a-zA-Z]' "$MUTATION"
+  ! grep -qE "$DEAD_WD_RE" "$MUTATION"
 }
 
-@test "gate 17: pr-mutation.yml's artifact upload path targets examples/backend" {
-  grep -qF 'path: examples/backend/target/pit-reports/' "$MUTATION"
-  ! grep -qE '^\s*path: backend/' "$MUTATION"
+@test "gate 17: pr-mutation.yml's artifact upload path targets the live product path" {
+  grep -qF "path: ${PRODUCT_BACKEND}/target/pit-reports/" "$MUTATION"
+  ! grep -qE "$DEAD_ARTIFACT_RE" "$MUTATION"
 }
 
 @test "gate 17: the floor-get relative path was re-based for the deeper working-directory" {
-  # working-directory moved from ./backend (one level under root) to ./examples/backend
-  # (two levels under root) — every ../-relative reference inside that step needs one
-  # more ../, or it silently resolves to examples/tools/ instead of tools/. Fixed-string
-  # (-F) matches, not regex: the single-level literal is never a substring of the
-  # doubled one at the same offset ("-x ../../tools" never contains "-x ../tools").
-  grep -qF -- '-x ../../tools/floor-get.sh' "$MUTATION"
-  grep -qF -- '../../tools/floor-get.sh backend.mutation.score' "$MUTATION"
-  ! grep -qF -- '-x ../tools/floor-get.sh' "$MUTATION"
-  ! grep -qF -- '"$(../tools/floor-get.sh' "$MUTATION"
+  # The ../-depth must match the working-directory's depth under the root — one ../
+  # per level, no more, no fewer. Fixed-string (-F) matches anchored on '-x ' and '"$(',
+  # so neither depth's literal is a substring of the other's at the same anchor.
+  grep -qF -- "-x ${TOOLS_UP}tools/floor-get.sh" "$MUTATION"
+  grep -qF -- "${TOOLS_UP}tools/floor-get.sh backend.mutation.score" "$MUTATION"
+  ! grep -qF -- "-x ${DEAD_TOOLS_UP}tools/floor-get.sh" "$MUTATION"
+  ! grep -qF -- "\"\$(${DEAD_TOOLS_UP}tools/floor-get.sh" "$MUTATION"
 }
 
 @test "gate 17 DEMONSTRATION: a real production class trips the corrected filter, and would have missed the old one" {
-  glob="examples/backend/src/main/java/**"
-  real_file="examples/backend/src/main/java/com/example/agentsdlc/service/ItemService.java"
-  [ -f "$REPO_ROOT/$real_file" ]
+  glob="${PRODUCT_BACKEND}/src/main/java/**"
+  real_file="$(cd "$REPO_ROOT" && find "${PRODUCT_BACKEND}/src/main/java" -name '*.java' 2>/dev/null | head -n1 || true)"
+  [ -n "$real_file" ] || skip "no product classes at ${PRODUCT_BACKEND} yet — this re-arms once the product is wired in"
   path_matches_dir_glob "$glob" "$real_file"
 
-  old_glob="backend/src/main/java/**"
+  old_glob="$([ "$PRODUCT_BACKEND" = "examples/backend" ] && echo "backend" || echo "examples/backend")/src/main/java/**"
   ! path_matches_dir_glob "$old_glob" "$real_file"
 }
 

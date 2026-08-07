@@ -49,7 +49,12 @@ for arg in "$@"; do
   name="${arg%%=*}"
   rest="${arg#*=}"
   pass="${rest%%:*}"
-  detail="${rest#*:}"
+  # `${rest#*:}` on a `:`-less value is a no-op that would copy the pass value
+  # into detail — an omitted detail must be empty, not "true".
+  case "$rest" in
+    *:*) detail="${rest#*:}" ;;
+    *)   detail="" ;;
+  esac
   [ "$rest" = "$arg" ] && { detail=""; pass="$rest"; }
   case "$pass" in true|false) : ;; *) die "requirement '$arg': pass must be true or false" ;; esac
   REQS_JSON="$(printf '%s' "$REQS_JSON" | jq -c --arg name "$name" --argjson pass "$pass" --arg detail "$detail" \

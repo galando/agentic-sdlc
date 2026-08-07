@@ -34,6 +34,21 @@ to_percent() {
 }
 
 # ---------------------------------------------------------------------------
+# resolve_target <adopter-path> <template-path> — the first that exists, on stdout.
+# The template ships its marked blocks under examples/; an adopter's product lives at
+# backend/ and frontend/ at the repo root (the layout tools/measure-floors.sh names).
+# Probing both keeps one script correct in both trees; exit 1 means neither exists
+# and the caller skips with its own message.
+# ---------------------------------------------------------------------------
+resolve_target() {
+  local p
+  for p in "$1" "$2"; do
+    [ -f "$ROOT/$p" ] && { printf '%s\n' "$p"; return 0; }
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # render_block <file> <key...> <new-content-file>
 #   Rewrites the text strictly between the FLOORS:BEGIN <key...> line and the next
 #   FLOORS:END line, leaving both marker lines and everything else in the file
@@ -90,8 +105,8 @@ PY
 # Backend — JaCoCo coverage ratchet (examples/backend/pom.xml).
 # ---------------------------------------------------------------------------
 render_backend_jacoco() {
-  local target="examples/backend/pom.xml"
-  [ -f "$ROOT/$target" ] || { echo "render-floors: skipped backend coverage ratchet — $target not present in this tree yet"; return 0; }
+  local target
+  target="$(resolve_target backend/pom.xml examples/backend/pom.xml)" || { echo "render-floors: skipped backend coverage ratchet — no backend/pom.xml (or examples/backend/pom.xml) in this tree yet"; return 0; }
 
   local line branch tmp
   line="$(floor_get backend.coverage.line 2>/dev/null || echo unset)"
@@ -114,10 +129,11 @@ render_backend_jacoco() {
 <rules/>
 EOF
   else
-    local provenance
-    provenance="measured line=$(floor_get backend.coverage.line.measured 2>/dev/null || echo '?'), calibrated $(date -u +%Y-%m-%d)"
     cat > "$tmp" <<EOF
-<!-- Calibrated by tools/measure-floors.sh. $provenance. Ratchets UP only —
+<!-- Calibrated by tools/measure-floors.sh — measured value, tool and date live in
+     floors.yml, deliberately NOT repeated here: rendering must be a pure function
+     of floors.yml, and an embedded date made every re-render on a later day a
+     spurious diff for the fast-repo-hygiene drift gate. Ratchets UP only —
      see docs/QUALITY-GATES.md; never hand-lower these values. -->
 <skip>false</skip>
 <rules>
@@ -146,8 +162,8 @@ EOF
 # Backend — PIT mutation threshold (examples/backend/pom.xml property).
 # ---------------------------------------------------------------------------
 render_backend_pit() {
-  local target="examples/backend/pom.xml"
-  [ -f "$ROOT/$target" ] || { echo "render-floors: skipped backend mutation threshold — $target not present in this tree yet"; return 0; }
+  local target
+  target="$(resolve_target backend/pom.xml examples/backend/pom.xml)" || { echo "render-floors: skipped backend mutation threshold — no backend/pom.xml (or examples/backend/pom.xml) in this tree yet"; return 0; }
 
   local score pct tmp
   score="$(floor_get backend.mutation.score 2>/dev/null || echo unset)"
@@ -164,7 +180,7 @@ render_backend_pit() {
 EOF
   else
     cat > "$tmp" <<EOF
-<!-- Calibrated by tools/measure-floors.sh on $(date -u +%Y-%m-%d). Ratchets UP only. -->
+<!-- Calibrated by tools/measure-floors.sh (provenance lives in floors.yml). Ratchets UP only. -->
 <pit.mutationThreshold>${pct}</pit.mutationThreshold>
 EOF
   fi
@@ -175,8 +191,8 @@ EOF
 # Frontend — vitest coverage thresholds (examples/frontend/vitest.config.js).
 # ---------------------------------------------------------------------------
 render_frontend_vitest() {
-  local target="examples/frontend/vitest.config.js"
-  [ -f "$ROOT/$target" ] || { echo "render-floors: skipped frontend coverage thresholds — $target not present in this tree yet"; return 0; }
+  local target
+  target="$(resolve_target frontend/vitest.config.js examples/frontend/vitest.config.js)" || { echo "render-floors: skipped frontend coverage thresholds — no frontend/vitest.config.js (or examples/frontend/vitest.config.js) in this tree yet"; return 0; }
 
   local stmts branches funcs lines tmp
   stmts="$(to_percent "$(floor_get frontend.coverage.statements 2>/dev/null || echo unset)")"
@@ -194,7 +210,7 @@ thresholds: {},
 EOF
   else
     cat > "$tmp" <<EOF
-// Calibrated by tools/measure-floors.sh on $(date -u +%Y-%m-%d). Ratchets UP only.
+// Calibrated by tools/measure-floors.sh (provenance lives in floors.yml). Ratchets UP only.
 thresholds: { statements: ${stmts}, branches: ${branches}, functions: ${funcs}, lines: ${lines} },
 EOF
   fi
@@ -205,8 +221,8 @@ EOF
 # Frontend — Stryker mutation threshold (examples/frontend/stryker.config.mjs).
 # ---------------------------------------------------------------------------
 render_frontend_stryker() {
-  local target="examples/frontend/stryker.config.mjs"
-  [ -f "$ROOT/$target" ] || { echo "render-floors: skipped frontend mutation threshold — $target not present in this tree yet"; return 0; }
+  local target
+  target="$(resolve_target frontend/stryker.config.mjs examples/frontend/stryker.config.mjs)" || { echo "render-floors: skipped frontend mutation threshold — no frontend/stryker.config.mjs (or examples/frontend/stryker.config.mjs) in this tree yet"; return 0; }
 
   local score pct tmp
   score="$(floor_get frontend.mutation.score 2>/dev/null || echo unset)"
@@ -222,7 +238,7 @@ thresholds: { high: 95, low: 85, break: null },
 EOF
   else
     cat > "$tmp" <<EOF
-// Calibrated by tools/measure-floors.sh on $(date -u +%Y-%m-%d). Ratchets UP only.
+// Calibrated by tools/measure-floors.sh (provenance lives in floors.yml). Ratchets UP only.
 thresholds: { high: 95, low: 85, break: ${pct} },
 EOF
   fi

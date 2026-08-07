@@ -58,9 +58,6 @@ most valuable thing on the page, because a single reviewer would have lost it co
 
 ### 1. Get a credential
 
-<!-- placeholder: {{CHALLENGE_BASE_URL}} — the base URL of the compatible endpoint that
-     serves your challenge-role model. tools/init.sh asks for it. -->
-
 Most providers sell two different things, and they are usually not interchangeable:
 
 - **A flat monthly subscription**, typically scoped to *interactive* use of a coding tool.
@@ -92,7 +89,10 @@ you rely on it:
 
 ```bash
 curl -sS -o /dev/null -w "%{http_code}\n" --max-time 20 \
-  -X POST "{{CHALLENGE_BASE_URL}}/v1/messages" \
+  -X POST "$CHALLENGE_BASE_URL/messages" \   # base_url from .agents/config.yml (auth.compatible-endpoint).
+                                             # Convention: base_url INCLUDES the version segment (.../v1),
+                                             # so append only the route — .../v1/v1/messages is the classic
+                                             # double-up when a doc hard-codes both halves.
   -H 'content-type: application/json' -d '{}'
 ```
 
@@ -128,7 +128,7 @@ export AGENT_ALT_CONFIG_DIR=/tmp/challenge-agent && mkdir -p "$AGENT_ALT_CONFIG_
 # from the environment (*_API_KEY, *_AUTH_TOKEN, *_OAUTH_TOKEN, *_BASE_URL), so
 # a provider nobody thought to enumerate cannot survive into the subprocess.
 env -u '<PROVIDER>_API_KEY' -u '<PROVIDER>_AUTH_TOKEN' -u '<PROVIDER>_OAUTH_TOKEN' \
-  AGENT_BASE_URL="{{CHALLENGE_BASE_URL}}" \
+  AGENT_BASE_URL="$CHALLENGE_BASE_URL" \      # auth.compatible-endpoint.base_url from .agents/config.yml
   AGENT_AUTH_TOKEN="$CHALLENGE_API_KEY" \
   timeout 900 <cli> -p "<your prompt>" --model "<the challenge role's exact model id>" \
   > /tmp/challenge-out.md 2>&1

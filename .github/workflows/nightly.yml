@@ -207,6 +207,10 @@ jobs:
   # =========================================================================
   nightly-dependency-scan:
     needs: stacks
+    # Job-level skip when NEITHER stack is present, like every sibling gate:
+    # without it this job runs, every step skips, and the gate reports green
+    # having scanned nothing — indistinguishable from a real pass.
+    if: needs.stacks.outputs.backend == 'true' || needs.stacks.outputs.frontend == 'true'
     runs-on: ${{ vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 60
     steps:

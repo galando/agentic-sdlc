@@ -160,8 +160,15 @@ list_target_files() {
   # name should land, for the same reason a dictionary entry for "red" is not printed in
   # red ink. If this substitution loop touched it, the very first init.sh run would turn the
   # map into an unreadable one-off snapshot instead of a stable reference.
+  # tests/** is excluded for the same reason tools/gen-adopting.sh excludes it: test
+  # fixtures deliberately construct placeholder-shaped strings as literal test data
+  # (init-idempotent's fixture trees, alert.bats' unconfigured-channel case). Substituting
+  # inside them rewrites the expected values the assertions are built on, so the whole
+  # suite is green before the interview and red forever after — found by adopting this
+  # template into a real demo repository, where exactly that happened.
   ( cd "$ROOT" && git ls-files ) \
     | grep -v '^\.temper/specs/' \
+    | grep -v '^tests/' \
     | grep -v '^tools/init\.sh$' \
     | grep -v '^tools/check-placeholders\.sh$' \
     | grep -v '^ADOPTING\.md$'
@@ -264,11 +271,17 @@ if [ -d "$ROOT/examples" ]; then
   fi
   case "$del_reply" in
     y|Y|yes|YES)
-      rm -rf "$ROOT/examples"
-      echo "Deleted examples/."
+      # Deletion is not the whole move: the workflows, the mutation-scope tool and
+      # .gitignore ship targeting the example's paths, and the adopter's product
+      # lives at the root layout (backend/, frontend/). adopt-layout.sh deletes
+      # AND re-points in one idempotent sweep — the first real adoption did this
+      # by hand and counted ~50 references; nobody should do that twice.
+      bash "$ROOT/tools/adopt-layout.sh"
       ;;
     *)
-      echo "Keeping examples/. Delete it any time; tools/measure-floors.sh refuses to run while it is present."
+      echo "Keeping examples/. Delete it any time by running tools/adopt-layout.sh —"
+      echo "it also re-points the workflows at your product's root layout (backend/,"
+      echo "frontend/); tools/measure-floors.sh refuses to run while examples/ is present."
       ;;
   esac
 else

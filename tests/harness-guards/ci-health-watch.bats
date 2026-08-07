@@ -169,12 +169,19 @@ NIGHTLY="$REPO_ROOT/.github/workflows/nightly.yml"
 }
 
 @test "ci-health-watch: the runner label is a placeholder, not a project's label" {
+  # On an ADOPTED tree the interview has legitimately resolved the label; the
+  # guarded invariant — the TEMPLATE must not ship a real project's label — only
+  # binds while the tree is uninitialised.
+  grep -qF '{{PROVIDER}}' "$REPO_ROOT/.agents/config.yml" \
+    || skip "adopted tree: tools/init.sh resolved the runner label"
   grep -q '{{RUNNER_LABEL}}' "$WATCH"
 }
 
 @test "ci-health-watch: the runner label carries its placeholder annotation" {
   # gen-adopting.sh builds the adopter table from these annotations; a token without
   # one is a placeholder nobody is told to resolve.
+  grep -qF '{{PROVIDER}}' "$REPO_ROOT/.agents/config.yml" \
+    || skip "adopted tree: tools/init.sh resolved the runner label"
   grep -q '# placeholder: {{RUNNER_LABEL}}' "$WATCH"
 }
 

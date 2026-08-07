@@ -30,11 +30,15 @@ teardown() {
 }
 
 set_provider() {
-  # Replace every {{PROVIDER}} occurrence (the top-level `provider:` key AND
-  # role_provider.judge / role_provider.execute, which are separately-templated
-  # placeholders resolved to the same value by tools/init.sh). role_provider.challenge
-  # is left alone: it is fixed to compatible-endpoint by design, not a placeholder.
-  sed -i.bak "s/{{PROVIDER}}/$1/g" "$AGENTS_CONFIG"
+  # Replace the QUOTED VALUE of `provider:` and role_provider.judge/execute — never
+  # the {{PROVIDER}} token: on an ADOPTED tree the token is already resolved, and a
+  # token-anchored sed silently leaves the configured provider in place, turning every
+  # stub-provider test below vacuous. Value-anchored, this works in both repo states.
+  # role_provider.challenge is left alone: fixed to compatible-endpoint by design.
+  sed -i.bak -E \
+    -e 's|^provider: "[^"]*"|provider: "'"$1"'"|' \
+    -e '/^role_provider:/,/^[a-zA-Z_]+:/ s|^(  (judge\|execute): +)"[^"]*"|\1"'"$1"'"|' \
+    "$AGENTS_CONFIG"
   rm -f "$AGENTS_CONFIG.bak"
 }
 
@@ -191,8 +195,7 @@ set_provider() {
 @test "an explicit AGENTS_CONFIG still overrides the script's own root" {
   # The override is how CI and this suite point the reader at a scratch config.
   # Single-sourcing the root must not take it away.
-  sed -i.bak "s/{{PROVIDER}}/codex/g" "$AGENTS_CONFIG"
-  rm -f "$AGENTS_CONFIG.bak"
+  set_provider codex
   run env PATH="$BIN_ONLY" "$RUN_AGENT" health --dry-run
   [ "$status" -eq 0 ]
   [[ "$output" == *"provider: codex"* ]]

@@ -264,10 +264,15 @@ teardown() {
   [ "$output" = "sdlc-agent|agent@example.invalid" ]
 }
 
-@test "an unset commit identity still falls back to the literal placeholder" {
+@test "an unset commit identity still falls back to the script's declared placeholder" {
   # The other half of the same guard: the fix must not quietly turn the
-  # placeholder into something that looks like a real address. init.sh rewrites
-  # `{{LEDGER_COMMIT_EMAIL}}`, so the token has to survive verbatim.
+  # placeholder into something that looks like a real address. The expected value
+  # is read from ledger.sh's OWN declaration lines, because init.sh legitimately
+  # rewrites those literals on an adopted tree — the invariant is "fallback equals
+  # what the script declares", in both repo states, not one hardcoded token.
+  name_default="$(sed -nE "s/^ *local name_placeholder='([^']*)'.*/\\1/p" "$LEDGER")"
+  email_default="$(sed -nE "s/^ *local email_placeholder='([^']*)'.*/\\1/p" "$LEDGER")"
+  [ -n "$name_default" ] && [ -n "$email_default" ]
   cd "$WORK/checkout"
   run env -u LEDGER_COMMIT_NAME -u LEDGER_COMMIT_EMAIL \
     "$LEDGER" append ops '{"date":"2026-08-05","verdict":"green","summary":"x"}'
@@ -275,7 +280,7 @@ teardown() {
 
   run git -C "$WORK/remote.git" log -1 --format='%an|%ae' agent-ledger
   [ "$status" -eq 0 ]
-  [ "$output" = "{{LEDGER_COMMIT_NAME}}|{{LEDGER_COMMIT_EMAIL}}" ]
+  [ "$output" = "${name_default}|${email_default}" ]
 }
 
 @test "the script names no agent of its own — the list is config-driven" {

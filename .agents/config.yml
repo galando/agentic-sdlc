@@ -11,8 +11,10 @@
 
 schema: 1                     # integer. Bumped ONLY on a breaking change — see CHANGELOG.md.
 
-provider: "{{PROVIDER}}"      # placeholder: claude-code | codex | gemini-cli | compatible-endpoint.
+provider: "{{PROVIDER}}"      # placeholder: claude-code | codex | gemini-cli.
                                # Must equal a filename in tools/providers/ without the .sh suffix.
+                               # (compatible-endpoint exists as an adapter but serves only the
+                               # challenge role below — tools/init.sh refuses it here.)
 
 # ---------------------------------------------------------------------------
 # Models are addressed by ROLE, never by task and never by vendor name.
@@ -83,7 +85,7 @@ alerts:
   channel: "{{ALERT_CHANNEL}}"      # placeholder: none | webhook | command
   webhook_secret: ALERT_WEBHOOK_URL # used only when channel: webhook
   command: ""                       # used only when channel: command; receives the message on stdin
-  severity_floor: S2                # do not push anything below this; S3 is issue-only
+  severity_floor: S2                # push S2 and above; S1 stays issue-only (S3 is the top of the ladder — see docs/runbooks/agent-escalation.md)
 
 # ---------------------------------------------------------------------------
 # Liveness. Absence must be the signal — but on a BEST-EFFORT scheduler, "did not run

@@ -189,7 +189,16 @@ BASE_URL="$(cfg_get "auth.${PROVIDER}.base_url" "")"
 
 AUTH_TOKEN_VALUE=""
 if [ -n "$TOKEN_SECRET_NAME" ]; then
-  eval "AUTH_TOKEN_VALUE=\"\${${TOKEN_SECRET_NAME}:-}\""
+  # Bash indirection, never eval: token_secret comes from the config file, and
+  # eval on it was a shell-injection surface at workflow runtime. The name is
+  # validated first so indirection cannot blow up on a malformed value either.
+  case "$TOKEN_SECRET_NAME" in
+    *[!A-Za-z0-9_]*|[0-9]*)
+      echo "run-agent.sh: auth.${PROVIDER}.token_secret '$TOKEN_SECRET_NAME' is not a valid environment variable name" >&2
+      exit 3
+      ;;
+  esac
+  AUTH_TOKEN_VALUE="${!TOKEN_SECRET_NAME:-}"
 fi
 
 ALLOWED_TOOLS="${AGENT_ALLOWED_TOOLS_DEFAULT:-Read,Edit,Write,Bash,Grep,Glob}"
@@ -292,7 +301,9 @@ fi
 # Unset any inherited vendor credential before exec: if the original credential survives
 # into the subprocess it wins, and the "different family" second opinion is silently the
 # same model (the compatible-endpoint lesson, generalised — design.md section 3.2).
-for var in $(env | LC_ALL=C awk -F= '/^(ANTHROPIC_|OPENAI_|GEMINI_)/ || /_API_KEY=/{print $1}'); do
+# Both patterns are anchored on the NAME (up to the first `=`): an unanchored
+# /_API_KEY=/ also matched the substring inside a VALUE, unsetting unrelated vars.
+for var in $(env | LC_ALL=C awk -F= '/^(ANTHROPIC_|OPENAI_|GEMINI_)[A-Za-z0-9_]*=/ || /^[A-Za-z0-9_]*_API_KEY=/{print $1}'); do
   unset "$var" 2>/dev/null || true
 done
 

@@ -79,60 +79,84 @@ TODAY="$(date -u +%Y-%m-%d)"
 # "SKIP: <reason>" and returns 1 when the tool's config is not present in this repo —
 # a template instantiation may not have wired up every stack yet (SC3: absent stack
 # skips cleanly, never fails loudly).
+#
+# Measurement targets the ADOPTER'S product at $ROOT/backend and $ROOT/frontend —
+# the layout the closing message names — never examples/ (guard 1 forbids it, and
+# an examples/-prefixed path here would make guard 1 and the measurement paths
+# mutually exclusive: the script could never measure anything at all).
 # ---------------------------------------------------------------------------
 measure_backend_line() {
-  [ -f "$ROOT/examples/backend/pom.xml" ] || { echo "SKIP: no examples/backend/pom.xml"; return 1; }
+  [ -f "$ROOT/backend/pom.xml" ] || { echo "SKIP: no backend/pom.xml"; return 1; }
   command -v mvn >/dev/null 2>&1 || { echo "SKIP: mvn not on PATH"; return 1; }
-  ( cd "$ROOT/examples/backend" && mvn -q -DskipITs clean verify ) >&2
-  csv="$ROOT/examples/backend/target/site/jacoco/jacoco.csv"
+  ( cd "$ROOT/backend" && mvn -q -DskipITs clean verify ) >&2
+  csv="$ROOT/backend/target/site/jacoco/jacoco.csv"
   [ -f "$csv" ] || { echo "SKIP: jacoco.csv not produced"; return 1; }
-  awk -F, 'NR>1{cov+=$4+$5; miss+=$4} END{if (cov==0){print 0} else {printf "%.4f\n", 1 - (miss/cov)}}' "$csv"
+  # Columns 8/9 are LINE_MISSED/LINE_COVERED. 4/5 are the INSTRUCTION counters —
+  # measuring those here while render-floors.sh enforces <counter>LINE</counter>
+  # would calibrate the floor with one instrument and gate with another.
+  awk -F, 'NR>1{cov+=$8+$9; miss+=$8} END{if (cov==0){print 0} else {printf "%.4f\n", 1 - (miss/cov)}}' "$csv"
 }
 
 measure_backend_branch() {
-  [ -f "$ROOT/examples/backend/pom.xml" ] || { echo "SKIP: no examples/backend/pom.xml"; return 1; }
-  csv="$ROOT/examples/backend/target/site/jacoco/jacoco.csv"
+  [ -f "$ROOT/backend/pom.xml" ] || { echo "SKIP: no backend/pom.xml"; return 1; }
+  csv="$ROOT/backend/target/site/jacoco/jacoco.csv"
   [ -f "$csv" ] || { echo "SKIP: jacoco.csv not produced (run the line-coverage measurement first)"; return 1; }
   awk -F, 'NR>1{cov+=$6+$7; miss+=$6} END{if (cov==0){print 0} else {printf "%.4f\n", 1 - (miss/cov)}}' "$csv"
 }
 
 measure_backend_mutation() {
-  [ -f "$ROOT/examples/backend/pom.xml" ] || { echo "SKIP: no examples/backend/pom.xml"; return 1; }
+  [ -f "$ROOT/backend/pom.xml" ] || { echo "SKIP: no backend/pom.xml"; return 1; }
   command -v mvn >/dev/null 2>&1 || { echo "SKIP: mvn not on PATH"; return 1; }
-  grep -q '<id>mutation</id>' "$ROOT/examples/backend/pom.xml" 2>/dev/null || { echo "SKIP: no 'mutation' Maven profile in pom.xml"; return 1; }
-  ( cd "$ROOT/examples/backend" && mvn -q -Pmutation org.pitest:pitest-maven:mutationCoverage ) >&2
-  xml="$(find "$ROOT/examples/backend/target/pit-reports" -name mutations.xml 2>/dev/null | head -n1)"
+  grep -q '<id>mutation</id>' "$ROOT/backend/pom.xml" 2>/dev/null || { echo "SKIP: no 'mutation' Maven profile in pom.xml"; return 1; }
+  ( cd "$ROOT/backend" && mvn -q -Pmutation org.pitest:pitest-maven:mutationCoverage ) >&2
+  xml="$(find "$ROOT/backend/target/pit-reports" -name mutations.xml 2>/dev/null | head -n1)"
   [ -n "$xml" ] || { echo "SKIP: mutations.xml not produced"; return 1; }
   total="$(grep -c '<mutation ' "$xml" || true)"
-  killed="$(grep -c 'status="KILLED"' "$xml" || true)"
+  # status=.KILLED. with either quote style: PIT writes SINGLE-quoted attributes
+  # (status='KILLED'), and a double-quote-only grep counts zero kills — the first
+  # real calibration scored a fully-tested product 0.0000 and wrote a floor of 0,
+  # which is exactly the "indistinguishable from disabled" state floors.yml exists
+  # to prevent.
+  killed="$(grep -cE "status=[\"']KILLED[\"']" "$xml" || true)"
   [ "$total" -gt 0 ] || { echo "SKIP: PIT reported zero mutants"; return 1; }
   awk -v k="$killed" -v t="$total" 'BEGIN{printf "%.4f\n", k/t}'
 }
 
 measure_frontend_vitest() {
-  [ -f "$ROOT/examples/frontend/package.json" ] || { echo "SKIP: no examples/frontend/package.json"; return 1; }
+  [ -f "$ROOT/frontend/package.json" ] || { echo "SKIP: no frontend/package.json"; return 1; }
   command -v npm >/dev/null 2>&1 || { echo "SKIP: npm not on PATH"; return 1; }
-  ( cd "$ROOT/examples/frontend" && npm ci --silent && npx --yes vitest run --coverage ) >&2
-  summary="$ROOT/examples/frontend/coverage/coverage-summary.json"
+  ( cd "$ROOT/frontend" && npm ci --silent && npx --yes vitest run --coverage ) >&2
+  summary="$ROOT/frontend/coverage/coverage-summary.json"
   [ -f "$summary" ] || { echo "SKIP: coverage-summary.json not produced"; return 1; }
   command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; return 1; }
   jq -r '.total | "\(.statements.pct) \(.branches.pct) \(.functions.pct) \(.lines.pct)"' "$summary"
 }
 
 measure_frontend_mutation() {
-  [ -f "$ROOT/examples/frontend/stryker.config.mjs" ] || { echo "SKIP: no examples/frontend/stryker.config.mjs"; return 1; }
+  [ -f "$ROOT/frontend/stryker.config.mjs" ] || { echo "SKIP: no frontend/stryker.config.mjs"; return 1; }
   command -v npm >/dev/null 2>&1 || { echo "SKIP: npm not on PATH"; return 1; }
-  ( cd "$ROOT/examples/frontend" && npx --yes stryker run ) >&2
-  report="$ROOT/examples/frontend/reports/mutation/mutation.json"
+  ( cd "$ROOT/frontend" && npx --yes stryker run ) >&2
+  report="$ROOT/frontend/reports/mutation/mutation.json"
   [ -f "$report" ] || { echo "SKIP: mutation.json not produced"; return 1; }
-  jq -r '.mutationScore' "$report"
+  # There is NO aggregate .mutationScore field in Stryker's JSON report — the file
+  # follows mutation-testing-report-schema (files -> mutants -> status) and the
+  # aggregate is computed, never stored. Compute it the way Stryker's own summary
+  # does: detected (Killed+Timeout) over valid (detected + Survived + NoCoverage),
+  # as a 0..1 ratio, which is what floors.yml stores for every mutation floor.
+  local score
+  score="$(jq -r '[.files[].mutants[].status] as $s
+    | ($s | map(select(. == "Killed" or . == "Timeout")) | length) as $detected
+    | ($s | map(select(. == "Killed" or . == "Timeout" or . == "Survived" or . == "NoCoverage")) | length) as $valid
+    | if $valid == 0 then "SKIP" else ($detected / $valid) end' "$report")"
+  [ "$score" = "SKIP" ] && { echo "SKIP: the report contains zero valid mutants"; return 1; }
+  printf '%s\n' "$score"
 }
 
 measure_frontend_bundle() {
-  [ -f "$ROOT/examples/frontend/package.json" ] || { echo "SKIP: no examples/frontend/package.json"; return 1; }
-  script="$ROOT/examples/frontend/scripts/check-bundle.mjs"
-  [ -f "$script" ] || { echo "SKIP: no examples/frontend/scripts/check-bundle.mjs"; return 1; }
-  ( cd "$ROOT/examples/frontend" && npm run -s build ) >&2
+  [ -f "$ROOT/frontend/package.json" ] || { echo "SKIP: no frontend/package.json"; return 1; }
+  script="$ROOT/frontend/scripts/check-bundle.mjs"
+  [ -f "$script" ] || { echo "SKIP: no frontend/scripts/check-bundle.mjs"; return 1; }
+  ( cd "$ROOT/frontend" && npm run -s build ) >&2
   node "$script" --measure-only
 }
 
@@ -184,6 +208,17 @@ with open(path, "w") as f:
     f.write(text)
 PY
   echo "wrote $key -> $value (measured $measured on $TODAY)"
+
+  # Render IMMEDIATELY after every write, not only at the end of the whole run.
+  # The next measurement's test suite may contain a ratchet guard comparing the
+  # tool configs against floors.yml — and PIT and Stryker both refuse to run on
+  # a red suite, so a write left unrendered turns every LATER mutation
+  # measurement into a "suite not green" skip. Found on the first real
+  # calibration ever run: coverage floors landed, the guards went red, and both
+  # mutation floors silently stayed unset.
+  if [ -x "$ROOT/tools/render-floors.sh" ]; then
+    "$ROOT/tools/render-floors.sh" >/dev/null
+  fi
 }
 
 echo "=== tools/measure-floors.sh — explicitly online, explicitly slow ==="
@@ -201,14 +236,6 @@ measure_and_write() {
   else
     echo "$out"
   fi
-}
-
-vitest_out=""
-measure_vitest_once() {
-  if [ -z "$vitest_out" ]; then
-    vitest_out="$(measure_frontend_vitest)" || return 1
-  fi
-  printf '%s\n' "$vitest_out"
 }
 
 measure_and_write backend.coverage.line   up   jacoco       measure_backend_line

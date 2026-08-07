@@ -34,7 +34,15 @@ SRC_PREFIX="examples/backend/src/main/java/"
 # exactly a pull request's own changes, not everything BASE_REF has gained since the
 # branch point. --diff-filter=ACMR: added, copied, modified or renamed files only — a
 # deleted class has nothing left to mutate.
-files="$(git diff --name-only --diff-filter=ACMR "${BASE_REF}...HEAD" -- "$SRC_PREFIX" 2>/dev/null || true)"
+# The base ref must resolve BEFORE the diff runs. Swallowing a git failure here
+# (`2>/dev/null || true`) turned "unknown or unfetched base ref" into an empty
+# scope, which the caller reads as "nothing to mutate" — the silent narrowing the
+# header above says must fail loudly.
+git rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null || {
+  echo "mutation-scope.sh: base ref '${BASE_REF}' does not resolve to a commit (unfetched shallow clone?) — refusing to report an empty scope" >&2
+  exit 1
+}
+files="$(git diff --name-only --diff-filter=ACMR "${BASE_REF}...HEAD" -- "$SRC_PREFIX")"
 
 scope=""
 while IFS= read -r f; do

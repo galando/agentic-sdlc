@@ -30,10 +30,13 @@ jobs:
 
       # Official install method from actionlint's own usage docs
       # (https://github.com/rhysd/actionlint/blob/main/docs/usage.md) — a self-contained
-      # download script, no marketplace action dependency.
+      # download script, no marketplace action dependency. Pinned to a release TAG, not
+      # `main`: this is a required FAST gate, and piping an unpinned script from a
+      # moving branch into bash is a supply-chain exposure in the one workflow whose
+      # job is to guard the others. Bump the tag deliberately, with the version arg.
       - name: Download actionlint
         id: get_actionlint
-        run: bash <(curl -sS https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+        run: bash <(curl -sS https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
         shell: bash
 
       - name: Check workflow files

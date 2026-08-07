@@ -47,7 +47,13 @@ cmd_predecessor() {
   [ -n "$agent" ] || die "usage: check-liveness.sh predecessor <agent>"
   pred="$(cfg_predecessor "$agent")" || die "cannot resolve $agent's predecessor"
   max_age="$(cfg_agent_field "$pred" max-age-hours 2>/dev/null || true)"
-  [ -n "$max_age" ] || max_age="$(cfg_get liveness.max-age-hours)"
+  if [ -z "$max_age" ]; then
+    # `|| die`, not a bare assignment: this file runs without -e, so a missing
+    # config key would leave the threshold empty, every numeric comparison below
+    # would silently evaluate false, and the check would report "ok" — a liveness
+    # gate turned green by the very misconfiguration it exists to catch.
+    max_age="$(cfg_get liveness.max-age-hours)" || die "liveness.max-age-hours is missing from .agents/config.yml — refusing to answer 'ok' with no threshold"
+  fi
 
   git fetch -q origin "$BRANCH" 2>/dev/null || true
   if ! age="$(_entry_age_hours "$pred")"; then
@@ -64,7 +70,8 @@ cmd_predecessor() {
 
 cmd_staleness() {
   local staleness newest="" agent age
-  staleness="$(cfg_get liveness.staleness-hours)"
+  # Same rule as cmd_predecessor: a missing threshold must fail, never report ok.
+  staleness="$(cfg_get liveness.staleness-hours)" || die "liveness.staleness-hours is missing from .agents/config.yml — refusing to answer 'ok' with no threshold"
 
   git fetch -q origin "$BRANCH" 2>/dev/null || true
   while IFS= read -r agent; do

@@ -30,7 +30,6 @@ SENTENCE="floor not yet calibrated — run tools/measure-floors.sh against your 
 keys="$(grep -E '^  [A-Za-z0-9_.-]+:' "$FLOORS_FILE" | sed -E 's/^  //; s/:.*$//' | grep -F "$SCOPE" || true)"
 [ -z "$keys" ] && exit 0
 
-any=0
 {
   echo "| Floor | Status |"
   echo "|---|---|"
@@ -40,7 +39,6 @@ any=0
     if [ "$val" = "unset" ]; then
       echo "::notice title=Floor not calibrated::${key}: ${SENTENCE}"
       echo "| $key | uncalibrated |"
-      any=1
     fi
   done <<<"$keys"
     # tee WITHOUT `>/dev/null`. Discarding stdout here sent the whole block to the step
@@ -52,5 +50,4 @@ any=0
     # nobody needed telling. Both destinations, always.
 } | { if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then tee -a "$GITHUB_STEP_SUMMARY"; else cat; fi; }
 
-[ "$any" -eq 1 ] || true
 exit 0

@@ -57,7 +57,10 @@ WORKFLOWS="$REPO_ROOT/.github/workflows"
         false
         ;;
     esac
-  done < <(find "$REPO_ROOT/tests" -name '*.bats' -type f)
+  done < <(find "$REPO_ROOT" -path "$REPO_ROOT/.git" -prune -o -name node_modules -prune -o -name '*.bats' -type f -print)
+  # Repo-wide find, not tests/-rooted: rooted at tests/ the `*)` branch above was
+  # unreachable dead code, and a .bats file added under tools/ or the repo root
+  # would have been silently unrun — the exact failure this file exists to catch.
 }
 
 # The `fast-harness-guards:` job block alone, first line to the line before the next

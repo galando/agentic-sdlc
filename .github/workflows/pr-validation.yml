@@ -37,12 +37,12 @@ on:
 #   fast-unit-tests, fast-frontend-checks, fast-harness-guards,
 #   fast-repo-hygiene, fast-actionlint, fast-secret-scan, fast-spec-artifacts
 #
-# NOT YET IN THE TREE: `fast-actionlint` and `fast-spec-artifacts`. Their
-# workflows arrive with the agent-plumbing change. Requiring a context whose job
-# does not exist parks every pull request on "waiting for status to be reported"
-# forever — the same wedge as the paths filter this file exists to warn about,
-# reached by a shorter route. docs/runbooks/branch-protection.md carries the
-# check-before-you-paste loop and the two-stage ruleset.
+# All seven exist in the tree (`actionlint.yml` and `spec-artifacts.yml` carry
+# the last two). Never require a context whose job does not exist: that parks
+# every pull request on "waiting for status to be reported" forever — the same
+# wedge as the paths filter this file exists to warn about, reached by a shorter
+# route. docs/runbooks/branch-protection.md carries the check-before-you-paste
+# loop and the two-stage ruleset.
 #
 # and the FULL tier is promoted within the first week:
 #   full-integration-tests, full-migration-validation, full-mutation-on-diff,
@@ -134,11 +134,12 @@ jobs:
           FLYWAY_URL: jdbc:postgresql://localhost:5432/${{ vars.VALIDATE_DB_NAME || 'validatedb' }}
           FLYWAY_USER: ${{ vars.VALIDATE_DB_USER || 'postgres' }}
           FLYWAY_PASSWORD: ${{ secrets.VALIDATE_DB_PASSWORD || 'validate-pw' }}
+        # No -Dflyway.url/-Dflyway.user/-Dflyway.password flags: Flyway reads the
+        # FLYWAY_* env vars above natively, and a -D flag would expand the secret
+        # into mvn's argv — exactly the process-listing exposure the env block
+        # exists to prevent.
         run: |
           mvn -B flyway:migrate flyway:validate \
-            -Dflyway.url="$FLYWAY_URL" \
-            -Dflyway.user="$FLYWAY_USER" \
-            -Dflyway.password="$FLYWAY_PASSWORD" \
             -Dflyway.cleanDisabled=false
 
       - name: Report drift on failure

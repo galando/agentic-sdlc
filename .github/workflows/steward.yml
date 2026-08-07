@@ -172,6 +172,19 @@ jobs:
             echo "::notice title=Steward disabled::Provider '$provider' is an UNVERIFIED STUB (see tools/providers/$provider.sh). The steward is inert until it is promoted: confirm its flags ($docs_url), set ADAPTER_STATUS=verified, then re-run tools/init.sh."
           fi
 
+      # The agent CLI writes nothing to $GITHUB_OUTPUT, so "which branch did the
+      # agent push?" is answered by the REMOTE, not by the agent: snapshot the
+      # agent/* heads before the run, diff after. Without this pair of steps the
+      # pull-request step below could never fire — its condition read an output
+      # nothing ever set, while the triage prompt told the agent the workflow
+      # would open the pull request. Both sides deferred to the other and no
+      # pull request was ever opened.
+      - name: Snapshot agent branches before the run
+        id: pre-branches
+        run: |
+          git ls-remote --heads origin 'refs/heads/agent/*' | awk '{print $2}' | sort > /tmp/agent-branches-before.txt
+          echo "$(wc -l < /tmp/agent-branches-before.txt) agent/* branch(es) on the remote before the run."
+
       - name: Run the steward
         id: agent
         if: steps.harness-gate.outputs.enabled == 'true'
@@ -198,16 +211,38 @@ jobs:
             --prompt-file "$AGENT_PROMPT_FILE" \
             --timeout 3300
 
+      # Runs even when the agent step FAILED (but not when the operator
+      # cancelled): an agent that pushed a branch and then died still left work
+      # worth surfacing, and the outcome check below needs the answer either way.
+      - name: Detect the branch the agent pushed, if any
+        id: agent-branch
+        if: ${{ !cancelled() && steps.harness-gate.outputs.enabled == 'true' }}
+        run: |
+          git ls-remote --heads origin 'refs/heads/agent/*' | awk '{print $2}' | sort > /tmp/agent-branches-after.txt
+          # A concurrent steward run on another issue could in principle push in
+          # the same window; take the first new branch and say so if there are more.
+          new_all="$(comm -13 /tmp/agent-branches-before.txt /tmp/agent-branches-after.txt)"
+          new="$(printf '%s\n' "$new_all" | head -n1)"
+          new="${new#refs/heads/}"
+          if [ -n "$new" ]; then
+            echo "branch_name=$new" >> "$GITHUB_OUTPUT"
+            echo "The agent pushed '$new' during this run."
+            [ "$(printf '%s\n' "$new_all" | grep -c .)" -gt 1 ] && echo "::notice::More than one new agent/* branch appeared during this run; acting on '$new'."
+            exit 0
+          fi
+          echo "branch_name=" >> "$GITHUB_OUTPUT"
+          echo "No new agent/* branch appeared during this run."
+
       # Title and body are built in a heredoc from ENV VARS, never spliced into
       # the shell or into a YAML expression. Two reasons, and both have bitten:
       # a value containing " #" inside a plain YAML scalar truncates the whole
       # file (see above), and an untrusted issue title spliced into a shell
       # command is an injection. Env-var indirection keeps untrusted issue titles out of the shell.
       - name: Open a pull request for the agent's branch, if any
-        if: steps.agent.outputs.branch_name != ''
+        if: steps.agent-branch.outputs.branch_name != ''
         env:
           GH_TOKEN: ${{ secrets.STEWARD_HANDOFF_PAT || github.token }}
-          BRANCH: ${{ steps.agent.outputs.branch_name }}
+          BRANCH: ${{ steps.agent-branch.outputs.branch_name }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
@@ -219,11 +254,11 @@ jobs:
             exit 0
           fi
           git fetch origin "$BASE" "$BRANCH" --depth=50
-          # `branch_name` is set even when nothing was committed, so the branch
-          # existing is not enough — it must be AHEAD of the base. Upstream this
-          # read `git log origin/main..origin/$BRANCH`; the base is resolved from
-          # the repository's actual default branch here, because a template that
-          # hard-codes `main` silently does nothing on a repo that does not use it.
+          # A pushed branch is not enough — it must be AHEAD of the base.
+          # Upstream this read `git log origin/main..origin/$BRANCH`; the base is
+          # resolved from the repository's actual default branch here, because a
+          # template that hard-codes `main` silently does nothing on a repo that
+          # does not use it.
           if [ -z "$(git log "origin/$BASE..origin/$BRANCH" --oneline 2>/dev/null)" ]; then
             echo "No commits ahead of $BASE on $BRANCH — nothing to open a pull request for."
             exit 0
@@ -275,7 +310,7 @@ jobs:
         if: ${{ !cancelled() && github.event_name == 'issues' && github.event.action == 'opened' && steps.harness-gate.outputs.enabled == 'true' }}
         uses: actions/github-script@v7
         env:
-          AGENT_BRANCH: ${{ steps.agent.outputs.branch_name }}
+          AGENT_BRANCH: ${{ steps.agent-branch.outputs.branch_name }}
           STARTED_AT: ${{ steps.jobstart.outputs.iso }}
         with:
           script: |
@@ -294,9 +329,10 @@ jobs:
             });
             const posted = comments.find(c => new Date(c.created_at) >= startedAt);
 
-            // Outcome 2: a branch was actually pushed. `branch_name` is set
-            // even when nothing was committed, so existence on the remote is the real signal
-            // — the same check the pull-request step makes.
+            // Outcome 2: a branch was actually pushed — `branch_name` comes
+            // from the remote-diff step above, and even so a name is not proof:
+            // existence on the remote is the real signal, re-checked here the
+            // same way the pull-request step checks it.
             let pushed = false;
             const branch = process.env.AGENT_BRANCH;
             if (branch) {

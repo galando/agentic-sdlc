@@ -66,11 +66,10 @@ script records its path in the entry's `narrative` field.
 | `ping` | object | `summary_message_id`, and `incident` (id or `null`) |
 
 The `summary` and the narrative file are prose a human reads, so the plain-language
-rule applies (`AGENTS.md` guardrail 6, `agent-communication-style.md`): say what
-happened, what you changed, and why, in simple everyday words — short sentences,
-jargon expanded, no fluff — and say plainly what you did *not* do. It does not apply
-to the structured fields below: `metrics`, `pending`, `handoff` and the evidence in
-the narrative stay exactly as precise as they are.
+rule applies — it lives in `agent-communication-style.md` (`AGENTS.md` guardrail 6),
+not here. What this file adds is the scoping: the rule does not apply to the
+structured fields below — `metrics`, `pending`, `handoff` and the evidence in the
+narrative stay exactly as precise as they are.
 
 ### Optional but load-bearing
 
@@ -85,30 +84,24 @@ the narrative stay exactly as precise as they are.
   missing field and must not be conflated with a clean result.
 - **`narrative`** — path to the long-form file. Set for you by the script.
 - **`handoff`** — array of `{"to": "<agent-key>", "note": "...", "expires": "YYYY-MM-DD"}`.
-  The agent-to-agent communication channel: every scheduled agent reads its sibling
-  entries for handoffs addressed to it and must act on, answer, or explicitly decline each
-  one on its next run — today's entry for an agent that fires before it, the most recent
-  entry for one that fires after it (`agent-routines.md`, efficiency rule 7). An item
-  still open past its `expires` date is a gap the chief of staff's brief surfaces. Omit
-  the field, or use `[]`, when there is nothing to hand off.
+  The agent-to-agent communication channel. An item still open past its `expires` date is
+  a gap the chief of staff's brief surfaces. Omit the field, or use `[]`, when there is
+  nothing to hand off.
 
   **Resolution is the receiver's own entry, not a mutation of this one.** These files are
-  append-only, so a handoff cannot be edited, deleted, or marked done in place — it stays
-  byte-identical for as long as it sits inside a reader's window. A handoff is discharged
-  when the receiving agent's *own* ledger records that it acted on, answered, or declined
-  it; from then on the receiver must not act on it again. **Every agent must check its own
-  recent entries for that answer before treating a handoff as new work.** Rule 7's
-  later-firing branch reads two entries, and an every-two-days or lapsed cadence stretches
-  those across several days, so a handoff you already answered can reappear on a later run
-  and buy the same work twice. (The earlier-firing branch reads a single entry and cannot
-  repeat, but the check is cheap and unconditional rather than something to reason about
-  per sibling.)
+  append-only, so a handoff cannot be edited, deleted, or marked done in place; it is
+  discharged when the receiving agent's *own* ledger records that it acted on, answered,
+  or declined it. The full reading-and-discharge procedure — read depths per firing
+  order, covering your own gaps, the prior-answer check, re-sent counts — lives in ONE
+  place, efficiency rule 7 in `agent-routines.md`, and is not restated here.
 - **`topic`** — lowercase kebab-case slug naming the system and symptom investigated
   (`backend-restarts`); written by whichever agent performs deep-dive investigations. This
   is what makes handoff resolution decidable: the investigating agent reads its own last
   seven entries and skips a handoff whose slug already appears there **unless the handoff
-  carries evidence the earlier entry did not have**, in which case it is a fresh recurrence
-  and gets a fresh look. **Required on every deep-dive entry** — an absent `topic` reads as
+  carries evidence the earlier entry did not have** — the mechanism or symptom itself
+  changed — **and 7+ days have passed**; elapsed time alone never re-permits a dive, so
+  one persistent incident costs one investigation however long it persists.
+  **Required on every deep-dive entry** — an absent `topic` reads as
   "never investigated" and buys the same multi-hour dig again tomorrow. Use
   `"topic": "none"` on a no-target run: that is the one reserved value, it matches no
   handoff, and it distinguishes "this run investigated nothing" from a deep-dive entry that
@@ -120,8 +113,8 @@ the narrative stay exactly as precise as they are.
   confirming whether the signal it targeted actually changed in production. This is what
   makes PR-acceptance rate an arithmetic series instead of a recalled impression. `metric`
   must name the end-state signal that would still be wrong if the defect were present,
-  never the mechanism the PR changed. "The reload returned 200" and "the system is serving
-  the configuration we committed" are different claims, and only the second one is a fix.
+  never the mechanism the PR changed — that distinction, and the rest of the rule, live
+  in `agent-routines.md` and are not restated here.
 - **`mode`** — `"light"` | `"heavy"`, chief of staff only. Marks whether a given run did
   just the daily brief or also the self-gated retrospective and planning pass
   (`agent-routines.md`). The agent reads its own last seven entries for the most recent

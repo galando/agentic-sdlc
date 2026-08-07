@@ -14,11 +14,10 @@ usefully — a vendor's own scheduler can replace `agents-scheduled.yml` one-for
 touching them, because they reference only repository files. This document explains the
 rules those prompts inherit; it does not duplicate them.
 
-**Every prompt inherits the plain-language rule** (`AGENTS.md` guardrail 6, efficiency rule
-8, `agent-communication-style.md`): whatever an agent writes for a human says what was
-wrong, what it changed, and why, in simple everyday words with no fluff. It applies whether
-or not an individual prompt repeats it, and it applies to any agent added after this line —
-**do not treat silence in a prompt as an exemption.**
+**Every prompt inherits the plain-language rule** — the rule itself lives in
+`agent-communication-style.md` (`AGENTS.md` guardrail 6; efficiency rule 8 below is the
+same pointer). It applies whether or not an individual prompt repeats it, and it applies
+to any agent added after this line — **do not treat silence in a prompt as an exemption.**
 
 ---
 
@@ -372,15 +371,11 @@ signals:
    the discharge check — two own-history reads of different widths are not in conflict, they
    answer different questions. And **an updated count in a re-sent handoff is not a new
    handoff**: same sender, same still-open item, moved numbers ⇒ you already answered it.
-8. **Write to humans in plain language** (`agent-communication-style.md`, `AGENTS.md`
-   guardrail 6). Every ledger `summary`, narrative file, alert line, issue, pull-request body
-   and comment says **what was wrong, what you changed, and why**, in simple everyday words —
-   short sentences, jargon expanded on first use, no filler. State plainly what you did *not*
-   do, and only say "fixed" about something you **verified**. This is a rule about the
-   *prose*, not the evidence: JSON fields, metrics, queries, gate tables and log excerpts stay
-   exactly as precise as they are, they just sit **below** the plain summary. It binds every
-   agent listed here and every agent added later — including one whose prompt forgets to
-   mention it.
+8. **Write to humans in plain language.** The rule and its worked examples live in ONE
+   place — `agent-communication-style.md` (`AGENTS.md` guardrail 6) — and are deliberately
+   not restated here: a rule repeated in five prompts is a rule that diverges in five
+   prompts, and the same goes for runbooks. It binds every agent listed here and every
+   agent added later — including one whose prompt forgets to mention it.
 
 ---
 

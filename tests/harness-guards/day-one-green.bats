@@ -17,19 +17,31 @@
 
 REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 
-@test "placeholder check passes, loudly, while the template is uninitialised" {
-  # The shipped tree IS the uninitialised state: .agents/config.yml still holds tokens.
+@test "placeholder check passes loudly pre-init, and strictly clean post-init" {
+  # The shipped tree is the uninitialised state; an adopted tree is the strict state.
+  # Both must exit 0 on a clean tree — what changes is which message proves the check
+  # actually looked.
   run "$REPO_ROOT/tools/check-placeholders.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"NOT a failure"* ]]
-  [[ "$output" == *"init.sh"* ]]
+  if grep -qF '{{PROVIDER}}' "$REPO_ROOT/.agents/config.yml"; then
+    [[ "$output" == *"NOT a failure"* ]]
+    [[ "$output" == *"init.sh"* ]]
+  else
+    [[ "$output" == *"clean"* ]]
+  fi
 }
 
 @test "placeholder check announces itself in CI, where the reader actually looks" {
-  # Printed prose scrolls past in a log. An annotation is what surfaces on the run.
+  # Printed prose scrolls past in a log. An annotation is what surfaces on the run —
+  # and on an adopted tree the annotation must be ABSENT, or every CI run carries a
+  # stale "not initialised" warning forever.
   run env GITHUB_ACTIONS=true "$REPO_ROOT/tools/check-placeholders.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"::warning title=Template not initialised::"* ]]
+  if grep -qF '{{PROVIDER}}' "$REPO_ROOT/.agents/config.yml"; then
+    [[ "$output" == *"::warning title=Template not initialised::"* ]]
+  else
+    [[ "$output" != *"Template not initialised"* ]]
+  fi
 }
 
 @test "placeholder check turns STRICT the moment the config is filled in" {
@@ -78,8 +90,23 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   [ "$status" -ne 0 ]
 }
 
+backend_pom() {
+  # Layout-aware: the template ships the product at examples/backend; an adopted
+  # tree carries it at backend/ (tools/adopt-layout.sh). Neither present yet — the
+  # window between deleting the example and wiring a product in — is a skip, not
+  # a failure: there is no pom for the claim to be about.
+  if [ -f "$REPO_ROOT/examples/backend/pom.xml" ]; then
+    echo "$REPO_ROOT/examples/backend/pom.xml"
+  elif [ -f "$REPO_ROOT/backend/pom.xml" ]; then
+    echo "$REPO_ROOT/backend/pom.xml"
+  else
+    return 1
+  fi
+}
+
 @test "surefire is told, in the pom, to leave the docker and live tags to failsafe" {
-  run grep -A20 'maven-surefire-plugin' "$REPO_ROOT/examples/backend/pom.xml"
+  pom="$(backend_pom)" || skip "no backend pom in this tree yet"
+  run grep -A20 'maven-surefire-plugin' "$pom"
   [[ "$output" == *"<excludedGroups>docker,live</excludedGroups>"* ]]
 }
 
@@ -87,7 +114,8 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   # `mvn flyway:migrate` with no plugin declaration resolves whatever the prefix points
   # at today, with no JDBC driver and no connection details, and fails on contact with the
   # database — reporting migration drift that does not exist.
-  run grep -A3 'flyway-maven-plugin' "$REPO_ROOT/examples/backend/pom.xml"
+  pom="$(backend_pom)" || skip "no backend pom in this tree yet"
+  run grep -A3 'flyway-maven-plugin' "$pom"
   [ "$status" -eq 0 ]
   [[ "$output" == *'${flyway.version}'* ]]
 }

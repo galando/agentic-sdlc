@@ -78,9 +78,13 @@ find_annotation() {
     line="$(grep -m1 -E "\{\{${tok}\}\}.*placeholder:|placeholder:.*\{\{${tok}\}\}" "$f" 2>/dev/null || true)"
     [ -z "$line" ] && continue
     note="${line#*placeholder:}"
-    note="$(printf '%s' "$note" | sed -E 's/-->\s*$//; s/^[[:space:]]*//; s/[[:space:]]*$//')"
-    # Drop a leading "TOKENNAME — " (double-brace form) if the annotation restates the token.
-    note="$(printf '%s' "$note" | sed -E "s/^\{\{${tok}\}\}[[:space:]]*[—-][[:space:]]*//")"
+    # Cut at the FIRST comment terminator, not only a trailing one — an annotation
+    # whose --> sits mid-line otherwise leaks the prose after it into the table.
+    note="$(printf '%s' "$note" | sed -E 's/[[:space:]]*-->.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//')"
+    # Drop a leading "TOKENNAME — " (double-brace form) if the annotation restates the
+    # token. (—|–|-) as an alternation, not a bracket expression: in a non-UTF-8 locale
+    # a bracket matches ONE BYTE and would leave two thirds of the em dash behind.
+    note="$(printf '%s' "$note" | sed -E "s/^\{\{${tok}\}\}[[:space:]]*(—|–|-)[[:space:]]*//")"
     [ -n "$note" ] && { printf '%s' "$note"; return 0; }
   done < <(scan_files | sort)
   printf 'no annotation found — add "# placeholder: ..." at its point of use'
