@@ -192,6 +192,17 @@ with open(path, "w") as f:
     f.write(text)
 PY
   echo "wrote $key -> $value (measured $measured on $TODAY)"
+
+  # Render IMMEDIATELY after every write, not only at the end of the whole run.
+  # The next measurement's test suite may contain a ratchet guard comparing the
+  # tool configs against floors.yml — and PIT and Stryker both refuse to run on
+  # a red suite, so a write left unrendered turns every LATER mutation
+  # measurement into a "suite not green" skip. Found on the first real
+  # calibration ever run: coverage floors landed, the guards went red, and both
+  # mutation floors silently stayed unset.
+  if [ -x "$ROOT/tools/render-floors.sh" ]; then
+    "$ROOT/tools/render-floors.sh" >/dev/null
+  fi
 }
 
 echo "=== tools/measure-floors.sh — explicitly online, explicitly slow ==="
