@@ -59,9 +59,10 @@ done
 # --- Guard 1: refuse while the bundled example is present -------------------
 if [ -d "$ROOT/examples" ]; then
   die "examples/ is still present. Floors measured against the bundled example are
-floors calibrated to a toy service you were invited to delete. Remove or move
-examples/ first. There is no --anyway flag; this guard is the whole mechanism
-behind SC12b."
+floors calibrated to a toy service you were invited to delete. Run
+tools/adopt-layout.sh — it deletes examples/ AND re-points the harness at your
+product's root layout in one idempotent step — commit that, then re-run this.
+There is no --anyway flag; this guard is the whole mechanism behind SC12b."
 fi
 
 # --- Guard 2: refuse on a dirty working tree ---------------------------------
