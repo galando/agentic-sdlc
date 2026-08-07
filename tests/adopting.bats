@@ -23,13 +23,19 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
   [ "$status" -eq 0 ]
 }
 
-@test "every real P1 token has a row in the generated table" {
+@test "every real P1 token still present in the tree has a row in the generated table" {
   # Real interview tokens (tools/init.sh's own TOKENS array) must each appear as a row,
-  # not just P2/P4/P5 tokens.
+  # not just P2/P4/P5 tokens — WHILE the token still occurs in the scanned tree. After
+  # tools/init.sh has run, a resolved token legitimately has zero occurrences and zero
+  # rows; requiring the row unconditionally made this test fail on every adopted
+  # repository the moment the interview completed, forever.
+  cd "$REPO_ROOT"
   for tok in PRODUCT_NAME PROVIDER MODEL_JUDGE MODEL_EXECUTE MODEL_CHALLENGE \
              CHALLENGE_BASE_URL ALERT_CHANNEL RUNNER_LABEL LEDGER_COMMIT_NAME \
              LEDGER_COMMIT_EMAIL BUILD_PIPELINE; do
-    grep -qF "{{${tok}}}" "$REPO_ROOT/ADOPTING.md"
+    if git grep -l -F "{{${tok}}}" -- ':!tests' ':!.temper/specs' ':!ADOPTING.md' >/dev/null 2>&1; then
+      grep -qF "{{${tok}}}" "$REPO_ROOT/ADOPTING.md"
+    fi
   done
 }
 

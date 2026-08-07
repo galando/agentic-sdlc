@@ -160,8 +160,15 @@ list_target_files() {
   # name should land, for the same reason a dictionary entry for "red" is not printed in
   # red ink. If this substitution loop touched it, the very first init.sh run would turn the
   # map into an unreadable one-off snapshot instead of a stable reference.
+  # tests/** is excluded for the same reason tools/gen-adopting.sh excludes it: test
+  # fixtures deliberately construct placeholder-shaped strings as literal test data
+  # (init-idempotent's fixture trees, alert.bats' unconfigured-channel case). Substituting
+  # inside them rewrites the expected values the assertions are built on, so the whole
+  # suite is green before the interview and red forever after — found by adopting this
+  # template into a real demo repository, where exactly that happened.
   ( cd "$ROOT" && git ls-files ) \
     | grep -v '^\.temper/specs/' \
+    | grep -v '^tests/' \
     | grep -v '^tools/init\.sh$' \
     | grep -v '^tools/check-placeholders\.sh$' \
     | grep -v '^ADOPTING\.md$'
