@@ -138,9 +138,18 @@ measure_frontend_mutation() {
   ( cd "$ROOT/frontend" && npx --yes stryker run ) >&2
   report="$ROOT/frontend/reports/mutation/mutation.json"
   [ -f "$report" ] || { echo "SKIP: mutation.json not produced"; return 1; }
-  # Stryker's mutationScore is a PERCENTAGE (e.g. 87.88); floors.yml stores
-  # coverage/mutation floors as 0..1 ratios and write_floor scales by 100 itself.
-  jq -r '.mutationScore / 100' "$report"
+  # There is NO aggregate .mutationScore field in Stryker's JSON report — the file
+  # follows mutation-testing-report-schema (files -> mutants -> status) and the
+  # aggregate is computed, never stored. Compute it the way Stryker's own summary
+  # does: detected (Killed+Timeout) over valid (detected + Survived + NoCoverage),
+  # as a 0..1 ratio, which is what floors.yml stores for every mutation floor.
+  local score
+  score="$(jq -r '[.files[].mutants[].status] as $s
+    | ($s | map(select(. == "Killed" or . == "Timeout")) | length) as $detected
+    | ($s | map(select(. == "Killed" or . == "Timeout" or . == "Survived" or . == "NoCoverage")) | length) as $valid
+    | if $valid == 0 then "SKIP" else ($detected / $valid) end' "$report")"
+  [ "$score" = "SKIP" ] && { echo "SKIP: the report contains zero valid mutants"; return 1; }
+  printf '%s\n' "$score"
 }
 
 measure_frontend_bundle() {
