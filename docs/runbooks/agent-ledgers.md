@@ -27,6 +27,20 @@ One list. A second list of agent names anywhere else is a second source of truth
 drift. The shipped default is `health`, `quality`, `audit`, `chief-of-staff`,
 `challenger`.
 
+## Creating the branch
+
+One idempotent command — `tools/init.sh` offers to run it at the end of the
+interview, and it is safe to run any number of times afterwards:
+
+```bash
+tools/create-ledger-branch.sh
+```
+
+It pushes one empty root commit to the configured branch name (`ledger.branch`)
+via git plumbing, so it never switches your checked-out branch or touches your
+working files. That is the whole of the manual ledger setup; `tools/ledger.sh`
+does everything else from then on.
+
 ## Reading state at session start
 
 ```bash

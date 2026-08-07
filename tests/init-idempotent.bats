@@ -294,3 +294,27 @@ $line" ;;
   run bash tools/check-placeholders.sh
   [ "$status" -eq 0 ]
 }
+
+@test "init.sh removes the template's explainer site and its Pages workflow, and says so" {
+  cd "$FIXTURE"
+  mkdir -p site .github/workflows
+  echo '<title>template site</title>' > site/index.html
+  echo 'name: pages' > .github/workflows/pages.yml
+  run bash tools/init.sh --answers answers.env
+  [ "$status" -eq 0 ]
+  [ ! -d site ]
+  [ ! -f .github/workflows/pages.yml ]
+  [[ "$output" == *"explainer site"* ]]
+}
+
+@test "init.sh's ledger-branch offer defaults to skip non-interactively, pointing at the tool" {
+  # The interview's offline contract must hold on the DEFAULT path: with no TTY
+  # and no CREATE_LEDGER_BRANCH=y, nothing network-shaped runs — the offer prints
+  # the one command to run later instead.
+  cd "$FIXTURE"
+  run bash tools/init.sh --answers answers.env
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Agent ledger branch"* ]]
+  [[ "$output" == *"tools/create-ledger-branch.sh"* ]]
+  [[ "$output" == *"Skipped."* ]]
+}

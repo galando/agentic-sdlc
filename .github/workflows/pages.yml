@@ -9,6 +9,13 @@
 # the default branch, and must never appear in branch protection's required contexts
 # (see docs/runbooks/branch-protection.md — a check that does not report on every PR
 # must not be required).
+#
+# TEMPLATE-REPOSITORY-ONLY, and the job guard below enforces it: the site describes the
+# TEMPLATE, not any product adopted from it, and a fresh instantiation inherits this
+# file before tools/init.sh can remove it — its very first push then fired a deploy
+# against a repository where Pages is not enabled, greeting every adopter with a red
+# run about content that was never theirs. With the guard, an instantiation shows one
+# skipped run at worst; init.sh deletes site/ and this file for good.
 name: pages
 
 on:
@@ -30,6 +37,9 @@ concurrency:
 
 jobs:
   deploy:
+    # Job-level if:, not a paths trick — it must SKIP (reporting nothing red) on
+    # every repository generated from this template. See the header.
+    if: github.repository == 'galando/agentic-sdlc'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
