@@ -147,7 +147,10 @@ and the exact rules. The short version:
   product (explicitly online, explicitly slow — the opposite contract to `init.sh`) to
   arm the ratchet against your own measured baseline. It refuses to run while
   `examples/` still exists, so a floor can never be calibrated to the bundled toy
-  service.
+  service. When you are ready, `tools/adopt-layout.sh` retires the example **and**
+  re-points the whole harness (workflows, tools, `.gitignore`) at your product's
+  root layout — `backend/` and `frontend/` — in one idempotent step; the harness
+  guards detect the layout themselves and need no editing.
 - **Your floors are your measured baseline; they only move up from there.** Never
   someone else's finish line — see the worked-example numbers in
   `docs/QUALITY-GATES.md`, which are one team's result after months of ratcheting, not

@@ -271,11 +271,17 @@ if [ -d "$ROOT/examples" ]; then
   fi
   case "$del_reply" in
     y|Y|yes|YES)
-      rm -rf "$ROOT/examples"
-      echo "Deleted examples/."
+      # Deletion is not the whole move: the workflows, the mutation-scope tool and
+      # .gitignore ship targeting the example's paths, and the adopter's product
+      # lives at the root layout (backend/, frontend/). adopt-layout.sh deletes
+      # AND re-points in one idempotent sweep — the first real adoption did this
+      # by hand and counted ~50 references; nobody should do that twice.
+      bash "$ROOT/tools/adopt-layout.sh"
       ;;
     *)
-      echo "Keeping examples/. Delete it any time; tools/measure-floors.sh refuses to run while it is present."
+      echo "Keeping examples/. Delete it any time by running tools/adopt-layout.sh —"
+      echo "it also re-points the workflows at your product's root layout (backend/,"
+      echo "frontend/); tools/measure-floors.sh refuses to run while examples/ is present."
       ;;
   esac
 else

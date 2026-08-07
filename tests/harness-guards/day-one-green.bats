@@ -90,8 +90,23 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   [ "$status" -ne 0 ]
 }
 
+backend_pom() {
+  # Layout-aware: the template ships the product at examples/backend; an adopted
+  # tree carries it at backend/ (tools/adopt-layout.sh). Neither present yet — the
+  # window between deleting the example and wiring a product in — is a skip, not
+  # a failure: there is no pom for the claim to be about.
+  if [ -f "$REPO_ROOT/examples/backend/pom.xml" ]; then
+    echo "$REPO_ROOT/examples/backend/pom.xml"
+  elif [ -f "$REPO_ROOT/backend/pom.xml" ]; then
+    echo "$REPO_ROOT/backend/pom.xml"
+  else
+    return 1
+  fi
+}
+
 @test "surefire is told, in the pom, to leave the docker and live tags to failsafe" {
-  run grep -A20 'maven-surefire-plugin' "$REPO_ROOT/examples/backend/pom.xml"
+  pom="$(backend_pom)" || skip "no backend pom in this tree yet"
+  run grep -A20 'maven-surefire-plugin' "$pom"
   [[ "$output" == *"<excludedGroups>docker,live</excludedGroups>"* ]]
 }
 
@@ -99,7 +114,8 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   # `mvn flyway:migrate` with no plugin declaration resolves whatever the prefix points
   # at today, with no JDBC driver and no connection details, and fails on contact with the
   # database — reporting migration drift that does not exist.
-  run grep -A3 'flyway-maven-plugin' "$REPO_ROOT/examples/backend/pom.xml"
+  pom="$(backend_pom)" || skip "no backend pom in this tree yet"
+  run grep -A3 'flyway-maven-plugin' "$pom"
   [ "$status" -eq 0 ]
   [[ "$output" == *'${flyway.version}'* ]]
 }
