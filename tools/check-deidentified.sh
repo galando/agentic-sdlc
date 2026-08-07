@@ -151,8 +151,10 @@ HITS=0
 # gitignored term list itself on every run, and the natural fix for that is an
 # exclusion — which is how self-exclusion gets introduced. The index is the
 # right scope anyway: untracked files are not what gets published.
+# -H forces the filename even when an xargs batch holds a single file — without
+# it a lone-file batch reports a leak with no path, which is a hit you cannot fix.
 CONTENT="$(git ls-files -z \
-  | xargs -0 grep -n -I -i -E -f "$PATTERNS" -- 2>/dev/null || true)"
+  | xargs -0 grep -H -n -I -i -E -f "$PATTERNS" -- 2>/dev/null || true)"
 if [ -n "$CONTENT" ]; then
   echo "=== file content ==="
   printf '%s\n' "$CONTENT"

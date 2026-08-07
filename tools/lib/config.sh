@@ -127,23 +127,6 @@ cfg_assert_schema() {
 }
 
 # ---------------------------------------------------------------------------
-# Internal: strip a same-line comment ("value  # note") and surrounding quotes.
-# ---------------------------------------------------------------------------
-_cfg_clean_scalar() {
-  local rest="$1" ci
-  case "$rest" in
-    *' #'*) rest="${rest%% \#*}" ;;
-  esac
-  # trim trailing whitespace
-  rest="$(printf '%s' "$rest" | sed -E 's/[[:space:]]+$//')"
-  if [[ "$rest" == \"*\" ]] && [ "${#rest}" -ge 2 ]; then
-    rest="${rest#\"}"
-    rest="${rest%\"}"
-  fi
-  printf '%s' "$rest"
-}
-
-# ---------------------------------------------------------------------------
 # Internal restricted-awk reader for a dotted scalar path in a nested-map-only YAML file
 # (no lists in the traversed path). Exit 0 + prints the value (possibly empty string) if
 # found; exit 1 if not found. This is the "restricted awk reader" the header describes.
@@ -425,8 +408,15 @@ floor_get() {
   file="$(_floors_file)"
   [ -f "$file" ] || { echo "floor_get: $file not found" >&2; return 3; }
   if _cfg_has_yq; then
-    yq eval ".floors[\"${key}\"].value" "$file" 2>/dev/null
-    return $?
+    # Normalize yq's `null`-for-absent to exit 1, matching the awk reader below.
+    # Without this the two readers disagree on a missing key: awk fails (caller
+    # falls back to "unset"), yq prints the literal string "null" with exit 0 —
+    # which a renderer would then write into a tool config as a threshold.
+    local val
+    val="$(yq eval ".floors[\"${key}\"].value" "$file" 2>/dev/null)" || return 1
+    if [ -z "$val" ] || [ "$val" = "null" ]; then return 1; fi
+    printf '%s\n' "$val"
+    return 0
   fi
   awk -v key="$key" '
     BEGIN { found = 0; inblock = 0 }

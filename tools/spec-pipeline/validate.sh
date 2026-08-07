@@ -80,7 +80,10 @@ fi
 NON_REASONS="n/a none - tbd"
 unavailable_line="$(grep -iE '^temper: unavailable[[:space:]]*[—–-][[:space:]]*(.+)$' "$PR_BODY_FILE" | head -n1 || true)"
 if [ -n "$unavailable_line" ]; then
-  reason="$(printf '%s' "$unavailable_line" | sed -E 's/^temper: unavailable[[:space:]]*[—–-][[:space:]]*//I')"
+  # (—|–|-) as an alternation, not a bracket expression: in a non-UTF-8 locale a
+  # bracket matches ONE BYTE, so [—–-] eats a third of the em dash and leaves
+  # mojibake in the reason.
+  reason="$(printf '%s' "$unavailable_line" | sed -E 's/^temper: unavailable[[:space:]]*(—|–|-)[[:space:]]*//I')"
   reason_trimmed="$(printf '%s' "$reason" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
   is_non_reason=0
   for nr in $NON_REASONS; do
