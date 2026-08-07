@@ -368,6 +368,22 @@ case "$ledger_reply" in
 esac
 
 # ---------------------------------------------------------------------------
+# Regenerate ADOPTING.md. Its table is a pure function of the tree's remaining
+# double-brace tokens, and this interview just resolved most of them — so the
+# committed table is stale the moment substitution finishes. Two CI gates
+# verify exactly that purity (fast-repo-hygiene regenerates-and-diffs, and a
+# harness guard does the same), which means an adoption that skips this line
+# fails BOTH on its very first pull request, about a file the adopter has
+# never heard of. A real adoption did. Last tree mutation before the check
+# below, so the regenerated table reflects every change this run made.
+# ---------------------------------------------------------------------------
+if [ -x "$ROOT/tools/gen-adopting.sh" ]; then
+  echo
+  echo "--- Regenerating ADOPTING.md (its token table just shrank) ---"
+  "$ROOT/tools/gen-adopting.sh"
+fi
+
+# ---------------------------------------------------------------------------
 # The post-init check. init.sh refuses to print "done" if this fails.
 # ---------------------------------------------------------------------------
 echo

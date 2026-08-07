@@ -318,3 +318,20 @@ $line" ;;
   [[ "$output" == *"tools/create-ledger-branch.sh"* ]]
   [[ "$output" == *"Skipped."* ]]
 }
+
+@test "init.sh regenerates ADOPTING.md after substitution (stub records the call)" {
+  # The real generator's output is covered by its own suite; what THIS pins is
+  # the wiring — init.sh resolving tokens makes the committed ADOPTING.md stale,
+  # and two CI gates diff a regeneration against it, so an interview that skips
+  # the regen fails an adopter's very first pull request. A real adoption did.
+  cd "$FIXTURE"
+  cat > tools/gen-adopting.sh <<'STUB'
+#!/usr/bin/env bash
+echo "regenerated" > .gen-adopting-ran
+STUB
+  chmod +x tools/gen-adopting.sh
+  run bash tools/init.sh --answers answers.env
+  [ "$status" -eq 0 ]
+  [ -f .gen-adopting-ran ]
+  [[ "$output" == *"Regenerating ADOPTING.md"* ]]
+}
