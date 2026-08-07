@@ -506,11 +506,6 @@ jobs:
             *) exit "$rc" ;;
           esac
 
-      - name: Record job start time
-        if: steps.gate.outputs.run == 'true'
-        id: jobstart
-        run: echo "iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
       # Same three requirements as reviewer A, plus one that is unique to this
       # role and is the whole reason it exists:
       #

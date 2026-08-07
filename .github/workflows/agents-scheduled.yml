@@ -155,7 +155,21 @@ jobs:
           case "$rc" in
             0) echo "ok=true"  >> "$GITHUB_OUTPUT" ;;
             6) echo "ok=false" >> "$GITHUB_OUTPUT" ;;   # degrade, never cancel
-            *) exit "$rc" ;;
+            *)
+              # A fresh template's provider is still the interview placeholder, and a
+              # NAMED manual dispatch — the exact "see it run before you enable it"
+              # path — ignores `enabled:` and lands here with a config error. That
+              # state gets the same announced-skip review.yml and steward.yml give
+              # it, never a red run on a repository nobody has configured yet.
+              provider="$(bash -c '. tools/lib/config.sh; cfg_get provider' 2>/dev/null || true)"
+              case "$provider" in
+                \{\{*\}\})
+                  echo "ok=false" >> "$GITHUB_OUTPUT"
+                  echo "::warning title=${{ matrix.agent }} not configured::No provider is configured yet (provider reads '$provider'). Run tools/init.sh to choose one — this is the expected state of a fresh template, not a failure."
+                  ;;
+                *) exit "$rc" ;;
+              esac
+              ;;
           esac
 
       - name: Report a degraded credential skip
