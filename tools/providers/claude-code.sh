@@ -66,6 +66,26 @@ case "$verb" in
     print_argv
     ;;
   run)
+    # Ensure the CLI exists BEFORE anything else. Hosted GitHub runners do not
+    # ship it, no workflow may install it (vendor-neutrality: nothing
+    # vendor-specific appears outside this directory), so this adapter — the one
+    # legitimate vendor-specific home — owns its own bootstrap. Without this,
+    # the first live review on a fresh adoption died with bash's exit 127
+    # ("timeout: failed to run command 'claude'") and the judge never ran.
+    # In CI it installs; on a workstation it refuses with the install command
+    # instead of quietly mutating someone's global npm.
+    if ! command -v "$CLI_BIN" >/dev/null 2>&1; then
+      if [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${AGENT_CLI_AUTOINSTALL:-}" = "true" ]; then
+        echo "claude-code.sh: '$CLI_BIN' is not on PATH — installing @anthropic-ai/claude-code (hosted runner bootstrap)..." >&2
+        npm install -g @anthropic-ai/claude-code >&2 \
+          || { echo "claude-code.sh: CLI install failed — the reviewer cannot run. See $ADAPTER_DOCS_URL" >&2; exit 4; }
+      else
+        echo "claude-code.sh: '$CLI_BIN' is not on PATH. Install it (npm install -g @anthropic-ai/claude-code)" >&2
+        echo "or set AGENT_CLI_AUTOINSTALL=true to let this adapter install it. Docs: $ADAPTER_DOCS_URL" >&2
+        exit 4
+      fi
+    fi
+
     [ -n "${AGENT_WORKDIR:-}" ] || { echo "claude-code.sh: AGENT_WORKDIR is not set" >&2; exit 3; }
     [ -d "$AGENT_WORKDIR" ] || { echo "claude-code.sh: AGENT_WORKDIR does not exist: $AGENT_WORKDIR" >&2; exit 3; }
     [ -f "${AGENT_PROMPT_FILE:-}" ] || { echo "claude-code.sh: AGENT_PROMPT_FILE not found: ${AGENT_PROMPT_FILE:-}" >&2; exit 3; }

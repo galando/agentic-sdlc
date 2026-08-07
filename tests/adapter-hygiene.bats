@@ -91,3 +91,20 @@ PROVIDERS_DIR="$REPO_ROOT/tools/providers"
   [ "$("$PROVIDERS_DIR/codex.sh" status)" = "unverified" ]
   [ "$("$PROVIDERS_DIR/gemini-cli.sh" status)" = "unverified" ]
 }
+
+@test "claude-code adapter bootstraps its own CLI on a hosted runner, refuses politely elsewhere" {
+  # The first live review on a fresh adoption died with exit 127: hosted GitHub
+  # runners do not ship the CLI, and no workflow may install it (vendor
+  # neutrality), so the adapter — the one vendor-specific home — owns the
+  # bootstrap. Pin both halves: the CI install path and the workstation refusal.
+  adapter="$REPO_ROOT/tools/providers/claude-code.sh"
+  grep -qF 'npm install -g @anthropic-ai/claude-code' "$adapter"
+  grep -qF 'GITHUB_ACTIONS' "$adapter"
+  # Workstation half, executed: no CLI on PATH, not CI -> exit 4 with the install command.
+  run env -u GITHUB_ACTIONS -u AGENT_CLI_AUTOINSTALL \
+    PATH=/usr/bin:/bin CLAUDE_CODE_BIN=definitely-not-a-real-cli \
+    AGENT_WORKDIR=/tmp AGENT_PROMPT_FILE=/dev/null AGENT_AUTH_MODE=subscription \
+    bash "$adapter" run
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"npm install -g"* ]]
+}
