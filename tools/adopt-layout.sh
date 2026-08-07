@@ -56,6 +56,7 @@ for f in "$ROOT"/.github/workflows/*.yml \
          "$ROOT/tools/mutation-scope.sh" \
          "$ROOT/tools/test-mutation-scope.sh" \
          "$ROOT/tools/check-migrations.sh" \
+         "$ROOT/floors.yml" \
          "$ROOT/.gitignore"; do
   repoint "$f"
 done
@@ -76,7 +77,7 @@ fi
 # patterns (the same self-mutation reasoning as init.sh excluding its own
 # siblings), and render-floors.sh probes BOTH layouts by design — its
 # examples/ mention is the documented fallback, not a target to re-point.
-leftovers="$(grep -rlE 'examples/(backend|frontend)' "$ROOT/.github/workflows" "$ROOT/tools" 2>/dev/null \
+leftovers="$(grep -rlE 'examples/(backend|frontend)' "$ROOT/.github/workflows" "$ROOT/tools" "$ROOT/floors.yml" 2>/dev/null \
   | grep -vE '/tools/(adopt-layout|render-floors)\.sh$' || true)"
 if [ -n "$leftovers" ]; then
   die "these files still reference the example paths after the sweep — the substitution list above is incomplete:
