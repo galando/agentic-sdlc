@@ -8,6 +8,7 @@
 ADAPTER_STATUS=unverified                                   # verified | unverified — THE source of truth (design.md 3.4)
 ADAPTER_DOCS_URL=https://geminicli.com/docs/cli/headless/   # confirm every flag below against this before flipping to verified
 ADAPTER_AUTH_HINT='SUBSCRIPTION MODE: authenticate the CLI and store the credential it issues. Confirm the exact command at ADAPTER_DOCS_URL before relying on this — this adapter is an UNVERIFIED STUB and refuses to run.'
+ADAPTER_MODEL_HINT='as of 2026-08: ids like gemini-2.5-pro (judge-grade) / gemini-2.5-flash (cheap runs) — but this adapter is an UNVERIFIED STUB, so confirm both the id and the flag that carries it against the live list at https://ai.google.dev/gemini-api/docs/models before relying on either.'
 #
 # tools/providers/gemini-cli.sh — the Gemini CLI adapter. UNVERIFIED STUB.
 #

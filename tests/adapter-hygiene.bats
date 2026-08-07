@@ -108,3 +108,19 @@ PROVIDERS_DIR="$REPO_ROOT/tools/providers"
   [ "$status" -eq 4 ]
   [[ "$output" == *"npm install -g"* ]]
 }
+
+@test "claude-code adapter never passes --bare — it makes the subscription token invisible" {
+  # The first live review to actually reach the CLI died with "Not logged in"
+  # while a valid, freshly-minted token sat in the secret. The CLI's own help is
+  # explicit: under --bare, "Anthropic auth is strictly ANTHROPIC_API_KEY or
+  # apiKeyHelper via --settings (OAuth and keychain are never read)" — so --bare
+  # and this template's DEFAULT auth mode (a subscription OAuth token in
+  # CLAUDE_CODE_OAUTH_TOKEN) are mutually exclusive. Reproduced on CLI 2.1.224:
+  # garbage OAuth + --bare => "Not logged in" (never read); without --bare => an
+  # honest 401. Pin the flag out of BOTH the real argv and the dry-run preview,
+  # and require the source to carry the reason so the flag cannot quietly return.
+  adapter="$REPO_ROOT/tools/providers/claude-code.sh"
+  run grep -cE '^[^#]*--bare' "$adapter"
+  [ "$output" = "0" ]
+  grep -qF 'OAuth and keychain are never read' "$adapter"
+}

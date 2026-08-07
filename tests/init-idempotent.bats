@@ -335,3 +335,14 @@ STUB
   [ -f .gen-adopting-ran ]
   [[ "$output" == *"Regenerating ADOPTING.md"* ]]
 }
+
+@test "init.sh surfaces the provider's model-id hint at the model questions" {
+  # The interview asks for EXACT model ids; nobody memorises those and they
+  # churn — the adapter's dated hint plus its authoritative URL must appear
+  # right where the question is asked, not in a doc nobody has open.
+  cd "$FIXTURE"
+  run bash tools/init.sh --answers answers.env
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Model ids for 'claude-code'"* ]]
+  [[ "$output" == *"docs.claude.com"* ]]
+}
