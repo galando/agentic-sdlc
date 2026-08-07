@@ -289,6 +289,52 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Remove the TEMPLATE's explainer site. Unconditional, because it can never be
+# right here: site/ describes the template itself and pages.yml deploys it to
+# the TEMPLATE's GitHub Pages — on an adopted repository the workflow's own
+# guard already skips it, but the dead files would sit in every adopter's tree
+# describing someone else's project. Local deletion only; nothing is pushed.
+# ---------------------------------------------------------------------------
+if [ -d "$ROOT/site" ] || [ -f "$ROOT/.github/workflows/pages.yml" ]; then
+  echo
+  echo "--- Template explainer site ---"
+  rm -rf "$ROOT/site"
+  rm -f "$ROOT/.github/workflows/pages.yml"
+  echo "Removed site/ and .github/workflows/pages.yml: they are the TEMPLATE's own"
+  echo "explainer site and its Pages deploy — content about the template, not about"
+  echo "$PRODUCT_NAME. Nothing of yours lived there."
+fi
+
+# ---------------------------------------------------------------------------
+# Offer to create the agent-ledger branch. The interview itself is strictly
+# offline (SC7, pinned by tests/init-idempotent.bats); this offer is the ONE
+# network action init.sh can take, it is opt-in, and the mechanics live in
+# tools/create-ledger-branch.sh so declining here costs exactly one command
+# later. Non-interactive runs: set CREATE_LEDGER_BRANCH=y to accept.
+# ---------------------------------------------------------------------------
+echo
+echo "--- Agent ledger branch ---"
+echo "Your agents keep their run history — one line per run — on a separate, empty"
+echo "'orphan' branch named agent-ledger: a diary in this same repository that is"
+echo "never merged into your default branch (docs/runbooks/agent-ledgers.md). It"
+echo "must exist once before any agent runs; after that, tools/ledger.sh does all"
+echo "the reading and writing and you never touch it by hand."
+if [ -t 0 ]; then
+  read -r -p "Create and push it now? This is the ONE network action init.sh will take, and only with this yes. [y/N]: " ledger_reply
+else
+  ledger_reply="${CREATE_LEDGER_BRANCH:-N}"
+fi
+case "$ledger_reply" in
+  y|Y|yes|YES)
+    bash "$ROOT/tools/create-ledger-branch.sh"
+    ;;
+  *)
+    echo "Skipped. Run tools/create-ledger-branch.sh whenever you are ready — it is"
+    echo "idempotent and never touches your working tree."
+    ;;
+esac
+
+# ---------------------------------------------------------------------------
 # The post-init check. init.sh refuses to print "done" if this fails.
 # ---------------------------------------------------------------------------
 echo
@@ -310,7 +356,10 @@ cat <<'EOF'
 
 === init.sh is done. What remains is manual, in this order: ===
 
-  1. Create the ledger orphan branch (docs/runbooks/agent-ledgers.md).
+  1. Create the ledger orphan branch — one idempotent command, done already if
+     you said yes to the offer above:
+       tools/create-ledger-branch.sh
+     (It is the agents' run diary: docs/runbooks/agent-ledgers.md.)
   2. Add repository secrets. AGENT_CLI_TOKEN is REQUIRED and is normally a
      SUBSCRIPTION TOKEN, not an API key — run
        tools/run-agent.sh --check-credentials <agent>
@@ -330,6 +379,8 @@ cat <<'EOF'
   8. Enable branch protection LAST, once the FAST tier has been seen green at least
      once — docs/runbooks/branch-protection.md lists the exact context strings.
 
-None of the above was touched by this script. It made no network call and wrote
-nothing but plain text into files already in this tree.
+None of the above was touched by this script. The interview itself made no
+network call and wrote nothing but plain text into this tree; the only possible
+network action was the ledger-branch push above, taken only with your explicit
+yes.
 EOF

@@ -275,7 +275,9 @@ here, so a lesson learned in one fork accumulates upstream instead of dying ther
 Some of this cannot be committed to a repository at all — a vendor scheduler and an
 admin setting are not files. Do these **in this order**, last item last:
 
-1. Create the ledger orphan branch (`docs/runbooks/agent-ledgers.md`).
+1. Create the ledger orphan branch — the agents' run diary — with one idempotent
+   command: `tools/create-ledger-branch.sh` (`tools/init.sh` offers to run it for
+   you at the end of the interview; `docs/runbooks/agent-ledgers.md` explains it).
 2. Add the secrets from the table above that your setup needs.
 3. Grant read-only observability access if you have a health-signal source
    (`docs/runbooks/agent-access-setup.md`), then fill in `.agents/health-signals.yml`.
