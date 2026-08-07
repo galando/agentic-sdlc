@@ -379,6 +379,9 @@ cat <<'EOF'
   8. Enable branch protection LAST, once the FAST tier has been seen green at least
      once — docs/runbooks/branch-protection.md lists the exact context strings.
 
+Lost at any point later? tools/status.sh prints this whole map with your
+position on it and the one next command — read-only, safe to run any time.
+
 None of the above was touched by this script. The interview itself made no
 network call and wrote nothing but plain text into this tree; the only possible
 network action was the ledger-branch push above, taken only with your explicit

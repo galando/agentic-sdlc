@@ -272,6 +272,9 @@ here, so a lesson learned in one fork accumulates upstream instead of dying ther
 
 ## The setup order, explicitly
 
+*(Lost at any point? `tools/status.sh` prints this whole map with your position
+on it and the one next command — read-only, seconds.)*
+
 Some of this cannot be committed to a repository at all — a vendor scheduler and an
 admin setting are not files. Do these **in this order**, last item last:
 
