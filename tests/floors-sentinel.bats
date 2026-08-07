@@ -16,7 +16,22 @@ LIB="$REPO_ROOT/tools/lib/config.sh"
 setup() {
   FIXTURE="$(mktemp -d)"
   mkdir -p "$FIXTURE/tools/lib"
-  cp "$FLOORS" "$FIXTURE/floors.yml"
+  # A SYNTHETIC all-unset floors.yml, never a copy of the live one: on an adopted,
+  # calibrated tree the live file legitimately holds real values, and every
+  # uncalibrated-state test below would silently test the wrong state.
+  cat > "$FIXTURE/floors.yml" <<'FLOORS_EOF'
+schema: 1
+floors:
+  backend.coverage.line:        { value: unset, direction: up,   tool: jacoco }
+  backend.coverage.branch:      { value: unset, direction: up,   tool: jacoco }
+  backend.mutation.score:       { value: unset, direction: up,   tool: pit }
+  frontend.coverage.statements: { value: unset, direction: up,   tool: vitest }
+  frontend.coverage.branches:   { value: unset, direction: up,   tool: vitest }
+  frontend.coverage.functions:  { value: unset, direction: up,   tool: vitest }
+  frontend.coverage.lines:      { value: unset, direction: up,   tool: vitest }
+  frontend.mutation.score:      { value: unset, direction: up,   tool: stryker }
+  frontend.bundle.total_kib:    { value: unset, direction: down, tool: bundle-check }
+FLOORS_EOF
   cp "$LIB" "$FIXTURE/tools/lib/config.sh"
   cp "$REPO_ROOT/tools/measure-floors.sh" "$FIXTURE/tools/measure-floors.sh"
   cp "$REPO_ROOT/tools/render-floors.sh" "$FIXTURE/tools/render-floors.sh"
@@ -29,17 +44,27 @@ teardown() {
   rm -rf "$FIXTURE"
 }
 
-@test "floors.yml exists, schema 1, and every floor ships unset" {
+@test "floors.yml exists, schema 1, and every floor is unset (template) or a real number (adopted)" {
+  # Pre-init the TEMPLATE must ship every floor unset — nothing calibrated to
+  # someone else's code. Post-adoption a floor is legitimately a number; what is
+  # never legal, in either state, is an absent key, a read error, or zero.
   [ -f "$FLOORS" ]
   run bash -c ". '$LIB'; cfg_assert_schema '$FLOORS' 1"
   [ "$status" -eq 0 ]
+  uninitialised=0
+  grep -qF '{{PROVIDER}}' "$REPO_ROOT/.agents/config.yml" && uninitialised=1
   for key in backend.coverage.line backend.coverage.branch backend.mutation.score \
              frontend.coverage.statements frontend.coverage.branches \
              frontend.coverage.functions frontend.coverage.lines \
              frontend.mutation.score frontend.bundle.total_kib; do
     run bash -c ". '$LIB'; floor_get '$key'"
     [ "$status" -eq 0 ]
-    [ "$output" = "unset" ]
+    if [ "$uninitialised" -eq 1 ]; then
+      [ "$output" = "unset" ]
+    else
+      [[ "$output" == "unset" || "$output" =~ ^[0-9]+(\.[0-9]+)?$ ]]
+      [ "$output" != "0" ]
+    fi
   done
 }
 
