@@ -150,8 +150,16 @@
             <goals><goal>enforce</goal></goals>
             <configuration>
               <rules>
+                <!-- A WINDOW, not a floor. This rule shipped as [17,) and let a
+                     bleeding-edge JDK 26 pass the loud early gate, then die deep
+                     inside Mockito's bytecode rewriting mid-test — precisely the
+                     confusing downstream error this plugin exists to prevent, in
+                     the one direction the rule did not look. The ceiling is the
+                     newest JDK CI actually tests (java-version in the workflows);
+                     raise both TOGETHER, deliberately, never by discovering that
+                     this month's Homebrew default happens to work. -->
                 <requireJavaVersion>
-                  <version>[17,)</version>
+                  <version>[17,25)</version>
                 </requireJavaVersion>
                 <requireMavenVersion>
                   <version>[3.8,)</version>
