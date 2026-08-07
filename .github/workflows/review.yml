@@ -365,6 +365,11 @@ jobs:
               echo "::warning::Lost-review issue filed with GITHUB_TOKEN - it will NOT invoke the steward. Set STEWARD_HANDOFF_PAT."
             fi
 
+            # Best-effort: a fresh repository has no labels yet, and `gh issue
+            # create --label` does not create missing ones — the first live lost-review
+            # filing logged "could not add label: 'agent-report' not found".
+            gh label create agent-report --color BFD4F2 \
+              --description "Filed by the agent harness" 2>/dev/null || true
             gh issue create --repo "$REPO" --title "$TITLE" \
               --body-file /tmp/review-lost-body.md --label agent-report \
             || gh issue create --repo "$REPO" --title "$TITLE" \
@@ -454,6 +459,9 @@ jobs:
           fi
 
           # --label is best-effort: a missing label must not lose the handoff.
+          # Best-effort label creation, same reason as the lost-review filing above.
+          gh label create agent-report --color BFD4F2 \
+            --description "Filed by the agent harness" 2>/dev/null || true
           gh issue create --repo "$REPO" --title "$TITLE" \
             --body-file /tmp/steward-handoff-body.md --label agent-report \
           || gh issue create --repo "$REPO" --title "$TITLE" \
