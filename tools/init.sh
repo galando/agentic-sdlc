@@ -306,6 +306,39 @@ if [ -d "$ROOT/site" ] || [ -f "$ROOT/.github/workflows/pages.yml" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Offer to write the PRODUCT's README. The shipped README describes the
+# template itself ("click Use this template") and nothing else in the adoption
+# ever touches it — a real adopted repository kept it indefinitely, so its
+# front page described somebody else's project and never said the repository
+# is agent-run. The generator only ever replaces a README it positively
+# identifies as the template's own, so accepting here can never clobber a
+# README you have already written (which is also what keeps this re-run-safe).
+# Non-interactive runs: set WRITE_README=y to accept.
+# ---------------------------------------------------------------------------
+if [ -x "$ROOT/tools/write-product-readme.sh" ]; then
+  echo
+  echo "--- Product README ---"
+  echo "README.md is still the TEMPLATE's own readme. Replace it with one for"
+  echo "$PRODUCT_NAME? It gets live status badges for the harness workflows, a"
+  echo "description section for you to fill in, and a section explaining the"
+  echo "agentic process this repository now runs."
+  if [ -t 0 ]; then
+    read -r -p "Write it now? [y/N]: " readme_reply
+  else
+    readme_reply="${WRITE_README:-N}"
+  fi
+  case "$readme_reply" in
+    y|Y|yes|YES)
+      bash "$ROOT/tools/write-product-readme.sh" "$PRODUCT_NAME"
+      ;;
+    *)
+      echo "Keeping the template README. Run tools/write-product-readme.sh whenever"
+      echo "you are ready — it reads the product name from AGENTS.md."
+      ;;
+  esac
+fi
+
+# ---------------------------------------------------------------------------
 # Offer to create the agent-ledger branch. The interview itself is strictly
 # offline (SC7, pinned by tests/init-idempotent.bats); this offer is the ONE
 # network action init.sh can take, it is opt-in, and the mechanics live in

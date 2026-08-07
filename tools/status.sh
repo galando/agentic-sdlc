@@ -80,6 +80,18 @@ else
   ok "4. All floors calibrated against this repository's own code"
 fi
 
+# --- The front page ----------------------------------------------------------
+# Same positive identification write-product-readme.sh uses: the template's own
+# H1 survives every adoption step except the README rewrite itself, so its
+# presence means visitors still read a description of the template, not of this
+# product. Advisory only — never the [NEXT] step, never blocks anything.
+if grep -qE '^# Agentic SDLC$' "$ROOT/README.md" 2>/dev/null; then
+  echo
+  echo "  NOTE: README.md is still the TEMPLATE's readme — visitors read about the"
+  echo "  template, not your product. One command writes yours (badges, product"
+  echo "  stub, how-this-repo-runs-itself): tools/write-product-readme.sh"
+fi
+
 # --- The tree itself ---------------------------------------------------------
 if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
   echo

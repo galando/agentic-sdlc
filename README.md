@@ -53,7 +53,10 @@ system. Nothing an agent does reaches your default branch without passing the ga
    ```
    It asks your product name, provider, model ids per role, alert channel and a
    handful more, rewrites every `{{PLACEHOLDER}}` those answers resolve, and prints
-   exactly what is left for you to do by hand.
+   exactly what is left for you to do by hand. It also offers to replace THIS
+   readme with your product's own — status badges, a description stub, and a
+   section explaining the agentic process your repository now runs
+   (`tools/write-product-readme.sh`, runnable any time later too).
 3. Add the credentials it lists — at minimum `AGENT_CLI_TOKEN`, which is your agent
    CLI's **subscription token, not an API key** (run
    `tools/run-agent.sh --check-credentials <agent>` and it prints the exact command to
