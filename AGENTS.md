@@ -104,9 +104,13 @@ next reader will obey whichever copy they happened to open.
 - **Agents hand work to each other with a `handoff` field**: `{to, note, expires}`. A
   receiver discharges a handoff by answering it in its own ledger entry — so every agent
   must check its own recent entries before acting, or the same handoff buys the same work
-  every day until it scrolls out of view.
+  every day until it scrolls out of view. (Full procedure — read depths, gap cover, the
+  discharge check: efficiency rule 7 in `docs/runbooks/agent-routines.md`.)
 
 ## Fix verification — a merge is not a fix
+
+(The rule stated here is binding; the full procedure with its worked traps is "Fix
+verification" in `docs/runbooks/agent-routines.md`.)
 
 - **The agent that FILED the issue verifies the fix that closed it**, not the agent that
   wrote the pull request. The filer knows what the signal was supposed to do.

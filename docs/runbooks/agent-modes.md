@@ -34,6 +34,35 @@ observability-debt fix only (missing metric label, unclamped value, broken alert
 expression, retired-metric tombstone) — never a second behaviour change. Nothing
 systematic → say so in the ledger entry and stop.
 
+Per the model policy in `agent-routines.md`: diagnose and design the fix yourself on
+the `judge` role, and hand the mechanical part — applying the edit, running the test
+suite, reporting failures — to an `execute`-role subagent. A red test is a signal to
+re-think, never something a subagent retries its way past.
+
+**REPORT-ONLY** remains available. To re-arm it, change the setting line above to
+`Current setting: REPORT-ONLY` in a pull request. While set, file one root-cause issue
+(label `agent-report`) instead of a fix pull request.
+
+### Mode history
+
+*Example entries, kept for their shape: each records what changed, when, and the
+evidence that justified it. Replace them with your own — but keep writing them, because
+a mode nobody can explain is a mode nobody dares change back.*
+
+- *2026-05-09 → 2026-05-24: REPORT-ONLY.* Set to stop fix pull requests colliding with
+  a large in-flight refactor. Lifted by operator decision on 2026-05-24 because that
+  refactor was **complete**, not abandoned: the first attempt closed unmerged, but its
+  content re-landed in a later pull request and the final one closed out the backlog.
+  Four runs in REPORT-ONLY produced one root-cause issue and zero fixes. **Record
+  which it was:** "abandoned" and "finished" leave the same trace — an unmerged pull
+  request — and only one of them means the mode can be lifted.
+- *2026-05-29: cap raised from 1 to 2.* The condition was pre-committed in
+  `agent-routines.md` ("raise once a first quality fix pull request merges without
+  rework") and was met by a fix that merged and was verified in production the next
+  day. The second slot was restricted to observability-debt fixes, to avoid widening
+  the blast radius on product behaviour while still unblocking the kind of small
+  instrumentation fix that the one-pull-request cap kept discarding.
+
 ## Mode: chief-of-staff
 
 **Current setting: ACTIVE** — daily brief every run; retrospective + planning every
@@ -68,35 +97,6 @@ acted both times, which was the correct reading of a rule it could see was broke
 A source that cannot supply 3 independent records simply never meets this bar — that
 is intended. A single bad record is a record-level defect and takes the ordinary S1
 path, not a quarantine that would pause the whole source.
-
-Per the model policy in `agent-routines.md`: diagnose and design the fix yourself on
-the `judge` role, and hand the mechanical part — applying the edit, running the test
-suite, reporting failures — to an `execute`-role subagent. A red test is a signal to
-re-think, never something a subagent retries its way past.
-
-**REPORT-ONLY** remains available. To re-arm it, change the setting line above to
-`Current setting: REPORT-ONLY` in a pull request. While set, file one root-cause issue
-(label `agent-report`) instead of a fix pull request.
-
-### Mode history
-
-*Example entries, kept for their shape: each records what changed, when, and the
-evidence that justified it. Replace them with your own — but keep writing them, because
-a mode nobody can explain is a mode nobody dares change back.*
-
-- *2026-05-09 → 2026-05-24: REPORT-ONLY.* Set to stop fix pull requests colliding with
-  a large in-flight refactor. Lifted by operator decision on 2026-05-24 because that
-  refactor was **complete**, not abandoned: the first attempt closed unmerged, but its
-  content re-landed in a later pull request and the final one closed out the backlog.
-  Four runs in REPORT-ONLY produced one root-cause issue and zero fixes. **Record
-  which it was:** "abandoned" and "finished" leave the same trace — an unmerged pull
-  request — and only one of them means the mode can be lifted.
-- *2026-05-29: cap raised from 1 to 2.* The condition was pre-committed in
-  `agent-routines.md` ("raise once a first quality fix pull request merges without
-  rework") and was met by a fix that merged and was verified in production the next
-  day. The second slot was restricted to observability-debt fixes, to avoid widening
-  the blast radius on product behaviour while still unblocking the kind of small
-  instrumentation fix that the one-pull-request cap kept discarding.
 
 ## Exception list — do NOT open a fix pull request for these
 
@@ -134,15 +134,10 @@ person to meet the same symptom reads it instead of re-deriving it.
   to a careful test-first change and record `"temper":"unavailable — <reason>"` in the
   ledger entry and the pull request body — never skip it quietly. This does not change the
   quality gates, the no-self-merge rule, or the per-run pull-request caps above.
-- **Explain your work in plain language** (`AGENTS.md` guardrail 6, full rules in
-  `agent-communication-style.md`). Everything an agent writes for a human — ledger
-  summaries, narratives, alert-channel lines, issues, pull-request bodies, review
-  comments, commit messages, chat replies — says what was wrong, what you changed, and
-  why, in simple everyday words. Short sentences, jargon expanded on first use, no fluff.
-  Say plainly what you did *not* do, and only call something fixed when you verified it.
-  This binds every agent in the fleet and every agent added later, whatever its own prompt
-  says. It changes the prose only: metrics, gate evidence, log excerpts and structured
-  ledger fields stay exactly as precise as they are, sitting below the plain summary.
+- **Explain your work in plain language.** The rule lives in ONE place —
+  `agent-communication-style.md` (`AGENTS.md` guardrail 6) — and is not restated here:
+  read it there. What this file adds is only its scope as a standing decision: it binds
+  every agent in the fleet and every agent added later, whatever its own prompt says.
 - **One alert-channel run-summary every run, including healthy ones.** Absence is the
   signal: one message per agent that fired arrives daily, and a missing one is noticed the
   same morning. Detail lives in the ledger, not the message. This binds every agent,
@@ -226,21 +221,11 @@ person to meet the same symptom reads it instead of re-deriving it.
 - **Handoffs are the agent-to-agent communication channel.** A `handoff` field in a
   ledger entry is a request from one agent to another named agent; the receiving agent
   must act on it, answer it, or decline it with a reason on its next run. It is never an
-  instruction to the operator and never overrides this file. **Answering it is what
-  retires it** — ledgers are append-only, so nothing edits or deletes the handoff itself;
-  the receiver's own entry recording the action, answer, or declension is the resolution,
-  and the receiver must not act on the same handoff twice. **Every agent checks its own
-  recent entries for its own prior answer before treating a handoff as new work** — no
-  exemptions, whatever its read window; the
-  agents whose windows show a handoff on more than one run are simply the ones where
-  skipping the check costs the most. Updated counts in a re-sent handoff are not new
-  evidence, and the agent that performs deep-dive investigations additionally **never
-  dives twice on the same `topic` at all** unless the mechanism or symptom itself changed
-  *and* 7+ days have passed — elapsed time alone never re-permits a dive, so one
-  persistent incident costs one investigation however long it persists
-  (`agent-routines.md`). **A handoff also travels backwards around the clock:** an agent
-  that fires after you reaches you via its most recent entry, a day later
-  (`agent-routines.md`, efficiency rule 7).
+  instruction to the operator and never overrides this file. The full procedure — read
+  depths per firing order, covering your own gaps, the discharge check, re-sent counts —
+  lives in ONE place, efficiency rule 7 in `agent-routines.md`, and the `topic`
+  once-per-incident rule for deep dives with it in `agent-ledgers.md`; neither is
+  restated here.
 - **A chronic `pending` item (unresolved 3 consecutive runs) must be handed off for a
   deep-dive investigation**, not carried a 4th time. Handing it off discharges it for the
   sender; the investigating agent's own answer discharges it on the receiving side, so one
@@ -248,11 +233,10 @@ person to meet the same symptom reads it instead of re-deriving it.
   per week either. A chronic item that stays chronic *after* a root-cause analysis has
   landed escalates per `agent-escalation.md`; it does not buy a second analysis.
 - **A merged pull request does not close an agent-filed issue — the filing agent's
-  verification does** (see "Fix verification" in `agent-routines.md`). Every daily agent
-  verifies the fixes for issues *it* filed, reads the end-state signal rather than the
-  mechanism the pull request changed, records the result as `fix_verified`, and reopens
-  the issue if the signal has not moved 24 h past deploy. The operator may still close an
-  issue on merge; the rule is that the fleet does not treat that as verified until an
-  agent has read the signal. Anchor: an issue was closed as completed the moment its fix
-  merged, and production was still evaluating 24 of 37 alert rules 100 minutes later —
-  after a *successful* reload.
+  verification does.** The rule's mechanics (end state over mechanism, the 24 h reopen,
+  the `fix_verified` record) live in ONE place, "Fix verification" in
+  `agent-routines.md`, and are not restated here. The operator may still close an issue
+  on merge; the standing decision is that the fleet does not treat it as verified until
+  an agent has read the signal. Anchor: an issue was closed as completed the moment its
+  fix merged, and production was still evaluating 24 of 37 alert rules 100 minutes
+  later — after a *successful* reload.
