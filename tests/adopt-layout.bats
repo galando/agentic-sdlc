@@ -28,6 +28,11 @@ EOF
 examples/backend/target/
 examples/frontend/node_modules/
 EOF
+  cat > "$FIXTURE/floors.yml" <<'EOF'
+# Tool configs (examples/backend/pom.xml, examples/frontend/vitest.config.js) are RENDERED
+schema: 1
+floors:
+EOF
 }
 
 teardown() {
@@ -45,6 +50,10 @@ teardown() {
   grep -qF 'SRC_PREFIX="backend/src/main/java/"' "$FIXTURE/tools/mutation-scope.sh"
   grep -qF 'backend/target/' "$FIXTURE/.gitignore"
   ! grep -qF 'examples/' "$FIXTURE/.gitignore"
+  # floors.yml's COMMENTS name the rendered configs; stale example paths there sent a
+  # real adopter's assistant off to re-verify the layout contract.
+  grep -qF '(backend/pom.xml' "$FIXTURE/floors.yml"
+  ! grep -qF 'examples/' "$FIXTURE/floors.yml"
 }
 
 @test "re-bases the ../../tools depth for the shallower working-directory" {
