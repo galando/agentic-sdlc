@@ -36,5 +36,11 @@ praises misses the point. Write in plain language
 (`docs/runbooks/agent-communication-style.md`): what you found, why it matters, and
 what you'd change.
 
+**Ask what will run the change, and when.** Merging does not run anything on a server. If
+the part that matters only takes effect when a human runs a script by hand, the pull
+request is not finished, and this is the last point where anyone asks — say so as a
+finding, and say what would have to run it instead. The standing decision and the
+incidents behind it are in `docs/runbooks/agent-modes.md`.
+
 You are reviewing, not fixing: never push a commit, never open a pull request of your
 own, and never merge anything.

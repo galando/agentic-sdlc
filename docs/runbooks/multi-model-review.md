@@ -29,7 +29,7 @@ Two places now run a second model:
 
 | Where | What runs on the `challenge` role | Who decides |
 |---|---|---|
-| `.github/workflows/review.yml`, job `challenge-review` | A full second review of the same diff, written without reading the first one | A human. The `referee` job sorts the two reviews; it does not grade them. |
+| `.github/workflows/review.yml`, job `challenge-review` | A full second review of the same diff, written without reading the first one | The `referee` job settles disagreements against the code and gives a verdict. The author overrules it at merge time. |
 | The `challenger` scheduled agent (`docs/runbooks/agent-routines.md`) | The blind re-derivation of the target conclusion | The challenger's own `judge`-role session, after weighing the challenge model's reasoning |
 
 A different family is trained separately and **fails in different places**. That is the
@@ -37,22 +37,129 @@ entire point — a second opinion is only worth having if it can disagree. Two d
 the same distribution share the same blind spots, so a "second opinion" from the same
 family is a more expensive way to get the first one.
 
-## Why the adversary never decides
+## Why the adversary never decides alone
 
 A second model that can *overrule* the first one just moves the single point of failure.
-So it cannot:
+So it never rules on its own:
 
-- The referee runs on the `judge` role, which wrote one of the two reviews it reads. Its
-  prompt forbids it from saying who is right, and **its output format has no field for a
-  verdict**. It reports where the two agree, where only one spoke, and where they
-  contradict each other. A human reads that.
 - The challenger reads the challenge model's derivation, checks whether the reasoning
   holds, and forms its own view. A refutation is something the challenger concluded, never
   something it copied through. The adversary disagreeing is a reason to look hard, not a
   ruling.
+- The referee reads both reviews and rules — but on the evidence in the code, not on which
+  model it likes. See the next section.
 
 **A finding only one reviewer raised is not outvoted by the other's silence.** It is the
 most valuable thing on the page, because a single reviewer would have lost it completely.
+
+## The referee settles disagreements
+
+**What was wrong.** The referee used to sort the two reviews and stop. Its prompt forbade
+it from saying who was right and its output ended *"neither review is authoritative, a
+human decides"*. Every disagreement became an operator decision.
+
+Two things made that worse than it sounds. Most flagged "contradictions" were not
+contradictions — one reviewer being silent about a finding, the two grading the same defect
+at different severities, or two perfectly good fixes for one bug. And the ones that *were*
+real were almost always questions of fact about the code ("does this line leak the
+connection or not?"), which have an answer somebody can go and check. The operator was
+being asked to adjudicate things a careful read of the diff would have settled.
+
+**What changed.** The referee now does both jobs.
+
+1. **A much higher bar for calling something a contradiction.** Two reviewers contradict
+   each other only when they make claims about the same code that cannot both be true.
+   Silence, differing severity, differing-but-valid fixes, broader-vs-narrower descriptions
+   and style disagreements are explicitly not contradictions, and are filed where they
+   belong.
+2. **It settles the real ones against the code.** The workflow hands it
+   `.review-artifacts/diff.patch` and it reads the repository. It names the reviewer the
+   code supports, quotes the `file:line` that proves it, and says what to do.
+3. **Every disagreement gets a verdict. There is no "unresolved".** See the ladder below.
+4. **Uncertain findings are kept, not dismissed.** A wrong finding costs one person one
+   look. A dismissed real finding costs a defect in production.
+
+### The tie-break ladder
+
+The referee works down this list and stops at the first rung that answers:
+
+| Rung | Test | Verdict |
+|---|---|---|
+| 1 | Does the code settle it? | Rule for that reviewer, quote the `file:line` |
+| 2 | Judgement call, no factual answer | Rule for the option that **fails more safely** — keeps a check, keeps data, keeps a user-visible thing rather than removing it |
+| 3 | Both fail equally safely | Rule for whichever advice is **cheaper to undo** if wrong |
+| 4 | Still level | **Rule for the challenge role** |
+
+**Rung 4 always terminates, so a verdict is always available.** It also puts every
+coin-flip against the referee's own side rather than for it, which is the same asymmetry as
+the evidence rule, applied to ties.
+
+There is deliberately **no section for unsettled disagreements**, and the prompt bars the
+referee from inventing one — an escape hatch that exists gets used, and every use of it
+hands the operator a decision again.
+
+### How the self-grading problem is answered
+
+The objection to letting the referee rule is real: it runs the same `judge` role that wrote
+one of the two reviews. One party holds the gavel.
+
+That is answered structurally rather than by abstaining. The referee decides **questions of
+fact about the code**, not "which reviewer do I trust" — and facts can be checked by whoever
+reads the comment. On top of that the burden of proof is deliberately **asymmetric**: a
+ruling in the judge role's favour requires a quoted `file:line`, and without that evidence
+the referee must rule for the challenge role. Ruling for the challenge role carries no such
+requirement.
+
+**Verdicts are advice, not gates.** The referee posts a comment; it merges nothing and
+blocks nothing. The author overrules any verdict at merge time. That is what makes an
+occasional wrong call cheap — and why abstaining was never worth its cost.
+
+### The prompt is a request, so the output is checked
+
+A prompt cannot force a model to do anything, and on a bad day it could still write "needs a
+decision". The workflow step **Check the referee actually ruled** scans the generated
+comment for punt language before it is posted: headings like `## Unresolved`, `## Needs a
+decision`, `## Open questions`, and closing lines like "a human decides" or "leave this to
+the author".
+
+If it finds one, the comment is **still posted** — a silent referee would lose the whole
+comparison, not just the punt — but with a warning block on top saying the referee broke its
+own rule, that this is a **bug to report rather than a decision you owe anyone**, and
+linking the run. The job also emits a workflow warning naming the offending lines.
+
+So a punt cannot reach you disguised as a question. It reaches you labelled as a defect,
+which is what it is.
+
+`tests/harness-guards/referee-verdict.bats` pins these behaviours, and
+`tests/harness-guards/steward-handoff-order.bats` pins the ordering below.
+
+## The steward handoff runs after BOTH reviews
+
+The handoff issue — the one that tells the steward "this pull request has review findings,
+go act on them" — is filed at the end of the `referee` job, not at the end of `review`.
+
+It used to be filed from `review`. But `challenge-review` declares `needs: review`, so
+nothing the challenge role posts can exist yet at that point: on every pull request, always,
+not by bad luck. Three things followed.
+
+1. The steward was woken before the second review and the referee comparison existed, and
+   then reported on a pull request it had read once, minutes before the rest of it arrived.
+2. It built its fix on one opinion out of three.
+3. Worst, and invisible: the clean check read **one** comment body, which by that ordering
+   could only be the judge-role review. A pull request where the judge role was clean and
+   the challenge role found a bug filed **no handoff at all** — the stranded-finding failure
+   the handoff exists to prevent, reintroduced for the second reviewer.
+
+The handoff now reads both collected review bodies and files when **either** carries
+findings. Two consequences worth knowing:
+
+- The `referee` job is no longer gated on the challenge role having run. Gating it that way
+  would have deleted every handoff behind a missing `CHALLENGE_API_KEY`, which is far worse
+  than the bug that moved it. Either reviewer producing a review is enough to enter the job;
+  neither producing one skips it silently, which is the untouched-template state.
+- The collector produces the two review bodies even when `jq` is missing from the runner,
+  using the `jq` that `gh` embeds. A missing `jq` costs the comparison only — never the
+  handoff.
 
 ## Setup
 
@@ -72,7 +179,7 @@ spend is genuinely required, and it is small.
 
 | Where | Name | Effect if missing |
 |---|---|---|
-| Repository secrets | `CHALLENGE_API_KEY` | `challenge-review` and `referee` skip with a workflow warning; the `judge` review still runs. Every pull request gets one reviewer instead of two. **The pull request is never failed by the absence.** |
+| Repository secrets | `CHALLENGE_API_KEY` | `challenge-review` skips with a workflow warning; the `judge` review still runs. The `referee` job still runs and posts a notice **on the pull request** saying which review is missing and that it had one reviewer at most — it is not gated on the second review, because the steward handoff is filed from it. **The pull request is never failed by the absence.** |
 | The scheduled runner's environment | `CHALLENGE_API_KEY` | The challenger re-derives on the `judge` model and records `"challenge":"unavailable — key unset"`. The check still happens, with a stated caveat. |
 
 Never put the key in a tracked file (`AGENTS.md` guardrail 5). Any settings file that is
@@ -170,8 +277,9 @@ the routines — runs on a flat-rate subscription where the marginal cost of a r
 ## Turning it off
 
 - **Pull-request reviews:** delete the `CHALLENGE_API_KEY` repository secret.
-  `challenge-review` and `referee` skip with a warning and the `judge` review carries on
-  unchanged. Nothing else to do.
+  `challenge-review` skips with a warning and the `judge` review carries on unchanged. The
+  referee still runs, posts "one reviewer at most" on the pull request instead of a
+  comparison, and still files the steward handoff. Nothing else to do.
 - **The challenger agent:** delete the environment secret. It reports
   `"challenge":"unavailable — key unset"` and re-derives on the `judge` model.
 

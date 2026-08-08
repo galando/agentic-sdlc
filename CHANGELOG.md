@@ -11,6 +11,83 @@ diff against, and keeping the surface small keeps that diff readable.
 placeholder — see `ADOPTING.md`). Every release therefore needs a heading in exactly this
 shape.
 
+## [0.3.0] - 2026-08-08
+
+An upstream-lessons release. Everything here landed first in the running system the
+template was extracted from and is carried back: the referee stops handing the operator
+decisions it can make itself, the steward stops being woken before half the evidence
+exists, and five standing decisions the fleet learned the hard way join
+`docs/runbooks/agent-modes.md`.
+
+### Changed
+
+- **The referee now settles disagreements instead of only sorting them.** It used to
+  compare the two reviews and stop; its output ended "a human decides", so every
+  disagreement became an operator decision — and most were not disagreements at all
+  (one reviewer's silence, the same defect at two severities, two valid fixes for one
+  bug). The genuine ones were nearly always questions of fact about the code, which have
+  a checkable answer. `.agents/prompts/review-referee.md` now carries a strict bar for
+  what counts as a contradiction, an instruction to settle each real one against the
+  code, and a four-rung tie-break ladder whose last rung always terminates.
+
+  The self-grading objection — the referee runs the same `judge` role that wrote one of
+  the reviews — is answered structurally rather than by abstaining: a ruling in the judge
+  role's favour requires a quoted `file:line`, a tie goes to the challenge role, and
+  every verdict is advice the author overrules at merge time. `review.yml` fetches
+  `.review-artifacts/diff.patch` so the referee can read the code it is ruling on.
+- **The steward handoff moved from the `review` job to the end of `referee`.**
+  `challenge-review` declares `needs: review`, so the handoff was filed before the second
+  review and the referee comparison could exist — on every pull request, always. The
+  steward was woken early, reported on a pull request it had read once, and built its fix
+  on one opinion out of three. Worst and invisible: the clean check read one comment body,
+  which by that ordering could only be the judge-role review, so **a pull request where
+  the judge role was clean and the challenge role found a bug filed no handoff at all**.
+  The handoff now reads both collected reviews and files when either carries findings.
+- **The `referee` job is no longer gated on the challenge role having run.** That gate
+  would have deleted every handoff behind a missing `CHALLENGE_API_KEY`, and it also made
+  the "one reviewer at most" notice unreachable in the one case it was written for. Either
+  reviewer producing a review enters the job; neither doing so skips it silently, which is
+  the untouched-template state.
+- The referee's collector produces both review bodies even with no `jq` on the runner,
+  using the `jq` that `gh` embeds. A missing `jq` costs the comparison, never the handoff.
+
+### Added
+
+- **A punt check on the referee's output.** A prompt is a request, not a guarantee, so
+  `review.yml` scans the generated comment for "unresolved" headings and "a human decides"
+  closing lines before posting. It **annotates, never suppresses** — a silent referee would
+  lose the comparison as well as the punt — so a punt reaches the reader labelled as a
+  defect to report rather than a decision they owe anyone.
+- Five standing decisions in `docs/runbooks/agent-modes.md`, each with the incident that
+  produced it: *merging a fix does not run anything on the server* (name what will run the
+  change, and when); *`action_required` is a third colour on a pull request* and means the
+  gauntlet never ran; *a contested number gets a pre-committed test, not another
+  measurement*; *a pre-committed band has to be able to lose* (the three checks that make
+  one able to fire); and *the nightly gates have a reader* — the chief of staff's daily
+  brief, now a standing section in its prompt.
+- `tests/harness-guards/referee-verdict.bats` and
+  `tests/harness-guards/steward-handoff-order.bats` (gate 22), pinning both changes —
+  including a guard that runs the workflow's own punt pattern against the phrasings that
+  caused it and against prose that must not trip it.
+
+### Fixed
+
+- **`review.yml` wrote five files to fixed paths under `/tmp`.** `runs-on` honours
+  `vars.AGENT_RUNNER`, and a self-hosted runner's `/tmp` outlives the job and is shared:
+  mode 1777 lets anyone create a file there but never lets a non-owner truncate one, so
+  `> /tmp/<fixed-name>` dies with "Permission denied" and `set -e` fails the step *after*
+  the review has already posted — a red check on a green review, with the handoff never
+  filed. All five now use `RUNNER_TEMP`, which the runner creates, owns and clears.
+- `.agents/prompts/review-judge.md` asks what will run the change and when, so the
+  never-deployed fix is caught at review time rather than a day later.
+
+### Note on `pins.json`
+
+`referee-sorts-does-not-grade` is the first pinned lesson to be **superseded in part**. Its
+`why` now records what changed and why; its pattern is unchanged, because the phrase it
+pins ("grading its own paper") survives in `review.yml` as the objection being *answered*.
+If that phrase ever disappears, the reason the safeguards exist has gone with it.
+
 ## [0.2.0] - 2026-08-07
 
 The first repository-wide audit release: a static explainer site, a batch of real bug

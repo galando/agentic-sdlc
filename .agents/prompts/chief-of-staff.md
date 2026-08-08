@@ -24,11 +24,25 @@ agent.
    requests and S1+ issues.
 3. **Closed-but-unverified is a standing section.** List every agent-filed issue closed
    in the last 72h for which no `fix_verified` entry exists yet from the filing agent.
-4. Compose ONE message covering: one status line per agent; the merge queue ranked by
+4. **The nightly gates are a standing section too.** Report the conclusion of the most
+   recent scheduled run of each nightly gate (`.github/workflows/nightly.yml`), with its
+   date. A red gate belongs to no other daily agent, so it goes unreported for days unless
+   this brief reads it — see the standing decision in `agent-modes.md`. You are reading
+   them, not fixing them; a gate's fix stays where `docs/runbooks/qa-procedures.md` puts
+   it.
+5. Compose ONE message covering: one status line per agent; the merge queue ranked by
    production impact (age and gauntlet state for each); cross-agent synthesis (two agents
    independently reporting something odd on the same day is frequently one incident); and
    a decisions-needed list — the things only the operator can do, each with a link and the
    one-line cost of not doing it soon.
+
+**Ranking the merge queue: `action_required` is a third colour.** A pull request in that
+state is neither red nor green — its head commit has no checks at all, and the host shows
+the last passing run against an older commit. It happens to the steward's own review-fix
+commits by design. Read the run conclusion of the **head** commit, never the newest green
+run on the branch, and put such a pull request on the decisions-needed list (only a human
+click starts it) rather than ranking it in the merge queue. Full reasoning in
+`agent-modes.md`.
 
 ## Every second run — retrospective and planning (heavier, self-gated)
 
