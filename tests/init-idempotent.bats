@@ -319,6 +319,44 @@ $line" ;;
   [[ "$output" == *"Skipped."* ]]
 }
 
+
+@test "init.sh removes the TEMPLATE-only files an adopter must never inherit" {
+  # These deletions were unconditional-by-design and untested, which is the shape that
+  # quietly stops happening: nothing here is a placeholder, so the placeholder sweep does
+  # not notice, and an adopted tree just carries files describing somebody else's project
+  # and a relationship (an upstream to sync from) that the adopter does not have.
+  #
+  # Verified by hand once during the change that added the upstream tooling; a hand
+  # verification that leaves no test behind is a verification that expires.
+  mkdir -p "$FIXTURE/site" "$FIXTURE/.github/workflows" "$FIXTURE/tests"
+  echo x > "$FIXTURE/site/index.html"
+  echo x > "$FIXTURE/.github/workflows/pages.yml"
+  cp "$REPO_ROOT/tools/check-upstream-drift.sh" "$FIXTURE/tools/check-upstream-drift.sh"
+  cp "$REPO_ROOT/.agents/upstream-sync.json"    "$FIXTURE/.agents/upstream-sync.json"
+  echo x > "$FIXTURE/tests/upstream-drift.bats"
+
+  cd "$FIXTURE"
+  run bash tools/init.sh --answers answers.env
+  [ "$status" -eq 0 ]
+
+  for leftover in site .github/workflows/pages.yml \
+                  tools/check-upstream-drift.sh .agents/upstream-sync.json \
+                  tests/upstream-drift.bats; do
+    if [ -e "$FIXTURE/$leftover" ]; then
+      echo "# init.sh left a template-only file in the adopted tree: $leftover"
+      false
+    fi
+  done
+}
+
+@test "init.sh is still idempotent with those files already gone" {
+  # The second run must not fail trying to delete what the first run removed.
+  cd "$FIXTURE"
+  bash tools/init.sh --answers answers.env >/dev/null
+  run bash tools/init.sh --answers answers.env
+  [ "$status" -eq 0 ]
+}
+
 @test "init.sh regenerates ADOPTING.md after substitution (stub records the call)" {
   # The real generator's output is covered by its own suite; what THIS pins is
   # the wiring — init.sh resolving tokens makes the committed ADOPTING.md stale,

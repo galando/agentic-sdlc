@@ -14,8 +14,54 @@ PINS="$REPO_ROOT/tests/harness-guards/pins.json"
   jq -e . "$PINS" >/dev/null
 }
 
-@test "pins.json declares schema: 1" {
-  [ "$(jq -r '.schema' "$PINS")" = "1" ]
+@test "pins.json declares schema: 2" {
+  # Bumped from 1 when supersession landed. A reader that does not understand
+  # `superseded_*` would read a reversed entry's `why` as still binding — which is exactly
+  # the silent reinterpretation the schema field exists to prevent, so this is a bump and
+  # not an additive field.
+  [ "$(jq -r '.schema' "$PINS")" = "2" ]
+}
+
+@test "a superseded entry carries the whole triple, never a lone marker" {
+  # Half a supersession is worse than none: "this rule was reversed" with no date and no
+  # pointer is an entry nobody can act on and nobody dares delete.
+  bad="$(jq -r '
+    .pins[]
+    | select(has("superseded_on") or has("superseded_by") or has("superseded_reason"))
+    | select(
+        (.superseded_on // "" | length) == 0 or
+        (.superseded_by // "" | length) == 0 or
+        (.superseded_reason // "" | length) < 80
+      )
+    | .id' "$PINS")"
+  if [ -n "$bad" ]; then
+    echo "# entries with an incomplete supersession record (need on/by/reason, reason >= 80 chars):"
+    echo "$bad" | sed 's/^/#   /'
+    false
+  fi
+}
+
+@test "a superseded entry keeps its original why, and keeps its pattern" {
+  # THE POINT OF THE MECHANISM. The reason a rule existed is the most valuable thing to
+  # preserve when reversing it — it is the cost you are choosing to pay. Rewriting `why`
+  # reads to the next person as though the rule had always said the new thing, and the
+  # supersession then teaches nothing.
+  bad="$(jq -r '
+    .pins[]
+    | select(has("superseded_on"))
+    | select((.why // "" | test("supersed"; "i")) or
+             ((.pin_kind == "regex") and ((.pattern // "" | length) == 0)))
+    | .id' "$PINS")"
+  if [ -n "$bad" ]; then
+    echo "# superseded entries whose why was rewritten, or whose pattern was dropped:"
+    echo "$bad" | sed 's/^/#   /'
+    false
+  fi
+}
+
+@test "superseded_on is an ISO date" {
+  bad="$(jq -r '.pins[] | select(has("superseded_on")) | select(.superseded_on | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") | not) | .id' "$PINS")"
+  [ -z "$bad" ]
 }
 
 @test "pins.json has at least 25 entries (tasks.md Task 6b's floor)" {

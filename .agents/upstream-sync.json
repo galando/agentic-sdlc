@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "MAINTAINER RECORD FOR THIS TEMPLATE — not something an adopter needs, and tools/init.sh",
+    "offers to delete it along with tools/check-upstream-drift.sh.",
+    "",
+    "This template was extracted from a running system that keeps meeting incidents and keeps",
+    "writing down what it learned. Those lessons are the product. This file records how far",
+    "along that history the template has been brought, so 'did I miss anything?' is a command",
+    "(tools/check-upstream-drift.sh) rather than a judgement call over a hand-read git log.",
+    "",
+    "Update last_synced_upstream_sha in the same pull request that carries a sync across.",
+    "A sync point nobody updates makes the tool report the same commits forever, until",
+    "somebody stops running it — which is worse than having no tool at all."
+  ],
+  "last_synced_upstream_sha": "95825a50437b4fe6d1edebfce04d2f760e7e591d",
+  "last_synced_on": "2026-08-08",
+  "not_carried": [
+    {
+      "sha": "d3bf43c4e604d8e1a65b9a44a362ddf4c61a4c8f",
+      "why": "A session-start hook kept a shallow clone of a vendor CLI and advanced it with a fast-forward pull, which cannot advance a --depth 1 clone; when the copy was ahead the fetch reported 'Already up to date' and the hook printed 'synced' while running stale code. No surface here: this template ships no session-start hook, its one shallow clone (tools/ledger.sh) is a fresh throwaway per run with no pull after it, and the CLI adapter bootstraps over npm."
+    }
+  ]
+}

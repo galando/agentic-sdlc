@@ -11,6 +11,331 @@ diff against, and keeping the surface small keeps that diff readable.
 placeholder — see `ADOPTING.md`). Every release therefore needs a heading in exactly this
 shape.
 
+## [0.3.0] - 2026-08-08
+
+An upstream-lessons release. Everything here landed first in the running system the
+template was extracted from and is carried back: the referee stops handing the operator
+decisions it can make itself, the steward stops being woken before half the evidence
+exists, every review job reads the same commit, and five standing decisions the fleet
+learned the hard way join `docs/runbooks/agent-modes.md`.
+
+### If you read nothing else
+
+This entry is long, and skimming a changelog is how a lesson gets lost. So: **four things
+changed how the review loop behaves.** Everything after them is detail, fixes, and
+tooling — safe to skim.
+
+| What | Was | Is now |
+|---|---|---|
+| **The referee rules** | Sorted the two reviews and ended "a human decides" | Settles each real disagreement against the code, with a tie-break ladder that always terminates. Verdicts are advice; the author overrules at merge time. |
+| **All three jobs read one commit** | Each asked for "the current diff" at its own start time | One pinned `base...head` range from the event payload, shared by both reviewers and the referee, with the checkout pinned to match. |
+| **The handoff waits for both reviews** | Filed from the `review` job, before the second review could exist | Filed at the end of `referee`, reading both reviews — so a finding from either one reaches the steward. |
+| **The handoff issue closes itself** | Stayed open, blocking the next handoff for that pull request | Closed as `completed` when the steward finishes it. |
+
+If you have adopted an earlier version and are merging this by hand, those four are the
+ones to read in full. **The one that can bite silently is the third**: before it, a pull
+request where the judge role was clean and the challenge role found a bug filed no handoff
+at all.
+
+### Changed
+
+- **The referee now settles disagreements instead of only sorting them.** It used to
+  compare the two reviews and stop; its output ended "a human decides", so every
+  disagreement became an operator decision — and most were not disagreements at all
+  (one reviewer's silence, the same defect at two severities, two valid fixes for one
+  bug). The genuine ones were nearly always questions of fact about the code, which have
+  a checkable answer. `.agents/prompts/review-referee.md` now carries a strict bar for
+  what counts as a contradiction, an instruction to settle each real one against the
+  code, and a four-rung tie-break ladder whose last rung always terminates.
+
+  The self-grading objection — the referee runs the same `judge` role that wrote one of
+  the reviews — is answered structurally rather than by abstaining: a ruling in the judge
+  role's favour requires a quoted `file:line`, a tie goes to the challenge role, and
+  every verdict is advice the author overrules at merge time. `review.yml` hands it
+  `.review-artifacts/diff.patch` so it can read the code it is ruling on — pinned to the
+  commit the reviews were written for, see *Fixed* below.
+- **The steward handoff moved from the `review` job to the end of `referee`.**
+  `challenge-review` declares `needs: review`, so the handoff was filed before the second
+  review and the referee comparison could exist — on every pull request, always. The
+  steward was woken early, reported on a pull request it had read once, and built its fix
+  on one opinion out of three. Worst and invisible: the clean check read one comment body,
+  which by that ordering could only be the judge-role review, so **a pull request where
+  the judge role was clean and the challenge role found a bug filed no handoff at all**.
+  The handoff now reads both collected reviews and files when either carries findings.
+- **The `referee` job is no longer gated on the challenge role having run.** That gate
+  would have deleted every handoff behind a missing `CHALLENGE_API_KEY`, and it also made
+  the missing-review notice unreachable in the one case it was written for. Either
+  reviewer producing a review enters the job; neither doing so skips it silently, which is
+  the untouched-template state.
+- The referee's collector produces both review bodies even with no `jq` on the runner,
+  using the `jq` that `gh` embeds. A missing `jq` costs the comparison, never the handoff.
+
+### Added
+
+- **A punt check on the referee's output.** A prompt is a request, not a guarantee, so
+  `review.yml` scans the generated comment for "unresolved" headings and "a human decides"
+  closing lines before posting. It **annotates, never suppresses** — a silent referee would
+  lose the comparison as well as the punt — so a punt reaches the reader labelled as a
+  defect to report rather than a decision they owe anyone.
+- Five standing decisions in `docs/runbooks/agent-modes.md`, each with the incident that
+  produced it: *merging a fix does not run anything on the server* (name what will run the
+  change, and when); *`action_required` is a third colour on a pull request* and means the
+  gauntlet never ran; *a contested number gets a pre-committed test, not another
+  measurement*; *a pre-committed band has to be able to lose* (the three checks that make
+  one able to fire); and *the nightly gates have a reader* — the chief of staff's daily
+  brief, now a standing section in its prompt.
+- **The handoff issue closes itself once the steward has finished it.** That issue is a
+  signal shaped like a work item: filing it starts the run, and the signal is spent the
+  moment the run begins — but nothing owned the ticket afterwards, so it stayed open.
+  Mostly clutter, with one real cost: **the handoff dedupes on the exact issue title, and
+  that title carries the pull-request number**, so a stale open issue blocks a *second*
+  handoff for the same pull request — a pull request marked `ready_for_review` again after
+  more commits then gets a review round that wakes nobody.
+
+  `steward.yml`'s existing visible-outcome step now closes it as `completed`, reusing state
+  it already computes instead of adding a prompt instruction an agent can ignore. Two
+  load-bearing conditions: the title must start `[steward-handoff]` (the step runs on every
+  opened issue, so this keeps human-filed and `[review-lost]` issues open), and the reply
+  must be the **steward's own** rather than anyone's (the outcome check counts any author on
+  purpose; reusing that for closing would let a human writing "hold on" close the ticket
+  they were objecting to). Best-effort — a failure warns rather than reddening a run whose
+  work is done.
+- Five gate-22 guard files: `referee-verdict.bats`, `steward-handoff-order.bats`,
+  `steward-handoff-closure.bats`, `referee-diff-pin.bats` and
+  `referee-missing-review-notice.bats` — including a guard that runs the workflow's own punt
+  pattern against the phrasings that caused it and against prose that must not trip it.
+
+  Four of the five are **behavioural rather than text pins**: they extract the real script
+  out of the workflow and run it against a stubbed API, because in each case the dangerous
+  failure is a wrong branch or a wrong composition, not a missing string — and the file
+  reads correctly in every one of them. Each was mutation-tested against the bug it exists
+  to catch: restoring the live diff fetch fails 5 assertions, restoring the spliced notice
+  noun fails 6, and both dangerous handoff-closure mutations fail their guards.
+
+  The closure guard needs `node`, and a missing `node` fails it loudly rather than skipping
+  it — a guard that quietly does not run is the failure this directory exists to prevent.
+  `pr-tests.yml` installs node explicitly rather than relying on the hosted runner having
+  one, since `runs-on` honours `vars.PR_RUNNER`.
+
+### Fixed
+
+- **The two reviewers could review different commits from each other.** Each asked the
+  platform for "this pull request's diff" at its own start time, and `challenge-review`
+  declares `needs: review`, so it starts strictly later. The referee then compared the two
+  as though they had read the same code. **"Both reviewers found this" and "only one
+  reviewer found this" are both meaningless when they were not** — and nothing in the
+  output would look wrong, because two blind spots that overlap by accident are
+  indistinguishable from two that genuinely agree.
+
+  All three jobs now fetch through one script, `tools/fetch-pinned-diff.sh`, with the same
+  `base...head` range from the event payload, and all three checkouts are pinned to the same
+  `head.sha`. A `pull_request` checkout otherwise defaults to the merge ref, which is
+  recomputed as the base branch moves, so even the working trees could differ. Both reviewer
+  prompts now name the pinned diff as the thing to review.
+- **The referee judged the reviews against the wrong commit.** It fetched the diff with the
+  "give me this pull request's diff" command, which resolves the head *at the moment the
+  referee runs* — while the two reviews it compares were written earlier, against whatever
+  the head was then. A fix pushed in between made the reviewer who found the bug look wrong:
+  the referee measured the **fix** and scored it against the finding that produced it.
+  Upstream saw it rule two accurate reviewers wrong at once.
+
+  The window is usually seconds, which is why it hid. **It bites precisely when an author
+  fixes findings as they arrive, so the more responsive the author, the more likely their
+  reviewers are marked down** — and the referee's comment is the last word on the page, so a
+  reviewer who was right is recorded as wrong. Three parts, all needed: the diff is now
+  **pinned** to the event payload's `base.sha...head.sha`; a moved head is **disclosed** in a
+  note prepended by its own step (posting stays a plain "send the file"); and the referee is
+  **told** in its prompt that a finding which looks already fixed is usually a reviewer being
+  right, because it reads the working tree as well as the diff.
+- **The missing-review notice contradicted itself when both reviews were missing.** It
+  spliced a noun into a fixed sentence, so zero reviews rendered as "**BOTH reviews** is not
+  on this pull request", under a log line saying one was found, above advice to treat the
+  pull request as having had "one reviewer at most" — which describes zero as one. That
+  notice is the only thing telling a reader a green check does not mean "reviewed twice", so
+  it is now a whole sentence per case, and the zero case says "no automated review at all".
+- **A failed collector silently cancelled the steward handoff.** The "no review landed"
+  branch treated missing review bodies as "there was nothing to collect" and deferred to the
+  lost-review check. But the collector can also *fail*, and then the bodies are missing for
+  the opposite reason: the reviews are on the pull request with real findings, and the
+  lost-review check correctly filed nothing because it saw them. The handoff read "no
+  reviews", exited 0, and woke nobody — the stranded finding this machinery exists to
+  prevent, arriving through a different door. It now separates the two cases and posts a
+  notice **on the pull request** when it could not look.
+
+  Found by tracing the branches rather than by a test, and it is why
+  `steward-handoff-decision.bats` now exists: the text-only guard checked every string in
+  that step and all of them were correct. Reverting the fix fails **two** assertions in the
+  new behavioural guard and **zero** in the text-only one.
+- **`review.yml` wrote five files to fixed paths under `/tmp`.** `runs-on` honours
+  `vars.AGENT_RUNNER`, and a self-hosted runner's `/tmp` outlives the job and is shared:
+  mode 1777 lets anyone create a file there but never lets a non-owner truncate one, so
+  `> /tmp/<fixed-name>` dies with "Permission denied" and `set -e` fails the step *after*
+  the review has already posted — a red check on a green review, with the handoff never
+  filed. All five now use `RUNNER_TEMP`, which the runner creates, owns and clears.
+- `.agents/prompts/review-judge.md` asks what will run the change and when, so the
+  never-deployed fix is caught at review time rather than a day later.
+
+### Hardened after review
+
+Six weaknesses found by reading the pipeline back rather than by a failure. Each is
+mutation-tested — the fix reverted, the guard watched going red, the fix restored.
+
+- **"Both reviewers read the same commit" is now checked, not trusted.** The fetch was
+  pinned; that each reviewer *read* what it was handed was a prompt instruction, and a
+  prompt is a request. `tools/fetch-pinned-diff.sh` now writes the short sha next to the
+  diff, both reviewer prompts require it on their second line, and the referee compares the
+  two stamps. A mismatch is an error and a `[!CAUTION]` block on the pull request, because
+  two reviews of two different commits produce a perfectly well-formed comparison whose
+  agreement sections are meaningless. An **absent** stamp warns instead — unverified is not
+  the same as false. The role marker itself is untouched: folding the sha into it would
+  break every collector selection at once.
+- **A pull request from a fork no longer goes red.** Forks receive no secrets, so the
+  required credential was absent and the job failed — every outside contribution landing
+  with a red check that says nothing about the change, greeting a first-time contributor
+  with a failure they cannot fix and teaching the maintainer that a red review is normal.
+  It is now an announced skip, said **on the pull request**: nobody reviewed this, and that
+  says nothing about the code.
+- **The punt check gained a positive assertion.** Scanning for "a human decides" is a
+  blocklist — it catches what already happened, and new phrasing walks through it. Every
+  entry under *settled disagreements* must now carry a `Verdict:` line; a section written
+  without one is flagged whatever words it used, which cannot be evaded by rewording.
+- **A cancelled run is reported.** `review-sweep.yml` watches the review workflow finish
+  and, when it was cancelled, posts one notice saying no handoff was filed. It deliberately
+  does **not** file a handoff: the collector that decides whether there are findings is the
+  thing that was cancelled, so filing speculatively would wake the steward for clean pull
+  requests and train everyone to ignore it.
+- **The referee's verdicts are audited.** The pipeline was thoroughly instrumented for
+  findings being *lost* and had nothing for findings being *judged badly*. The challenger
+  now re-derives one settled disagreement every third run, blind, preferring verdicts that
+  went to the judge role — the direction the asymmetric burden of proof is meant to make
+  hard. Agreement is recorded, not discarded: it is the only evidence that the referee is
+  worth trusting.
+- **The handoff decision became a script.** `tools/review-handoff-decide.sh` decides;
+  the workflow acts. It can now be run directly with crafted inputs rather than carved out
+  of YAML first, and `tests/handoff-decision.bats` does exactly that. `pins.json`'s
+  `review-escalate-unrecognised-format` follows the lesson to its new home — pattern
+  unchanged, `expected_in` repointed, and the move recorded in its `why`.
+
+**One correction worth recording.** A guard banning awk `{n,m}` interval expressions was
+written and then removed. The construct that failed — `/^#{2,3}[[:space:]]/` under the
+runner's awk — is real and reproducible, but the rule inferred from it was false: intervals
+mostly work there, and `tools/lib/config.sh` relies on `{2}` perfectly happily. The guard
+flagged five lines of working code. **A guard whose premise you cannot state correctly is
+worse than none** — it churns code that was right and teaches a rule that is not true. The
+verified fact now lives next to the line it changed, saying only what was reproduced.
+
+### Merged with `main`, and what that changed
+
+`main` gained the guided adoption (`tools/adopt.sh`), an `ADOPTING.md` regeneration step in
+the interview, the adapter's `--bare` fix and a model-id hint. Only three files overlapped
+and only one conflicted — `tests/init-idempotent.bats`, where both sides had appended tests;
+both sets were kept.
+
+Two things needed adapting rather than merging, and neither was a textual conflict:
+
+- **Three documents quoted a string the code no longer emits.** The missing-review notice
+  used to say "one reviewer at most"; it now names which review is missing and says
+  "no automated review at all" when neither arrived. `README.md` and
+  `docs/runbooks/multi-model-review.md` were still quoting the old wording. A document that
+  quotes a string the code does not produce is a document the next reader stops trusting.
+- **`review-sweep.yml` joined the never-require list** in
+  `docs/runbooks/branch-protection.md`. It runs on a `workflow_run` completion and acts only
+  when the review was **cancelled**, so on an ordinary pull request it never reports —
+  requiring it would block every pull request forever, which is the exact trap that page
+  exists to prevent.
+
+Checked and needing nothing: `adopt.sh` drives `init.sh`, so the template-only deletions run
+inside the guided path too; the `ADOPTING.md` regeneration lands *after* those deletions, so
+it reflects the final tree; and the default tool grant already includes `Read`, so the
+reviewers can open the pinned diff they are now told to read. Verified by running a full
+non-interactive adoption against the merged tree.
+
+The `CHALLENGE_API_KEY` row in `README.md` also gained a sibling: a pull request **from a
+fork** receives no secrets at all, so neither reviewer can authenticate and both skip with a
+notice on the pull request.
+
+### Maintainer-facing (skim unless you maintain a fork of this template)
+
+`tools/init.sh` deletes everything in this section during adoption — it describes the
+template's relationship with the system it was extracted from, which an adopter does not
+have.
+
+#### `tools/check-upstream-drift.sh` — "did I miss anything?" as a command
+
+Three syncs in a row were done by reading `git log` by hand. This lists every upstream
+commit since a recorded sync point that touches the surface this template actually carries
+(workflows, runbooks, prompts, standing decisions), excluding product-only changes. It does
+**not** judge portability — several upstream lessons have correctly not been carried — it
+tells you what to read.
+
+The sync point and the not-carried decisions live in `.agents/upstream-sync.json`, so
+"checked, not carried, because X" survives instead of being re-derived every sync.
+
+It shipped with a bug of exactly the kind it exists to catch, found by testing it: it read
+the local `HEAD`, and `git fetch` does not move a local branch, so a freshly-fetched clone
+reported one commit to read while four were waiting. It now prefers the remote-tracking ref,
+names which ref it read and how fresh it is, and warns loudly when falling back to a local
+one. An unresolvable sync point **fails** rather than producing an empty, reassuring list.
+
+#### `pins.json` gained a supersession record
+
+`referee-sorts-does-not-grade` is the first pinned lesson to be **reversed by later
+evidence**, and schema 1 had no way to say so. The reversal was first recorded by rewriting
+the entry's `why` — which loses the original reasoning and reads to the next person as
+though the rule had always said the new thing.
+
+Schema **2** adds `superseded_on`, `superseded_by` and `superseded_reason`. The rules that
+make it worth having:
+
+- **`why` keeps its original text.** The reason a rule existed is the most valuable thing to
+  preserve when reversing it — it is the cost you are choosing to pay.
+- **The pattern is not relaxed.** A superseded lesson is one whose *conclusion* changed, not
+  one that stopped mattering; the string usually survives in a new role. Here the pinned
+  phrase "grading its own paper" is now the objection being *answered*.
+- **Deleting a pin remains the only way to say a lesson no longer applies at all**, and it
+  is still not something to do quietly.
+- `gen-pin-tests.sh` carries the supersession into the generated failure message, so a red
+  pin never tells you to restore a rule the system has argued its way out of.
+
+`gen-pin-tests.sh` also gained proper escaping for the generated strings. Until now every
+`why` happened to contain no quote, dollar or backtick, so interpolating them raw was
+silently fine; the first entry carrying a quoted phrase produced a generated file whose
+`echo` arguments re-tokenised into something subtly different from the inventory.
+
+#### `tools/` is held to bash 3.2
+
+`tools/spec-pipeline/validate.sh` already avoided `mapfile` with a comment explaining that
+this must run "under whatever `/usr/bin/env bash` resolves to, including bash 3.2". That
+reasoning lived in one file's comment, so the next script to need a line-to-array read
+reached for `mapfile` anyway. It would never have failed in CI — CI is Linux with bash 5 —
+only on a maintainer's macOS laptop, which is exactly where the adoption interview, the
+floor calibration and the drift check get run.
+
+`tests/harness-guards/portable-bash.bats` now holds the rule for the whole of `tools/`,
+including a planted-violation test so it cannot pass vacuously.
+
+Two further bugs in the new drift tool, both found by testing it rather than by reading it:
+a bare/mirror clone was rejected as "not a git checkout" (a bare repo's `HEAD` is a file,
+not a directory), and `gh`'s own error was being swallowed so "could not fetch the pinned
+diff" never said why.
+
+#### `init.sh`'s template-only deletions are now tested
+
+`init.sh` removes the template's explainer site and the upstream-tracking tooling during
+adoption, so an adopter does not inherit files describing somebody else's project and a
+relationship they do not have. That deletion is the shape that quietly stops happening —
+nothing in it is a placeholder, so the placeholder sweep does not notice, and an adopted
+tree simply carries the files. It has a test now, covering all five files and the second
+run that must not fail on what the first removed.
+
+#### Gate 22's own rule is written down
+
+`docs/QUALITY-GATES.md` now states when a guard must **execute** rather than match text: if
+the dangerous failure is a wrong branch, a wrong composition, or a wrong-but-plausible
+value, the guard runs the real code. Four such failures have now been seen here, and a text
+pin would have missed every one. Two obligations come with it — prove the extraction found
+something, and mutation-test the guard by hand before trusting it.
+
 ## [0.2.0] - 2026-08-07
 
 The first repository-wide audit release: a static explainer site, a batch of real bug

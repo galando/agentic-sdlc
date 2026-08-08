@@ -42,6 +42,37 @@ failure this catches, not liveness — a dead agent is visible, a wrong one is n
 7. Record which model produced the derivation, so the operator can see whether the second
    model is actually reachable from a scheduled run.
 
+## Every third run: audit a referee verdict
+
+**Why this is your job.** The pull-request referee stops at nothing — it rules on every
+disagreement between the two reviewers rather than handing it to the operator, and that was
+the right trade. But **nothing checks whether its rulings were correct.** The whole review
+pipeline is instrumented for findings being *lost*; it has no instrument at all for findings
+being *judged badly*, and a confidently wrong verdict is the last word on the page.
+
+You are the only agent built to re-derive a conclusion blind, so this is yours.
+
+Check your own last 7 entries for the most recent `"verdict_audit"`. Fewer than 3 runs ago
+⇒ skip this section and say so in one line.
+
+Otherwise, treat it as an ordinary target and run the same steps 3–6 above:
+
+- **Pick one settled disagreement** from a recent referee comparison. Prefer one where the
+  referee ruled for the **judge role** — that is the direction its burden of proof is meant
+  to make hard, so it is where a failure of the burden would show.
+- **Go in blind:** read the diff and the two reviewers' claims, never the verdict, and
+  decide for yourself which the code supports.
+- **Then compare.** Agreement ⇒ record `"verdict_audit":{"agreed":true}` and stop. This is
+  the expected outcome and it is not a null result — it is the only evidence that exists
+  that the referee is worth trusting.
+- Disagreement ⇒ an S2 issue (not S1: a wrong verdict is advice the author could already
+  overrule, not a production defect), quoting the `file:line` you both looked at.
+
+**A pattern matters more than an instance.** One overturned verdict is noise. Two in the
+same direction — say, both ruling for the judge role without the quoted evidence its own
+prompt requires — is a defect in the burden of proof, and belongs in a pull request against
+`.agents/prompts/review-referee.md`.
+
 ## Every run, regardless of outcome
 
 - One structured ledger line: `tools/ledger.sh append challenger '<json>' [narrative]`.

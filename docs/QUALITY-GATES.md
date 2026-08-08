@@ -328,6 +328,51 @@ The gates are complementary; each catches what the previous one cannot.
 
 ---
 
+## Gate 22's own rule: when a guard must EXECUTE, not match text
+
+Gate 22 (`tests/harness-guards/`) pins the lessons welded into the agent workflows. Most
+guards do that by asserting a string survived — `pins.json` is the inventory, and
+`gen-pin-tests.sh` turns each entry into one assertion. That is the right shape when the
+value of a lesson **is the words**: a reason written next to a rule, a warning sentence a
+reader has to see, a comment explaining why an idiom is what it is.
+
+It is the wrong shape for a whole class of defect, and every one of them has now been
+seen here at least once:
+
+| The failure | Why a text pin misses it |
+|---|---|
+| A **wrong branch** — `posted` where `stewardPosted` was meant | Both spellings are in the file. The pin matches either. |
+| A **wrong composition** — three individually correct fragments that render a contradiction together | Every fragment passes on its own. |
+| A **wrong-but-plausible value** — the live diff instead of the pinned one | It is still a valid diff, still a green run, still a comment that reads correctly. |
+| A **filter silently dropped** and replaced with nothing | The surrounding comment still describes the filter that is gone. |
+
+**The rule: if the dangerous failure is a wrong branch, a wrong composition, or a
+wrong-but-plausible value, the guard must run the real code.** Extract the actual script,
+`jq` program or step body out of the workflow, feed it crafted inputs, and assert on what
+it *does*. A copy of the logic pasted into the test does not count — it drifts from the
+workflow the first time somebody edits one and not the other, and the guard then asserts
+things about a program that no longer runs anywhere.
+
+Two obligations come with a behavioural guard, and both exist because a guard that quietly
+does not run is the exact failure this directory was built to prevent:
+
+1. **Prove the extraction found something.** Assert the extracted text is non-empty and
+   contains a known landmark, in `setup`. An empty extraction makes every assertion in the
+   file pass for the wrong reason.
+2. **Mutation-test it once, by hand, before you trust it.** Reintroduce the bug, watch the
+   guard go red, put it back. Record which assertions failed in the commit message. A guard
+   nobody has ever seen fail is a guard nobody has evidence about.
+
+Worked examples in this repository: `review-collector.bats` (runs the workflow's real `jq`
+programs against crafted comment fixtures), `steward-handoff-closure.bats` (runs the
+workflow's real JavaScript against a stubbed API), `referee-diff-pin.bats` (runs the real
+fetch script against a stubbed `gh`), and `referee-missing-review-notice.bats` (runs the
+real notice block and reads what it rendered).
+
+Prefer extracting the logic into `tools/` when it is big enough to deserve a name — a
+script is easier to test than a step body, and the guard then needs no extraction at all.
+`tools/fetch-pinned-diff.sh` exists for exactly that reason.
+
 ## Running the gauntlet locally
 
 The commands are the **reference stack's**. On another stack, replace the commands and

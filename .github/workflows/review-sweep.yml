@@ -1,0 +1,108 @@
+# Catch the steward handoff a cancelled review run never filed.
+#
+# WHY THIS EXISTS.
+#
+# `review.yml` files its handoff issue at the very END of the `referee` job, and that is
+# deliberate: filing it earlier is what once built a handoff on one opinion out of three,
+# and dropped every finding the second reviewer raised alone.
+#
+# The cost of filing late is that a run cancelled part-way files nothing. That is not a
+# rare case: the review is advisory rather than a required check, so on a busy single
+# runner it is the first thing anyone cancels, and `review.yml` itself sets
+# `cancel-in-progress: true`. The reviews are on the pull request; nothing is listening.
+#
+# So this watches the review workflow finish, and when it did NOT finish, says so on the
+# pull request. It deliberately does NOT file a handoff issue of its own: it cannot know
+# whether the reviews that landed carry findings — the collector that decides that is the
+# thing that was cancelled — and filing speculatively would wake the steward for clean
+# pull requests and train everyone to ignore it.
+#
+# WHAT IT IS NOT. Not a required check, not a gate, not a second reviewer. One comment, on
+# the pull requests where a human now owns something they would otherwise not know about.
+name: review-sweep
+
+on:
+  workflow_run:
+    workflows: [review]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+# Per pull request, and NOT cancel-in-progress: this job exists precisely because
+# cancellation loses things.
+concurrency:
+  group: review-sweep-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    # Only a cancelled run. A completed run — success or failure — reached the handoff
+    # step, which has `if: !cancelled()` and owns its own reporting from there.
+    if: github.event.workflow_run.conclusion == 'cancelled'
+    runs-on: ${{ vars.PR_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - name: Tell the pull request its review was cancelled
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SERVER: ${{ github.server_url }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          # The pull request number is not on the payload for every event shape, so it is
+          # resolved from the head sha. `--jq` over `gh api` rather than `gh pr list`,
+          # because this workflow has no checkout and no PR context of its own.
+          PR="$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+                  -H "Accept: application/vnd.github+json" \
+                  --jq '[.[] | select(.state == "open") | .number] | first // empty' \
+                2>/dev/null || echo "")"
+
+          if [ -z "$PR" ]; then
+            # Nothing to comment on. Not an error: the pull request may have been closed
+            # or merged between the cancellation and this run.
+            echo "No open pull request found for $HEAD_SHA - nothing to report."
+            exit 0
+          fi
+
+          # Dedupe on a marker, not on a title: this posts a comment rather than an issue,
+          # and `ready_for_review` after an `opened` can produce two cancelled runs for one
+          # pull request. A second identical notice teaches the reader to skim past it.
+          MARKER="<!-- review-cancelled-notice -->"
+          if gh api "repos/$REPO/issues/$PR/comments" --paginate --jq '.[].body' 2>/dev/null \
+             | grep -qF "$MARKER"; then
+            echo "PR #$PR already carries a cancelled-review notice - not posting another."
+            exit 0
+          fi
+
+          BODY_DIR="${RUNNER_TEMP:-}"
+          if [ -z "$BODY_DIR" ] || [ ! -w "$BODY_DIR" ]; then
+            BODY_DIR="$(mktemp -d)"
+          fi
+
+          {
+            echo "$MARKER"
+            echo "## The automated review was cancelled"
+            echo
+            echo "The review run for this pull request did not finish, so **no steward handoff"
+            echo "was filed** — whatever the reviewers found, if they got as far as posting"
+            echo "anything, has nobody acting on it."
+            echo
+            echo "The handoff is filed at the end of the run on purpose: it is the first point"
+            echo "where both reviews and the comparison exist, and filing it earlier used to"
+            echo "produce handoffs built on one opinion out of three."
+            echo
+            echo "**Read any reviews above yourself before merging**, or re-run the review."
+            echo
+            echo "- Cancelled run: $SERVER/$REPO/actions/runs/$RUN_ID"
+          } > "$BODY_DIR/cancelled.md"
+
+          gh pr comment "$PR" --repo "$REPO" --body-file "$BODY_DIR/cancelled.md" \
+            || echo "::warning::Could not post the cancelled-review notice to PR #$PR."
+
+          echo "Reported a cancelled review on PR #$PR."

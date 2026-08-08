@@ -329,6 +329,20 @@ jobs:
             });
             const posted = comments.find(c => new Date(c.created_at) >= startedAt);
 
+            // The same window, but only the STEWARD's own replies. `posted`
+            // above is deliberately any-author; closing an issue needs the
+            // stricter signal — see the close block at the end of this script.
+            //
+            // Upstream pins its bot's exact login here. A template cannot: it
+            // does not know the adopter's bot account. `user.type === 'Bot'` is
+            // the portable form of the same filter, and it is the one this
+            // workflow already relies on — every trigger below the auto-triage
+            // path gates on `sender.type != 'Bot'`, so "the steward posts as a
+            // Bot" is already load-bearing here. Same substitution, same reason,
+            // as the reviewer marker that replaced a login filter in review.yml.
+            const stewardPosted = comments.find(c =>
+              new Date(c.created_at) >= startedAt && c.user && c.user.type === 'Bot');
+
             // Outcome 2: a branch was actually pushed — `branch_name` comes
             // from the remote-diff step above, and even so a name is not proof:
             // existence on the remote is the real signal, re-checked here the
@@ -348,6 +362,55 @@ jobs:
 
             if (posted || pushed) {
               core.info(`Visible outcome present (comment=${!!posted}, branch=${pushed}).`);
+
+              // Close a finished [steward-handoff] issue.
+              //
+              // That issue is a SIGNAL SHAPED LIKE A WORK ITEM: filing it starts
+              // the run, and the signal is spent the moment the run begins. But
+              // nothing owned the ticket afterwards, so it stayed open —
+              // upstream had 8 of 42 still open, one of them for a fix that had
+              // been pushed and replied to hours earlier.
+              //
+              // Mostly clutter, with one real cost: review.yml's handoff dedupes
+              // on the EXACT issue title, and that title carries the pull-request
+              // number. A stale open issue therefore blocks a SECOND handoff for
+              // that same pull request — so a pull request marked ready_for_review
+              // again after more commits gets a review round that wakes nobody.
+              //
+              // This reuses state the step already computed rather than adding a
+              // prompt instruction an agent can ignore. Two conditions, both
+              // load-bearing:
+              //
+              //  1. THE TITLE PREFIX. This step runs on every opened issue,
+              //     including bug reports people file by hand. Auto-closing
+              //     someone's new issue because the steward replied to it would
+              //     be worse than the problem being fixed. It also keeps
+              //     `[review-lost]` issues open: those report a broken review
+              //     pipeline, which a steward reply does not repair.
+              //  2. `stewardPosted`, NOT `posted`. The any-author check above is
+              //     deliberate for "is this issue silently unanswered". For
+              //     CLOSING it would let a human writing "hold on" close the very
+              //     ticket they were objecting to.
+              //
+              // Best-effort: a failure warns rather than reddening a run whose
+              // work is done.
+              const title = (context.payload.issue && context.payload.issue.title) || '';
+              if (title.startsWith('[steward-handoff]') && (stewardPosted || pushed)) {
+                try {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    state: 'closed',
+                    state_reason: 'completed',
+                  });
+                  core.info(`Closed handoff issue #${issueNumber} — the steward finished it.`);
+                } catch (err) {
+                  core.warning(
+                    `Could not close handoff issue #${issueNumber}: ${err.message}. ` +
+                    `The work is done; close it by hand.`);
+                }
+              }
               return;
             }
 

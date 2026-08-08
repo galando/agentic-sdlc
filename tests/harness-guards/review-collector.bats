@@ -29,9 +29,9 @@
 # Drop (2) and the lost-review detector below it is disarmed in both directions at once:
 # any unrelated human comment in the window makes the body non-empty, so a review that
 # posted nothing looks like a review that posted; and a human "looks fine to me" outranks
-# the reviewer's blocking findings, so the steward handoff is suppressed and real findings
-# are stranded. That second direction is the exact failure the handoff step was built to
-# fix — the collector would have re-created it one level up.
+# the reviewer's blocking findings, so this reviewer reads as having posted a clean review
+# and its real findings are stranded. That second direction is the exact failure the
+# handoff was built to fix — the collector would have re-created it one level up.
 #
 # Drop (3) and the same suppression happens on timing alone, with no human involved.
 # ---------------------------------------------------------------------------
@@ -64,22 +64,28 @@ setup() {
 
 teardown() { rm -rf "$FIX"; }
 
-# Extract the handoff step's jq program verbatim from the workflow. Running the real
+# Extract the lost-review step's jq program verbatim from the workflow. Running the real
 # program is the point: a copy pasted into this file would drift from the workflow the
 # first time somebody edited one and not the other, and this guard would then be
 # asserting things about a program that no longer runs anywhere.
-handoff_jq() {
-  awk '/BODY="\$\(jq -r --arg since/ {f=1; next} f && /\/tmp\/c1\.json \/tmp\/c2\.json/ {f=0} f' "$REVIEW"
+#
+# The step this program lives in used to file the steward handoff as well. The handoff
+# now runs at the end of the `referee` job — the first point where BOTH reviews exist —
+# and `steward-handoff-order.bats` guards that. What stayed here is the lost-review
+# check, and the three filters below are exactly as load-bearing for it: they decide
+# whether this reviewer's opinion reached the pull request at all.
+lost_review_jq() {
+  awk '/BODY="\$\(jq -r --arg since/ {f=1; next} f && /\$WORK\/c1\.json/ {f=0} f' "$REVIEW"
 }
 
 run_handoff() { # conversation-page-file inline-page-file
-  jq -r --arg since "$SINCE" -s "$(handoff_jq)" "$1" "$2"
+  jq -r --arg since "$SINCE" -s "$(lost_review_jq)" "$1" "$2"
 }
 
-@test "review collector: the handoff jq program can be located in the workflow" {
+@test "review collector: the lost-review jq program can be located in the workflow" {
   # If this fails the extraction below is silently testing an empty program, which would
   # make every assertion in this file pass for the wrong reason.
-  prog="$(handoff_jq)"
+  prog="$(lost_review_jq)"
   [ -n "$prog" ]
   [[ "$prog" == *"add"* ]]
 }
@@ -140,7 +146,7 @@ BLOCKING: from the run before this one.")" > "$FIX/c1.json"
   [ -z "$output" ]
 }
 
-@test "review collector: the handoff reads BOTH comment homes" {
+@test "review collector: the lost-review check reads BOTH comment homes" {
   # A review posted as an inline comment on a code line lives on a different endpoint
   # from a top-level conversation comment. Reading one endpoint reported a review that
   # was sitting on the pull request the whole time as missing.
@@ -153,7 +159,7 @@ BLOCKING: found only on the inline endpoint.")" > "$FIX/c2.json"
   [[ "$output" == *"inline endpoint"* ]]
 }
 
-@test "review collector: both endpoints are queried, in the handoff and in the referee" {
+@test "review collector: both endpoints are queried, in the lost-review check and in the referee" {
   # Four calls: two endpoints x two collectors. A collector that drops back to one
   # endpoint is the single-home bug returning.
   run grep -cE 'gh api "repos/\$REPO/issues/\$PR/comments" --paginate --slurp' "$REVIEW"

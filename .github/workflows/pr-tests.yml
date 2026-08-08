@@ -218,6 +218,18 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq bats
 
+      # DECLARED, not assumed. `steward-handoff-closure.bats` is behavioural: it
+      # extracts the workflow's own JavaScript and executes it against a stubbed
+      # API, so it needs node. A GitHub-hosted runner ships one, but `runs-on` here
+      # honours `vars.PR_RUNNER`, and a self-hosted runner without node would fail
+      # that guard for a reason that has nothing to do with the change under review.
+      # A test whose dependency is satisfied by accident is a test that disappears
+      # the day the accident stops.
+      - name: Install node (the behavioural guards execute workflow JavaScript)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       # Everything else in this gauntlet tests the product; nothing else tests
       # the machine that builds it. A broken collector or a weakened prompt
       # produces green runs and wrong answers, which is the worst combination

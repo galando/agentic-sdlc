@@ -27,6 +27,27 @@ review needs no spec pipeline of its own.
    two reviews apart by author; the marker is the only discriminator. A status update or
    any other comment you might otherwise post must never carry this exact first line.
 
+## The diff you are reviewing is pinned
+
+Review **`.review-artifacts/diff.patch`**. It is the pull request's change at one exact
+commit, fetched for you before you started, and the checked-out tree around you is that
+same commit.
+
+This is not a convenience. Both reviewers and the referee that compares them all read this
+one file, so that "both reviewers found this" means something. If each reviewer asked for
+"the current diff" at its own start time, two reviewers could review two different commits
+and be compared as though they had reviewed the same one — and nothing in the output would
+look wrong. The pull request may have moved on since; that is the referee's business to
+report, not yours to chase.
+
+**Your comment's SECOND line must be exactly** `<!-- reviewed-commit: X -->`, where `X` is
+the content of `.review-artifacts/reviewed-commit.txt` — the short sha of the commit you
+just reviewed. Copy it; do not work it out yourself.
+
+This is not bookkeeping. It is the only way anything downstream can *check* that the two
+reviews being compared describe the same code, rather than taking it on trust because the
+workflow meant them to.
+
 ## What the comment covers
 
 Correctness, security, architecture fit, test coverage for the change, and the process
@@ -35,6 +56,12 @@ review that only lists problems reads as harsher than intended, and a review tha
 praises misses the point. Write in plain language
 (`docs/runbooks/agent-communication-style.md`): what you found, why it matters, and
 what you'd change.
+
+**Ask what will run the change, and when.** Merging does not run anything on a server. If
+the part that matters only takes effect when a human runs a script by hand, the pull
+request is not finished, and this is the last point where anyone asks — say so as a
+finding, and say what would have to run it instead. The standing decision and the
+incidents behind it are in `docs/runbooks/agent-modes.md`.
 
 You are reviewing, not fixing: never push a commit, never open a pull request of your
 own, and never merge anything.

@@ -240,3 +240,118 @@ person to meet the same symptom reads it instead of re-deriving it.
   an agent has read the signal. Anchor: an issue was closed as completed the moment its
   fix merged, and production was still evaluating 24 of 37 alert rules 100 minutes
   later — after a *successful* reload.
+- **Merging a fix does not run anything on the server. If its mechanism is a manual step,
+  it is not deployed.** The rule directly above catches this *afterwards* — a day later,
+  when someone reads the end state and finds it unmoved. Nothing catches it at review
+  time, and the reason is the same every time: the part of the fix that mattered was never
+  applied to the box.
+
+  The anchor is three incidents with one shape. An alert-rules file edited and merged while
+  production kept serving the old inode. Rules shipped and never loaded. And the expensive
+  one: a fix whose Compose half deployed correctly two minutes after the merge, while the
+  half that actually wrote the metric was a cron line living in a setup script that a human
+  runs over ssh and *nothing else invokes*. Nothing in the deploy path called it, so merging
+  could not have installed it. The green pull request, the firing alert and the correct
+  alert were all true at once, and the system went 23 days with no database backup.
+
+  **So, when you review or open a pull request: name the thing that will run the change,
+  and say when.** If the answer is "a human runs a script over ssh", the pull request is not
+  finished — the step needs folding into something that already runs (a deploy step, a
+  scheduled job, an idempotent script the deploy calls), or the body must say plainly that a
+  manual step is outstanding and what it is. This is `AGENTS.md` guardrail 8's instinct
+  applied one level up: if you find yourself writing a runbook step for a human to execute,
+  ask why the scheduler is not executing it. **The end-state signal for such a fix is never
+  the merge** — it is the metric, the served rule, or the file the mechanism produces.
+- **`action_required` is a third colour on a pull request, and it means the whole gauntlet
+  never ran.** Agents read a pull request's state to rank the merge queue and to decide
+  whether a fix slot is already covered. A pull request in this state looks like neither of
+  the two colours anyone checks for: not red, not green. The host shows the last *passing*
+  run against an older commit while the head commit has no checks at all.
+
+  It happens on agent pull requests **by design of the review loop**. When the steward
+  pushes a follow-up commit fixing its own review findings, that commit is authored by the
+  bot, and the host then holds every workflow on the pull request pending a maintainer
+  clicking "approve and run workflows". The better a steward review is, the more likely the
+  pull request it improved is blocked. Two consequences:
+
+  1. **Read the run conclusion of the pull request's *head* commit**, never the newest green
+     run on the branch. `mergeable_state` does not distinguish this either — it reports
+     things about the base branch and says nothing about whether the tests ran.
+  2. **Report it as blocked on the operator, not as "checks pending".** It does not clear
+     with time, a re-run, or another agent: only a human click starts it. In a brief it
+     belongs on the decisions-needed list, not in the merge queue's normal ranking.
+- **A number two agents disagree about gets a pre-committed test, not another
+  measurement.** When one agent reads a series as a regression and another reads it as
+  noise, the fleet's default is to measure it again next run. That does not converge: each
+  new sample is argued about the same way, and the disagreement survives every run that
+  produces a number.
+
+  The worked example cost about four agent-weeks. A discovery count fell across five
+  readings and was carried as a possible regression by four different agents, who between
+  them added a confound, retired it, and kept measuring. What ended it was one line written
+  *before* the next reading: a pre-committed band of 7–20 for a normal Monday. Monday came
+  in at 8, inside the band, and two agents retired the question outright the same day. The
+  falling series was the 7-day window losing weekdays — a fact no single additional sample
+  could have established.
+
+  One detail of how it ended is easy to drop the wrong half of. The agent that pre-committed
+  the band read Monday itself and handed the answer over with an explicit instruction not to
+  re-run the test. The receiving agent re-measured anyway, got the same number
+  independently, and agreed. **The band is what made the question answerable; the second
+  reading is what made the retirement stick.** Pre-committing a band does not end with
+  handing someone the result.
+
+  **So: when a series is contested across two or more runs, the next run's deliverable is a
+  test, not a number.** Before you read it again, write down the exact query, the window,
+  and the numeric band that settles it in *each* direction. Then read it once and retire it
+  either way. Whoever contests a series after that owes a band, not a rebuttal.
+- **A pre-committed band has to be able to lose. A band that cannot fire is worse than no
+  band** (amends the rule directly above). That rule says to write down a band that settles
+  the question in each direction. It never says what makes a band settle anything — and in
+  the days after it landed, every daily agent wrote one that could not. This is the
+  expensive kind of failure: measuring again at least leaves the question visibly open,
+  while a band that cannot fire hands back a wrong answer wearing the clothes of a passed
+  test.
+
+  Three failure shapes, all observed within two days of the rule landing:
+
+  - **A gap between the two directions.** A band said `>=58%` was an escalation and `<55%`
+    retired the question. The reading came in at 56.83% — neither side. The question
+    survived to a second run, which is the precise outcome the rule exists to prevent.
+  - **The test is written against the number, not against the change.** Two bands of the
+    form "any group's row count falls" both fired on ordinary churn with nothing merged
+    (40 → 35 because one row's category changed).
+  - **The band contradicts what the fix actually claims.** A band demanded a counter go
+    above zero, but the guard it was testing fires only on an *uncorroborated* case — so
+    zero, alongside hundreds of corroborated ones, meant every single one was corroborated.
+    The best possible night, and the band scored it a failure.
+
+  **So, before you commit a band, check three things about it:**
+
+  1. **No gap, no overlap.** The confirm side and the refute side must together cover every
+     reading that is possible, and no reading may satisfy both. Write ONE boundary (`>=X`
+     confirms, `<X` refutes), not two thresholds with room in the middle — one boundary
+     rules out the gap and the overlap at the same time.
+  2. **Only the mechanism under test can satisfy it.** If ordinary day-to-day churn can push
+     the number past your line, the line measures churn. Prefer a trigger the change itself
+     produces — a log line only the new code writes, a counter only the new path increments
+     — over a level in a series that many things move.
+  3. **Read the wording of the thing you are testing, then say which reading confirms and
+     which refutes.** The good outcome is not always the number going up. A guard that
+     abstains correctly may never fire; a counter that stays at zero may be the fix working.
+
+  This does not weaken the rule above — it is the checklist that rule assumed. Whoever
+  contests a series still owes a band rather than a rebuttal; it now has to be a band that
+  can lose.
+- **The nightly gates have a reader: the chief of staff's daily brief.** A scheduled nightly
+  gate fails for days at a time with nobody reporting it, because a red gate is not a
+  production signal, not an accuracy signal and not a pipeline signal — so it belongs to no
+  daily agent. On the anchor case one gate had been red for eight days, went green
+  unnoticed, and went red again the next day, also unnoticed.
+
+  Timing narrows the field but does not settle it, and the honest reason is scope: the daily
+  brief is already the fleet's once-a-day cross-cutting report, while every other agent's
+  slot is scoped to one subsystem. **Every daily brief therefore reports the conclusion of
+  the most recent scheduled run of each nightly gate, with its date.** This adds one read to
+  one agent; it does not make the chief of staff responsible for *fixing* a gate, which
+  stays where `docs/runbooks/qa-procedures.md` puts it.

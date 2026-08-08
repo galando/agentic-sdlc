@@ -36,13 +36,29 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 # WHY: so it is a party to the dispute and may only sort findings, never rule on them. A 
 # WHY: comparator that picks winners is the first reviewer marking its own work, and the human 
 # WHY: loses the disagreement that was the point.
+# SUPERSEDED 2026-08-08 -> docs/runbooks/multi-model-review.md — "The referee settles 
+# disagreements"; guarded by tests/harness-guards/referee-verdict.bats
+# SUPERSEDED: Abstaining cost more than it saved. Every disagreement became an operator decision, and 
+# SUPERSEDED: most were not disagreements at all — one reviewer's silence, the same defect at two 
+# SUPERSEDED: severities, two valid fixes for one bug. The genuine ones were nearly always questions of 
+# SUPERSEDED: FACT about the code, which have an answer anyone can check. The comparator now rules, and 
+# SUPERSEDED: the self-grading risk this entry names is answered STRUCTURALLY rather than by 
+# SUPERSEDED: abstaining: it settles questions of fact against a diff pinned to the reviewed commit, a 
+# SUPERSEDED: ruling in its own side's favour requires quoted file:line evidence, a tie goes to the 
+# SUPERSEDED: other reviewer, and every verdict is advice the author overrules at merge time. The 
+# SUPERSEDED: pinned phrase must survive as the objection being ANSWERED — if it disappears, the 
+# SUPERSEDED: reason the safeguards exist has gone with it.
 @test "pin[referee-sorts-does-not-grade]: .github/workflows/review.yml" {
   run grep -E -q -- grading\ its\ own\ paper "$REPO_ROOT/.github/workflows/review.yml"
   if [ "$status" -ne 0 ]; then
     echo "PIN LOST: referee-sorts-does-not-grade"
     echo "  source: .github/workflows/<VENDOR-REVIEW-WORKFLOW>.yml:55"
     echo "  why:    The comparison step runs on the same model family as one of the reviews it is comparing, so it is a party to the dispute and may only sort findings, never rule on them. A comparator that picks winners is the first reviewer marking its own work, and the human loses the disagreement that was the point."
-    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    echo "  NOTE:   this lesson was SUPERSEDED on 2026-08-08."
+    echo "          now: docs/runbooks/multi-model-review.md — \"The referee settles disagreements\"; guarded by tests/harness-guards/referee-verdict.bats"
+    echo "          why: Abstaining cost more than it saved. Every disagreement became an operator decision, and most were not disagreements at all — one reviewer's silence, the same defect at two severities, two valid fixes for one bug. The genuine ones were nearly always questions of FACT about the code, which have an answer anyone can check. The comparator now rules, and the self-grading risk this entry names is answered STRUCTURALLY rather than by abstaining: it settles questions of fact against a diff pinned to the reviewed commit, a ruling in its own side's favour requires quoted file:line evidence, a tie goes to the other reviewer, and every verdict is advice the author overrules at merge time. The pinned phrase must survive as the objection being ANSWERED — if it disappears, the reason the safeguards exist has gone with it."
+    echo "          The pin still holds: the string survives in its new role. Restore it"
+    echo "          as that, NOT as the original rule."
     false
   fi
 }
@@ -266,14 +282,18 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 # WHY: The clean/not-clean decision is keyed on the phrase that means clean, not on the marker 
 # WHY: that means a finding. An unrecognised output format then counts as findings and gets 
 # WHY: escalated rather than silently dropped: wrong in the direction of one spurious 
-# WHY: escalation, never in the direction of another stranded finding.
-@test "pin[review-escalate-unrecognised-format]: .github/workflows/review.yml" {
-  run grep -E -q -- unrecognised\ format "$REPO_ROOT/.github/workflows/review.yml"
+# WHY: escalation, never in the direction of another stranded finding. MOVED 2026-08-08: the 
+# WHY: handoff decision was extracted from .github/workflows/review.yml into 
+# WHY: tools/review-handoff-decide.sh so it could be exercised directly instead of by carving a 
+# WHY: step body out of YAML. The pattern is unchanged — the lesson moved home, it did not 
+# WHY: weaken — and it now sits beside the branch it governs.
+@test "pin[review-escalate-unrecognised-format]: tools/review-handoff-decide.sh" {
+  run grep -E -q -- unrecognised\ format "$REPO_ROOT/tools/review-handoff-decide.sh"
   if [ "$status" -ne 0 ]; then
     echo "PIN LOST: review-escalate-unrecognised-format"
     echo "  source: .github/workflows/<VENDOR-REVIEW-WORKFLOW>.yml:325"
-    echo "  why:    The clean/not-clean decision is keyed on the phrase that means clean, not on the marker that means a finding. An unrecognised output format then counts as findings and gets escalated rather than silently dropped: wrong in the direction of one spurious escalation, never in the direction of another stranded finding."
-    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    echo "  why:    The clean/not-clean decision is keyed on the phrase that means clean, not on the marker that means a finding. An unrecognised output format then counts as findings and gets escalated rather than silently dropped: wrong in the direction of one spurious escalation, never in the direction of another stranded finding. MOVED 2026-08-08: the handoff decision was extracted from .github/workflows/review.yml into tools/review-handoff-decide.sh so it could be exercised directly instead of by carving a step body out of YAML. The pattern is unchanged — the lesson moved home, it did not weaken — and it now sits beside the branch it governs."
+    echo "  Restore the string in tools/review-handoff-decide.sh. Do NOT weaken the pin."
     false
   fi
 }
