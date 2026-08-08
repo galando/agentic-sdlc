@@ -70,8 +70,11 @@ mkdir -p "$(dirname "$OUT")"
 # The compare endpoint with the diff media type, NOT `gh pr diff`. `base...head` is the
 # three-dot range: the pull request's own changes, not everything the base branch has
 # gained since the branch point.
+# stderr is NOT suppressed. A hidden error turns "could not fetch the pinned diff" into
+# a dead end — the operator needs to see whether it was a 404, a permission problem or a
+# rate limit, and this is the only place that knows.
 if ! gh api "repos/$REPO/compare/${BASE}...${HEAD}" \
-       -H "Accept: application/vnd.github.v3.diff" > "$OUT" 2>/dev/null; then
+       -H "Accept: application/vnd.github.v3.diff" > "$OUT"; then
   echo "::warning::Could not fetch the pinned diff for $REPO#$PR at ${HEAD} — the reviewer will verify against the checked-out tree instead."
   : > "$OUT"
 fi

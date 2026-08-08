@@ -210,6 +210,32 @@ make it worth having:
 silently fine; the first entry carrying a quoted phrase produced a generated file whose
 `echo` arguments re-tokenised into something subtly different from the inventory.
 
+#### `tools/` is held to bash 3.2
+
+`tools/spec-pipeline/validate.sh` already avoided `mapfile` with a comment explaining that
+this must run "under whatever `/usr/bin/env bash` resolves to, including bash 3.2". That
+reasoning lived in one file's comment, so the next script to need a line-to-array read
+reached for `mapfile` anyway. It would never have failed in CI — CI is Linux with bash 5 —
+only on a maintainer's macOS laptop, which is exactly where the adoption interview, the
+floor calibration and the drift check get run.
+
+`tests/harness-guards/portable-bash.bats` now holds the rule for the whole of `tools/`,
+including a planted-violation test so it cannot pass vacuously.
+
+Two further bugs in the new drift tool, both found by testing it rather than by reading it:
+a bare/mirror clone was rejected as "not a git checkout" (a bare repo's `HEAD` is a file,
+not a directory), and `gh`'s own error was being swallowed so "could not fetch the pinned
+diff" never said why.
+
+#### `init.sh`'s template-only deletions are now tested
+
+`init.sh` removes the template's explainer site and the upstream-tracking tooling during
+adoption, so an adopter does not inherit files describing somebody else's project and a
+relationship they do not have. That deletion is the shape that quietly stops happening —
+nothing in it is a placeholder, so the placeholder sweep does not notice, and an adopted
+tree simply carries the files. It has a test now, covering all five files and the second
+run that must not fail on what the first removed.
+
 #### Gate 22's own rule is written down
 
 `docs/QUALITY-GATES.md` now states when a guard must **execute** rather than match text: if

@@ -58,7 +58,11 @@ command -v git >/dev/null 2>&1 || { echo "check-upstream-drift.sh: git is requir
 
 # A URL is not usable directly: this tool reads history, so it needs a clone. Say so with
 # the command rather than cloning several hundred megabytes on the user's behalf.
-if [ ! -d "$UPSTREAM/.git" ] && [ ! -d "$UPSTREAM/HEAD" ]; then
+# Accepts a normal clone OR a bare/mirror clone — a mirror is the obvious way to keep a
+# local copy of a repository you only ever read. `git rev-parse` answers for both and does
+# not care which; hand-checking for .git/ and HEAD got the bare case wrong (HEAD is a FILE
+# there, not a directory) and rejected it with a misleading "clone it first".
+if ! git -C "$UPSTREAM" rev-parse --git-dir >/dev/null 2>&1; then
   echo "check-upstream-drift.sh: '$UPSTREAM' is not a git checkout." >&2
   echo "  Clone the upstream first, then point this at it:" >&2
   echo "    git clone <upstream-url> /tmp/upstream && tools/check-upstream-drift.sh /tmp/upstream" >&2
@@ -111,7 +115,16 @@ else
   PATHS="$DEFAULT_SURFACE"
 fi
 
-mapfile -t PATHSPEC < <(printf '%s\n' "$PATHS")
+# A portable read loop, not `mapfile` — that is a bash-4+ builtin and this must run
+# under whatever /usr/bin/env bash resolves to, including the 3.2 that ships on macOS.
+# Same reasoning, same convention, as tools/spec-pipeline/validate.sh. This is a
+# MAINTAINER tool, so a laptop is exactly where it runs.
+PATHSPEC=()
+while IFS= read -r line || [ -n "$line" ]; do
+  [ -n "$line" ] && PATHSPEC+=("$line")
+done <<EOF
+$PATHS
+EOF
 
 # ---------------------------------------------------------------------------
 # WHICH REF TO READ. This defaulted to `HEAD` and that was wrong in the one way that

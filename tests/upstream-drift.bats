@@ -117,3 +117,26 @@ teardown() { rm -rf "$UP"; }
                 | .sha // "(no sha)"' "$REPO_ROOT/.agents/upstream-sync.json")"
   [ -z "$bad" ]
 }
+
+@test "drift: a BARE/mirror clone is accepted, not rejected as 'not a checkout'" {
+  # A mirror is the obvious way to keep a local copy of a repository you only ever read.
+  # Hand-checking for `.git/` and a HEAD *directory* got this wrong — HEAD is a FILE in a
+  # bare repo — so the natural setup was refused with advice to clone it again.
+  bare="$(mktemp -d)/up.git"
+  git clone -q --bare "$UP" "$bare"
+  run "$TOOL" "$bare" --since "$BASE"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"a carried lesson"* ]]
+  [[ "$output" != *"not a git checkout"* ]]
+  rm -rf "$(dirname "$bare")"
+}
+
+@test "drift: the tool uses no bash-4-only builtin" {
+  # This repo targets whatever /usr/bin/env bash resolves to, INCLUDING the 3.2 that ships
+  # on macOS — tools/spec-pipeline/validate.sh says so in a comment and uses a portable
+  # read loop for exactly this reason. A maintainer tool runs on a laptop, which is where
+  # bash 3.2 actually lives, and `mapfile` there is a "command not found" at the moment
+  # you most need the tool to work.
+  run grep -nE '^[^#]*\b(mapfile|readarray)\b' "$TOOL"
+  [ "$status" -ne 0 ]
+}
