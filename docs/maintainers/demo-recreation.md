@@ -70,18 +70,34 @@ You will also need, on the demo repository:
 
 Run them in this order. Steps 1–5 are local and fast; 6 onwards touch GitHub.
 
-### 0. Delete or rename the old demo
+### 0. Delete the old demo
 
-If `galando/agentic-sdlc-demo` still exists, rename it (Settings → Repository name,
-e.g. `agentic-sdlc-demo-v1`) rather than deleting it — the template's `README.md`
-and `site/index.html` both link to the name, and the links go dead the moment the
-name is free but unclaimed. Delete the old one only after the new one is live.
+GitHub → `galando/agentic-sdlc-demo` → **Settings** → scroll to **Danger Zone** →
+**Delete this repository** → type the full `owner/name` to confirm.
+
+**Recreate it under the exact same name.** The template's `README.md` and
+`site/index.html` both hard-link `galando/agentic-sdlc-demo`; reusing the name keeps
+them resolving and means step 10 is a no-op. There is a window between the delete and
+the create where both links 404 — do the two together.
+
+What the delete destroys, and cannot be recovered: every issue and pull request with
+its automated reviews, the whole Actions history, and the `agent-ledger` branch. That
+history *is* the demo's evidence, so a rebuild is not a refresh — you are re-earning
+all of it from step 9. Nothing in the template repository depends on it.
 
 ### 1. Create the repository from the template
 
-GitHub → this repository → **Use this template** → **Create a new repository** →
-name it `agentic-sdlc-demo`, **public**. Then clone it and check that `origin`
-points at the demo, not at the template:
+GitHub → this repository → **Use this template** → **Create a new repository**:
+
+- Owner `galando`, name `agentic-sdlc-demo`, **Public**.
+- **Do not** tick "Include all branches" — the demo's `agent-ledger` branch is created
+  fresh by `tools/create-ledger-branch.sh` in step 2, and inheriting the template's
+  branches imports history that is not the demo's.
+
+The template's default branch is `main`; make sure the work you want in the demo is
+merged there first, since a template copy takes the default branch only.
+
+Then clone it and check that `origin` points at the demo, not at the template:
 
 ```bash
 git clone https://github.com/galando/agentic-sdlc-demo
@@ -199,6 +215,19 @@ On the demo repository:
 - Secrets → `AGENT_CLI_TOKEN`, `CHALLENGE_API_KEY` (both, for the demo).
 - Variables → `AGENT_MENTION` if you want anything other than the `@agent` default.
 - Install the agent CLI's GitHub App for the repository.
+- **Settings → Actions → General → Workflow permissions**: set **Read and write
+  permissions**, and tick **Allow GitHub Actions to create and approve pull
+  requests**.
+
+That last checkbox is the one that bites, and no script in this repository can set
+it. A fresh repository ships with it off; the steward declares `pull-requests: write`
+and still fails at the moment it opens the PR — *"GitHub Actions is not permitted to
+create or approve pull requests"* — after doing all the work. It looks like a broken
+agent, and it is a repository setting.
+
+Note the second half of that checkbox's name is a promise the harness does not use:
+an agent can open a pull request here, and never approve or merge one. That is
+`AGENTS.md` guardrail 2, enforced by branch protection in step 8, not by this setting.
 
 Then `tools/adopt.sh` again — it verifies the secret is present and moves on.
 
