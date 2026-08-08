@@ -65,10 +65,36 @@ exists, and five standing decisions the fleet learned the hard way join
   measurement*; *a pre-committed band has to be able to lose* (the three checks that make
   one able to fire); and *the nightly gates have a reader* — the chief of staff's daily
   brief, now a standing section in its prompt.
-- `tests/harness-guards/referee-verdict.bats` and
-  `tests/harness-guards/steward-handoff-order.bats` (gate 22), pinning both changes —
-  including a guard that runs the workflow's own punt pattern against the phrasings that
+- **The handoff issue closes itself once the steward has finished it.** That issue is a
+  signal shaped like a work item: filing it starts the run, and the signal is spent the
+  moment the run begins — but nothing owned the ticket afterwards, so it stayed open.
+  Mostly clutter, with one real cost: **the handoff dedupes on the exact issue title, and
+  that title carries the pull-request number**, so a stale open issue blocks a *second*
+  handoff for the same pull request — a pull request marked `ready_for_review` again after
+  more commits then gets a review round that wakes nobody.
+
+  `steward.yml`'s existing visible-outcome step now closes it as `completed`, reusing state
+  it already computes instead of adding a prompt instruction an agent can ignore. Two
+  load-bearing conditions: the title must start `[steward-handoff]` (the step runs on every
+  opened issue, so this keeps human-filed and `[review-lost]` issues open), and the reply
+  must be the **steward's own** rather than anyone's (the outcome check counts any author on
+  purpose; reusing that for closing would let a human writing "hold on" close the ticket
+  they were objecting to). Best-effort — a failure warns rather than reddening a run whose
+  work is done.
+- `tests/harness-guards/referee-verdict.bats`,
+  `tests/harness-guards/steward-handoff-order.bats` and
+  `tests/harness-guards/steward-handoff-closure.bats` (gate 22), pinning all three changes
+  — including a guard that runs the workflow's own punt pattern against the phrasings that
   caused it and against prose that must not trip it.
+
+  The closure guard is **behavioural, not a text pin**: it extracts the real script out of
+  `steward.yml` and runs it against a stubbed API, because every dangerous failure there is
+  a wrong branch taken rather than a missing string, and the two conditions guarding the
+  close read almost identically to the ones guarding the outcome check above them. Both
+  dangerous mutations — swapping the any-author check back in, and dropping the title prefix
+  — were confirmed to fail it. It needs `node`; a missing `node` fails the guard loudly
+  rather than skipping it, because a guard that quietly does not run is the failure this
+  directory exists to prevent.
 
 ### Fixed
 

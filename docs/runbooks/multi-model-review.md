@@ -161,6 +161,40 @@ findings. Two consequences worth knowing:
   using the `jq` that `gh` embeds. A missing `jq` costs the comparison only — never the
   handoff.
 
+### The handoff issue closes itself
+
+That issue is **a signal shaped like a work item**. Filing it starts the steward's run, and
+the signal is spent the moment the run begins — but for a while nothing owned the ticket
+afterwards, so it stayed open. Upstream ended up with 8 of the 42 ever filed still open, one
+of them for a fix that had been pushed and replied to hours earlier.
+
+Mostly clutter, with one real cost: **the handoff dedupes on the exact issue title, and that
+title carries the pull-request number.** A stale open issue therefore blocks a *second*
+handoff for the same pull request — so a pull request marked `ready_for_review` again after
+more commits gets a review round that wakes nobody. The stranded finding, one level up.
+
+`steward.yml`'s existing "require a visible outcome" step already works out whether the
+steward left anything behind, so it now closes the issue as `completed` when it did. Reusing
+computed state rather than adding a prompt instruction an agent can ignore. Two conditions,
+both load-bearing:
+
+1. **The title must start `[steward-handoff]`.** That step runs on *every* opened issue,
+   including bug reports people file by hand — auto-closing someone's new issue because the
+   steward replied would be worse than the problem being fixed. It also keeps `[review-lost]`
+   issues open: those report a broken review pipeline, which a steward reply does not repair.
+2. **The reply must be the steward's own, not anyone's.** The outcome check counts any
+   author on purpose (a human answering means the issue is not silently unanswered). Reusing
+   that looser signal for *closing* would let a human writing "hold on" close the very ticket
+   they were objecting to.
+
+The close is best-effort: a failure warns rather than reddening a run whose work is done.
+
+`tests/harness-guards/steward-handoff-closure.bats` is behavioural rather than a text pin —
+it extracts the real script out of the workflow and runs it against a stubbed API, because
+every dangerous failure here is a wrong branch taken, not a missing string. The three
+scenarios that must never close are a human's own issue, a `[review-lost]` issue, and a
+handoff where only a human replied.
+
 ## Setup
 
 ### 1. Get a credential
