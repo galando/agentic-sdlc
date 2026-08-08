@@ -100,8 +100,23 @@ case "$PROVIDER" in
   *) die "PROVIDER must be one of: claude-code, codex, gemini-cli (compatible-endpoint is fixed to the challenge role and is not asked here)" ;;
 esac
 
+# Nobody memorises exact model ids, and they churn faster than any template
+# release — so each adapter carries a dated ADAPTER_MODEL_HINT with the URL that
+# stays authoritative, and the interview surfaces it at the moment of the
+# question. Guidance, never a validated enum: an id this file rejected would go
+# stale in the wrong direction, refusing tomorrow's models.
+hint="$(adapter_model_hint "$PROVIDER" 2>/dev/null || true)"
+if [ -n "$hint" ]; then
+  echo
+  echo "Model ids for '$PROVIDER' — $hint"
+fi
 ask MODEL_JUDGE "Exact model id for the 'judge' role (reviews, referee, triage)"
 ask MODEL_EXECUTE "Exact model id for the 'execute' role (mechanical edits, routines)"
+ch_hint="$(adapter_model_hint compatible-endpoint 2>/dev/null || true)"
+if [ -n "$ch_hint" ]; then
+  echo
+  echo "The 'challenge' role runs on the compatible-endpoint adapter — $ch_hint"
+fi
 ask MODEL_CHALLENGE "Exact model id for the 'challenge' role (MUST be a different model family)"
 ask CHALLENGE_BASE_URL "Base URL of the compatible endpoint serving the challenge model (blank if none yet)" "none"
 ask ALERT_CHANNEL "Alert channel: none | webhook | command" "none"
@@ -368,6 +383,22 @@ case "$ledger_reply" in
 esac
 
 # ---------------------------------------------------------------------------
+# Regenerate ADOPTING.md. Its table is a pure function of the tree's remaining
+# double-brace tokens, and this interview just resolved most of them — so the
+# committed table is stale the moment substitution finishes. Two CI gates
+# verify exactly that purity (fast-repo-hygiene regenerates-and-diffs, and a
+# harness guard does the same), which means an adoption that skips this line
+# fails BOTH on its very first pull request, about a file the adopter has
+# never heard of. A real adoption did. Last tree mutation before the check
+# below, so the regenerated table reflects every change this run made.
+# ---------------------------------------------------------------------------
+if [ -x "$ROOT/tools/gen-adopting.sh" ]; then
+  echo
+  echo "--- Regenerating ADOPTING.md (its token table just shrank) ---"
+  "$ROOT/tools/gen-adopting.sh"
+fi
+
+# ---------------------------------------------------------------------------
 # The post-init check. init.sh refuses to print "done" if this fails.
 # ---------------------------------------------------------------------------
 echo
@@ -388,6 +419,9 @@ fi
 cat <<'EOF'
 
 === init.sh is done. What remains is manual, in this order: ===
+
+  (Guided mode: tools/adopt.sh walks this whole list with you — it verifies each
+   item where it can, offers to do the automatable ones, and is safe to re-run.)
 
   1. Create the ledger orphan branch — one idempotent command, done already if
      you said yes to the offer above:

@@ -8,6 +8,7 @@
 ADAPTER_STATUS=verified                                        # verified | unverified — THE source of truth (design.md 3.4)
 ADAPTER_DOCS_URL=https://code.claude.com/docs/en/headless       # confirm flags here before changing this file
 ADAPTER_AUTH_HINT='API-KEY MODE (always): an API key issued by whichever backend auth.compatible-endpoint.base_url points at. This is the one place a per-token key is genuinely required, because no subscription covers a second model family. OPTIONAL BY DESIGN: without it the adversarial second opinion degrades to a single reviewer and says so — it never fails a pull request.'
+ADAPTER_MODEL_HINT='whatever model ids the endpoint at base_url serves — its own GET /v1/models is the authoritative list, not any document. Works with any OpenAI-compatible backend: z.ai (GLM series, e.g. glm-4.7), DeepSeek, Moonshot/Kimi, Mistral, a local vLLM or Ollama, and most other hosted model APIs. Pick a DIFFERENT family than your primary provider — a second draw from the same distribution shares the same blind spots.'
 #
 # tools/providers/compatible-endpoint.sh — the "different model family" adapter.
 #

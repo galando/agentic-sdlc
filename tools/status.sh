@@ -31,6 +31,7 @@ todo() { printf '  [NEXT] %s\n' "$1"; [ -n "$next" ] || next="$2"; }
 info() { printf '  [....] %s\n' "$1"; }
 
 echo "=== Adoption status — four steps, in order ==="
+echo "    (this is the read-only map; tools/adopt.sh walks it WITH you, offer by offer)"
 echo
 
 # --- 1. The interview --------------------------------------------------------

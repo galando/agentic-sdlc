@@ -37,6 +37,30 @@ setup() {
   done
 }
 
+@test "every adapter declares exactly one model hint, carrying a live-list pointer" {
+  # Nobody memorises exact model ids and they churn faster than any release, so
+  # the interview surfaces each adapter's hint at the moment of the question.
+  # The hint must point somewhere that STAYS authoritative — a vendor models URL,
+  # or (compatible-endpoint) the endpoint's own /v1/models — because the ids
+  # inside the hint are dated guidance by design, never a validated enum.
+  for f in "$REPO_ROOT"/tools/providers/*.sh; do
+    n="$(grep -c '^ADAPTER_MODEL_HINT=' "$f")"
+    [ "$n" -eq 1 ] || { echo "$f declares $n ADAPTER_MODEL_HINT lines"; false; }
+    grep -E '^ADAPTER_MODEL_HINT=' "$f" | grep -qE 'https?://|/v1/models' \
+      || { echo "$f model hint has no live-list pointer"; false; }
+  done
+}
+
+@test "adapter_model_hint reads the hint, and is silent for a provider without one" {
+  . "$REPO_ROOT/tools/lib/config.sh"
+  run adapter_model_hint claude-code
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"docs.claude.com"* ]]
+  run adapter_model_hint no-such-provider
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 @test "a missing REQUIRED credential names the mode, the how-to and the destination" {
   cd "$SCRATCH"
   run env -u AGENT_CLI_TOKEN tools/run-agent.sh --check-credentials health

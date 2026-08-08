@@ -17,6 +17,14 @@ its `ADOPTION-LOG.md`.*
   22-gate gauntlet  ──▶  YOU merge  ──▶  filing agent verifies the fix landed
 ```
 
+> **Just created a repo from this template? Start here — one command, re-run it
+> until done:**
+> ```bash
+> tools/adopt.sh
+> ```
+> It walks the entire adoption with you and never acts without your yes.
+> Details: section 3. Lost later? `tools/status.sh`.
+
 Every step an agent takes is reviewable in a diff, gated by 22 automated checks, and
 merged by a human. This repository is a **GitHub template**: the process scaffolding —
 guardrails, ledger, gauntlet, agent prompts — with no product code of yours in it yet.
@@ -44,19 +52,55 @@ system. Nothing an agent does reaches your default branch without passing the ga
 - **Rough cost:** the normal case is your existing subscription's flat monthly price —
   see section 8, "Cost, honestly," below before you budget anything else.
 
+### Any language? Three layers, three answers
+
+- **The agent process — any repo, any language, zero changes.** The steward, both
+  reviews and the referee, the spec-artifact gate, secret scanning, actionlint, the
+  harness guards, the ledger and alerting know nothing about your stack: they operate
+  on issues, diffs and workflows. An automated review of a Rust or Python diff works
+  on day one.
+- **The measured gates ship as reference implementations** for two stacks
+  (Java/Spring/Maven and React/TypeScript/Vite): tests, coverage and mutation
+  ratchets, architecture rules, migrations, e2e, bundle budget. On any other stack
+  they are **swap points, not assumptions** — the table in section 8 lists exactly
+  which commands and config files to replace, and `docs/QUALITY-GATES.md` states each
+  gate's stack-agnostic *claim* to keep while you swap the tool that proves it.
+  Until you swap them, keep your product outside `backend/`/`frontend/` — the gates
+  skip cleanly when those paths are absent, but a different stack placed *at* them
+  would run the reference commands and fail honestly rather than adapt.
+- **The ratchet machinery is already tool-neutral.** `floors.yml` stores plain
+  ratios; `tools/measure-floors.sh` announces a clean skip when it finds no
+  instrument it knows, and a ported stack's own guard test reads `floors.yml`
+  directly, exactly as the reference ratchet-guard tests do.
+
+The porting move worth knowing: once the process layer is live, **open an issue
+asking the agent to port the gauntlet to your stack** and merge its pull request —
+the system wiring its own gates, under its own review, is the same loop as any other
+change.
+
 ## 3. Quickstart (target: under 30 minutes)
 
 1. Click **Use this template** on GitHub, or `git clone` and re-point the remote.
-2. Run the adoption interview — no network calls, completes in seconds:
+2. Run the **guided adoption** — one command, resumable, safe to re-run at any
+   point; it detects what is already done and offers the next step:
    ```bash
-   tools/init.sh
+   tools/adopt.sh
    ```
-   It asks your product name, provider, model ids per role, alert channel and a
-   handful more, rewrites every `{{PLACEHOLDER}}` those answers resolve, and prints
-   exactly what is left for you to do by hand. It also offers to replace THIS
-   readme with your product's own — status badges, a description stub, and a
-   section explaining the agentic process your repository now runs
-   (`tools/write-product-readme.sh`, runnable any time later too).
+   It runs the interview (product name, provider, model ids per role — offline,
+   seconds), retires the bundled example, writes your product's README, creates
+   the ledger branch, offers to commit and push, and then walks the
+   GitHub-side steps with you: the `AGENT_CLI_TOKEN` secret, floor calibration
+   as your first pull request, branch protection (it can apply the exact rule
+   via `gh` with your yes), and the first agent-run issue. **Nothing happens
+   without an explicit yes**; every declined offer prints the manual command.
+   Pause whenever you like (e.g. to add your product code at `backend/` /
+   `frontend/`) and run it again — it picks up where you are. The read-only
+   version of the same map is `tools/status.sh`.
+
+   Prefer the steps individually? The interview alone is `tools/init.sh`; it
+   asks your answers, rewrites every `{{PLACEHOLDER}}` they resolve, offers the
+   example retirement, your product README (`tools/write-product-readme.sh`)
+   and the ledger branch, and prints exactly what is left.
 3. Add the credentials it lists — at minimum `AGENT_CLI_TOKEN`, which is your agent
    CLI's **subscription token, not an API key** (run
    `tools/run-agent.sh --check-credentials <agent>` and it prints the exact command to
@@ -276,7 +320,9 @@ here, so a lesson learned in one fork accumulates upstream instead of dying ther
 ## The setup order, explicitly
 
 *(Lost at any point? `tools/status.sh` prints this whole map with your position
-on it and the one next command — read-only, seconds.)*
+on it and the one next command — read-only, seconds. `tools/adopt.sh` walks the
+same map with you, verifying each item where it can and offering to do the
+automatable ones.)*
 
 Some of this cannot be committed to a repository at all — a vendor scheduler and an
 admin setting are not files. Do these **in this order**, last item last:
