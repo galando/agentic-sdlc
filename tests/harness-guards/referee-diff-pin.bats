@@ -213,13 +213,93 @@ job_block() { # job-name
   [ "$output" -eq 0 ]
 }
 
-@test "same commit: the note is prepended by its OWN step, not by the posting step" {
+@test "same commit: caveats are prepended by their OWN step, not by the posting step" {
   # Posting must stay a plain "send the file". Every time a posting step grows a
   # condition, it grows a path where it sends nothing and still goes green.
-  run grep -q 'name: Note that the pull request moved after the reviews' "$REVIEW"
+  run grep -q 'name: Prepend any caveats the comparison has to carry' "$REVIEW"
   [ "$status" -eq 0 ]
   post_block="$(awk '/^      - name: Post the comparison/ { p = 1 } p' "$REVIEW")"
   [[ "$post_block" != *"head-moved.md"* ]]
+  [[ "$post_block" != *"sha-mismatch.md"* ]]
+}
+
+@test "same commit: a caveat is never a reason to suppress the comparison" {
+  # Both caveats say something IS wrong with the comparison. Neither may delete it — the
+  # comparison is still the only place the two reviews are sorted, and a silenced referee
+  # loses that as well as the caveat.
+  block="$(awk '/^      - name: Prepend any caveats/, /^      - name: Post the comparison/' "$REVIEW")"
+  [ -n "$block" ]
+  [[ "$block" != *"rm "* ]]
+  [[ "$block" == *"never a reason to suppress"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# The stamp: turning "we handed them the same diff" into "they say they read it".
+# ---------------------------------------------------------------------------
+
+@test "stamp: the fetch publishes the reviewed sha for the reviewer to copy" {
+  run grep -q 'reviewed-commit.txt' "$REPO_ROOT/tools/fetch-pinned-diff.sh"
+  [ "$status" -eq 0 ]
+}
+
+@test "stamp: the published sha is the short form of the PINNED head, not something re-derived" {
+  # It has to be the head this script was told to fetch. Deriving it from the checkout or
+  # from the API would let it drift from the diff it sits next to, which is the entire bug.
+  block="$(grep -A1 'reviewed-commit.txt' "$REPO_ROOT/tools/fetch-pinned-diff.sh" || true)"
+  run grep -q 'printf .%.7s. "\$HEAD".*reviewed-commit.txt' "$REPO_ROOT/tools/fetch-pinned-diff.sh"
+  [ "$status" -eq 0 ]
+}
+
+@test "stamp: both reviewer prompts require the sha on the second line" {
+  for p in "$JUDGE_PROMPT" "$CHALLENGE_PROMPT"; do
+    run grep -q 'reviewed-commit: X' "$p"
+    if [ "$status" -ne 0 ]; then
+      echo "# $p does not require the reviewed-commit stamp"
+      false
+    fi
+    run grep -q 'reviewed-commit.txt' "$p"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "stamp: the referee COMPARES the two stamps rather than assuming they agree" {
+  # The whole point. Pinning the fetch makes the two reviews *ought* to match; this is what
+  # makes "they matched" a fact rather than an intention.
+  block="$(job_block referee)"
+  run grep -q 'sha_of()' <<<"$block"
+  [ "$status" -eq 0 ]
+  run grep -q 'JUDGE_SHA" != "\$CHALLENGE_SHA' <<<"$block"
+  [ "$status" -eq 0 ]
+}
+
+@test "stamp: a MISMATCH is an error and lands on the pull request" {
+  # Two reviews of two different commits produce a perfectly well-formed comparison whose
+  # agreement sections are meaningless. Invisible in every other signal, so it has to be
+  # said where the person merging will see it.
+  block="$(job_block referee)"
+  run grep -q '::error::The two reviews describe DIFFERENT commits' <<<"$block"
+  [ "$status" -eq 0 ]
+  run grep -q 'sha-mismatch.md' <<<"$block"
+  [ "$status" -eq 0 ]
+}
+
+@test "stamp: a MISSING stamp warns but does not block the comparison" {
+  # Absent is not false. An unstamped review leaves the claim unverified, which is a
+  # weaker state than "these disagree" and must not be treated as the same thing.
+  block="$(job_block referee)"
+  run grep -q 'the same-commit check could not run' <<<"$block"
+  [ "$status" -eq 0 ]
+  [[ "$block" == *'elif [ -z "$JUDGE_SHA" ] || [ -z "$CHALLENGE_SHA" ]'* ]]
+}
+
+@test "stamp: the marker line the collector matches on is UNCHANGED" {
+  # The stamp is a SECOND line, deliberately. Folding the sha into the role marker would
+  # break every `contains("<!-- reviewer: judge -->")` selection at once — the collector,
+  # the lost-review check and the referee's split all key on that exact string.
+  run grep -c 'contains("<!-- reviewer: judge -->")' "$REVIEW"
+  [ "$output" -ge 2 ]
+  run grep -cE '<!-- reviewer: (judge|challenge) [^-]' "$REVIEW"
+  [ "$output" -eq 0 ]
 }
 
 @test "same commit: only the referee asks for the moved-head note" {

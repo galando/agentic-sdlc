@@ -15,6 +15,12 @@
 #
 # A convention that lives in one file's comment is a convention that has already been
 # broken somewhere else.
+#
+# THE SAME SHAPE, A SECOND TIME. `awk` on a hosted Ubuntu runner is mawk, which does not
+# implement `{n,m}` interval expressions. A regex using one silently matches NOTHING —
+# no error, no warning, just a condition that is never true. It cost a section terminator
+# in the review workflow that swallowed every heading after it, and it failed only on the
+# runner, because the awk on a developer machine is usually gawk and supports them.
 
 REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 
@@ -57,3 +63,17 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   run grep -q 'bash 3.2' "$REPO_ROOT/tools/spec-pipeline/validate.sh"
   [ "$status" -eq 0 ]
 }
+
+# NO AWK-INTERVAL GUARD HERE, and that is a decision rather than an omission.
+#
+# One was written after `/^#{2,3}[[:space:]]/` silently failed to match under the runner's
+# awk. The rule it asserted — "mawk does not support {n,m}" — turned out to be FALSE:
+# most intervals work, and tools/lib/config.sh depends on `{2}` perfectly happily. The
+# guard therefore flagged five lines of working code, and the only way to keep it would
+# have been to narrow it to a construct whose real failure condition I could not state
+# correctly.
+#
+# A guard whose premise you cannot articulate is worse than no guard: it produces churn in
+# code that was right, and it teaches the next person a rule that is not true. The single
+# verified fact lives where it is actionable — next to the line it changed, in
+# review.yml's punt check — and says only what was reproduced.

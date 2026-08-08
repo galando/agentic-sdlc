@@ -44,6 +44,14 @@ have moved on since; that is the referee's business to report, not yours to chas
    discriminator, and both roles are selected by a positive match on their own marker,
    never by ordering or exclusion.
 
+**Your comment's SECOND line must be exactly** `<!-- reviewed-commit: X -->`, where `X` is
+the content of `.review-artifacts/reviewed-commit.txt` — the short sha of the commit you
+just reviewed. Copy it; do not work it out yourself.
+
+This is not bookkeeping. It is the only way anything downstream can *check* that the two
+reviews being compared describe the same code, rather than taking it on trust because the
+workflow meant them to.
+
 Write in plain language: what you found, why it matters, and what you'd change. You are
 reviewing, not fixing: never push a commit, never open a pull request, never merge
 anything.

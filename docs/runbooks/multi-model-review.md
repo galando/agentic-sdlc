@@ -213,6 +213,24 @@ findings. Two consequences worth knowing:
   using the `jq` that `gh` embeds. A missing `jq` costs the comparison only — never the
   handoff.
 
+### Are the verdicts any good? The challenger audits them
+
+Letting the referee rule created an instrument gap: the pipeline is thoroughly instrumented
+for findings being **lost** and had nothing at all for findings being **judged badly**. A
+confidently wrong verdict is the last word on the page and nothing was looking at it.
+
+The challenger now audits one settled disagreement every third run, using the same blind
+re-derivation it applies to any other conclusion — read the diff and both claims, decide,
+*then* look at the verdict. It prefers verdicts that went to the judge role, because that is
+the direction the asymmetric burden of proof is meant to make hard, so a failure of the
+burden shows up there first.
+
+Agreement is recorded rather than discarded: it is the only evidence that exists that the
+referee is worth trusting. Disagreement is an S2 — a wrong verdict is advice the author
+could already have overruled, not a production defect. **Two disagreements in the same
+direction** is the signal that matters, and belongs in a pull request against the referee's
+prompt rather than in another issue.
+
 ### Two ways the handoff can still be lost, and what each does about it
 
 **The collector fails.** If the step that reads the two reviews off the pull request dies —
@@ -227,9 +245,14 @@ only one who can act on it.
 cancelled part-way — routine on a busy single runner, and this workflow is advisory rather
 than a required check — files no handoff even though reviews were posted. This is the
 accepted cost of filing late: filing early is what produced a handoff built on one opinion
-out of three, and what dropped every finding the second reviewer raised alone. **If you
-cancel a review run, read the reviews yourself.** A cheap improvement would be a
-`workflow_run`-triggered sweep that finds pull requests with reviews and no handoff.
+out of three, and what dropped every finding the second reviewer raised alone.
+
+`review-sweep.yml` closes the reporting half of it: it watches the review workflow finish,
+and when the conclusion was `cancelled` it posts one notice on the pull request saying no
+handoff was filed and the reviews are the reader's to act on. It deliberately does **not**
+file a handoff itself — the collector that decides whether the reviews carry findings is the
+very thing that was cancelled, so filing speculatively would wake the steward for clean pull
+requests and teach everyone to ignore it.
 
 ### The handoff issue closes itself
 

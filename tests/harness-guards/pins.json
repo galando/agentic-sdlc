@@ -242,8 +242,8 @@
       "source_file": ".github/workflows/<VENDOR-REVIEW-WORKFLOW>.yml",
       "source_line": 325,
       "quoted_source_string": "          # the finding marker, on purpose: an unrecognised format then counts",
-      "why": "The clean/not-clean decision is keyed on the phrase that means clean, not on the marker that means a finding. An unrecognised output format then counts as findings and gets escalated rather than silently dropped: wrong in the direction of one spurious escalation, never in the direction of another stranded finding.",
-      "expected_in": ".github/workflows/review.yml",
+      "why": "The clean/not-clean decision is keyed on the phrase that means clean, not on the marker that means a finding. An unrecognised output format then counts as findings and gets escalated rather than silently dropped: wrong in the direction of one spurious escalation, never in the direction of another stranded finding. MOVED 2026-08-08: the handoff decision was extracted from .github/workflows/review.yml into tools/review-handoff-decide.sh so it could be exercised directly instead of by carving a step body out of YAML. The pattern is unchanged — the lesson moved home, it did not weaken — and it now sits beside the branch it governs.",
+      "expected_in": "tools/review-handoff-decide.sh",
       "pin_kind": "regex",
       "pattern": "unrecognised format"
     },

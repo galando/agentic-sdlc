@@ -175,6 +175,55 @@ at all.
 - `.agents/prompts/review-judge.md` asks what will run the change and when, so the
   never-deployed fix is caught at review time rather than a day later.
 
+### Hardened after review
+
+Six weaknesses found by reading the pipeline back rather than by a failure. Each is
+mutation-tested — the fix reverted, the guard watched going red, the fix restored.
+
+- **"Both reviewers read the same commit" is now checked, not trusted.** The fetch was
+  pinned; that each reviewer *read* what it was handed was a prompt instruction, and a
+  prompt is a request. `tools/fetch-pinned-diff.sh` now writes the short sha next to the
+  diff, both reviewer prompts require it on their second line, and the referee compares the
+  two stamps. A mismatch is an error and a `[!CAUTION]` block on the pull request, because
+  two reviews of two different commits produce a perfectly well-formed comparison whose
+  agreement sections are meaningless. An **absent** stamp warns instead — unverified is not
+  the same as false. The role marker itself is untouched: folding the sha into it would
+  break every collector selection at once.
+- **A pull request from a fork no longer goes red.** Forks receive no secrets, so the
+  required credential was absent and the job failed — every outside contribution landing
+  with a red check that says nothing about the change, greeting a first-time contributor
+  with a failure they cannot fix and teaching the maintainer that a red review is normal.
+  It is now an announced skip, said **on the pull request**: nobody reviewed this, and that
+  says nothing about the code.
+- **The punt check gained a positive assertion.** Scanning for "a human decides" is a
+  blocklist — it catches what already happened, and new phrasing walks through it. Every
+  entry under *settled disagreements* must now carry a `Verdict:` line; a section written
+  without one is flagged whatever words it used, which cannot be evaded by rewording.
+- **A cancelled run is reported.** `review-sweep.yml` watches the review workflow finish
+  and, when it was cancelled, posts one notice saying no handoff was filed. It deliberately
+  does **not** file a handoff: the collector that decides whether there are findings is the
+  thing that was cancelled, so filing speculatively would wake the steward for clean pull
+  requests and train everyone to ignore it.
+- **The referee's verdicts are audited.** The pipeline was thoroughly instrumented for
+  findings being *lost* and had nothing for findings being *judged badly*. The challenger
+  now re-derives one settled disagreement every third run, blind, preferring verdicts that
+  went to the judge role — the direction the asymmetric burden of proof is meant to make
+  hard. Agreement is recorded, not discarded: it is the only evidence that the referee is
+  worth trusting.
+- **The handoff decision became a script.** `tools/review-handoff-decide.sh` decides;
+  the workflow acts. It can now be run directly with crafted inputs rather than carved out
+  of YAML first, and `tests/handoff-decision.bats` does exactly that. `pins.json`'s
+  `review-escalate-unrecognised-format` follows the lesson to its new home — pattern
+  unchanged, `expected_in` repointed, and the move recorded in its `why`.
+
+**One correction worth recording.** A guard banning awk `{n,m}` interval expressions was
+written and then removed. The construct that failed — `/^#{2,3}[[:space:]]/` under the
+runner's awk — is real and reproducible, but the rule inferred from it was false: intervals
+mostly work there, and `tools/lib/config.sh` relies on `{2}` perfectly happily. The guard
+flagged five lines of working code. **A guard whose premise you cannot state correctly is
+worse than none** — it churns code that was right and teaches a rule that is not true. The
+verified fact now lives next to the line it changed, saying only what was reproduced.
+
 ### Maintainer-facing (skim unless you maintain a fork of this template)
 
 `tools/init.sh` deletes everything in this section during adoption — it describes the

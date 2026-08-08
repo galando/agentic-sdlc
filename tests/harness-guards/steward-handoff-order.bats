@@ -29,6 +29,11 @@
 
 REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 REVIEW="$REPO_ROOT/.github/workflows/review.yml"
+# The DECISION half moved out of the workflow into a script, so it could be run directly
+# rather than carved out of YAML. This file still owns the ORDERING — which job files the
+# handoff, and what it is allowed to depend on — and follows the decision to its new home
+# for the three assertions that are about the decision itself.
+DECIDE="$REPO_ROOT/tools/review-handoff-decide.sh"
 
 # The named job block, first line to the line before the next job at the same indent.
 job_block() { # job-name
@@ -66,8 +71,12 @@ job_block() { # job-name
 
 @test "handoff: the clean check reads BOTH review bodies, not one comment body" {
   block="$(job_block referee)"
-  run grep -q '.review-artifacts/judge.md .review-artifacts/challenge.md' <<<"$block"
+  # Both files are handed to the decision script by the step, and the script reads both.
+  run grep -q -- '--judge .review-artifacts/judge.md' <<<"$block"
   [ "$status" -eq 0 ]
+  run grep -q -- '--challenge .review-artifacts/challenge.md' <<<"$block"
+  [ "$status" -eq 0 ]
+  block="$(cat "$DECIDE")"
   # Keyed on the CLEAN phrase, so an unrecognised format escalates rather than being
   # dropped — the same direction-of-error rule as before the move.
   run grep -q "grep -qF 'No issues found'" <<<"$block"
@@ -77,7 +86,7 @@ job_block() { # job-name
 @test "handoff: a review that posted nothing is not counted as a clean review" {
   # The collector writes an empty jq result as a lone newline, so `-s` would call a missing
   # review "present and clean" and suppress the handoff. `wc -c` > 1 is the real test.
-  run grep -q 'wc -c < "\$f"' <<<"$(job_block referee)"
+  run grep -q 'wc -c < "\$f"' "$DECIDE"
   [ "$status" -eq 0 ]
 }
 
@@ -90,10 +99,10 @@ job_block() { # job-name
   # The bug this whole move fixes: judge clean + challenge finds a bug used to file
   # nothing. The counter must be incremented per review, and the exit-early branch must
   # test the total rather than one review's verdict.
-  block="$(job_block referee)"
-  run grep -q 'REVIEWS_WITH_FINDINGS=\$((REVIEWS_WITH_FINDINGS + 1))' <<<"$block"
+  run grep -q 'WITH_FINDINGS=\$((WITH_FINDINGS + 1))' "$DECIDE"
   [ "$status" -eq 0 ]
-  run grep -q 'if \[ "\$REVIEWS_WITH_FINDINGS" = "0" \]; then' <<<"$block"
+  # The exit-early branch must test the TOTAL, never one review's verdict.
+  run grep -q 'elif \[ "\$WITH_FINDINGS" = "0" \]; then' "$DECIDE"
   [ "$status" -eq 0 ]
 }
 

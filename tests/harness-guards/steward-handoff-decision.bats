@@ -48,6 +48,12 @@ setup() {
 
   mkdir -p "$WORK/bin" "$WORK/run/.review-artifacts"
 
+  # The step now calls tools/review-handoff-decide.sh by repo-relative path, so the
+  # fixture has to look like the checkout the step runs in. Symlinked rather than copied:
+  # the point is to exercise the REAL decision script alongside the real step, so an edit
+  # to either one is felt here immediately.
+  ln -s "$REPO_ROOT/tools" "$WORK/run/tools"
+
   # A stubbed `gh` recording every call. `issue list` returns nothing, so the dedupe path
   # is open unless a test says otherwise.
   cat > "$WORK/bin/gh" <<'STUB'

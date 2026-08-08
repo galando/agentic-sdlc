@@ -120,10 +120,66 @@ jobs:
       # read here, at run time, so a provider promoted to verified — and
       # tools/init.sh re-run — enables this job on its very next trigger with no
       # further edit. Never a second list; one source of truth, two readers.
+      # A pull request FROM A FORK gets no secrets — that is the platform's rule, not a
+      # misconfiguration. Without them the reviewer's credential is absent, run-agent.sh
+      # exits 5 as it should for a missing REQUIRED credential, and the job goes red.
+      #
+      # So every outside contribution used to land with a red check that says nothing
+      # about the change. That trains a maintainer to ignore a red review — which is the
+      # one signal here that has to keep meaning something — and it greets a first-time
+      # contributor with a failure they cannot fix and did not cause.
+      #
+      # It is a SKIP, and an announced one: the same treatment an unconfigured provider
+      # already gets. The pull request still says, on the pull request, that nothing
+      # reviewed it.
+      - name: Check whether this pull request can reach the credentials
+        id: fork-gate
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo "fork=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Review skipped on a fork::This pull request comes from $HEAD_REPO, and pull requests from forks do not receive repository secrets. The reviewers cannot authenticate, so no automated review runs — this is expected, not a failure of the change. A maintainer can review it by hand or re-run the review from a branch in this repository."
+          else
+            echo "fork=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Say on the pull request that no review is coming
+        if: steps.fork-gate.outputs.fork == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # A workflow-log notice is invisible to whoever merges. Same rule as the
+          # supply-chain carve-out: if nothing reviewed this change, say so where the
+          # decision gets made. Best-effort — a fork token may not permit commenting, and
+          # failing here would put back the red check this step exists to remove.
+          {
+            echo "## No automated review ran"
+            echo
+            echo "This pull request comes from a fork, and pull requests from forks do not"
+            echo "receive this repository's secrets. The two reviewers cannot authenticate, so"
+            echo "**neither of them looked at this change** and no comparison is coming."
+            echo
+            echo "This is expected and says nothing about the change itself. A maintainer"
+            echo "reviewing by hand is the intended path."
+          } > "${RUNNER_TEMP:-/tmp}/fork-notice.md"
+          gh pr comment "$PR" --repo "$REPO" --body-file "${RUNNER_TEMP:-/tmp}/fork-notice.md" \
+            || echo "::warning::Could not post the fork notice to PR #$PR."
+
       - name: Check whether the harness is enabled for this provider
         id: harness-gate
         run: |
           . tools/lib/config.sh
+          # A fork short-circuits before anything else: the credentials are not reachable,
+          # so which provider is configured is beside the point.
+          if [ "${{ steps.fork-gate.outputs.fork }}" = "true" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Pull request is from a fork - the reviewer is inert (announced above)."
+            exit 0
+          fi
           # Neither call may abort the step. On a freshly instantiated template the
           # provider is still an unresolved token, so there is no adapter file and
           # adapter_status exits non-zero — under `bash -e` that failed the whole job and
@@ -476,7 +532,17 @@ jobs:
         id: gate
         env:
           CHALLENGE_API_KEY: ${{ secrets.CHALLENGE_API_KEY }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
+          # A fork cannot reach the secret either. Its own credential check would report
+          # "absent optional credential" and degrade quietly, which is the right SHAPE but
+          # the wrong REASON — and the reviewer A job has already said the real one on the
+          # pull request.
+          if [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Pull request is from a fork - no secrets, so the challenge reviewer is inert."
+            exit 0
+          fi
           set +e
           tools/run-agent.sh --check-credentials challenger
           rc=$?
@@ -698,6 +764,52 @@ jobs:
           CHALLENGE_BYTES=$(wc -c < .review-artifacts/challenge.md)
           echo "Collected: judge=${JUDGE_BYTES}B challenge=${CHALLENGE_BYTES}B"
 
+          # ------------------------------------------------------------------
+          # DID THEY REVIEW THE SAME COMMIT? Check, do not assume.
+          #
+          # The workflow fetches one pinned diff and hands it to all three jobs, so they
+          # OUGHT to agree. But "the reviewer read the file we gave it" is a prompt
+          # instruction, and a prompt is a request. Each reviewer stamps the short sha it
+          # reviewed on its second line; this compares them.
+          #
+          # A mismatch is the failure the pinning exists to prevent, and it is invisible
+          # in every other signal: two reviews of two different commits produce a
+          # perfectly well-formed comparison whose "both reviewers found this" section is
+          # meaningless. So it is said on the pull request, not just in a log.
+          #
+          # An ABSENT stamp is not a mismatch. It means this reviewer did not follow the
+          # instruction, which leaves the claim unverified rather than false — warn, and
+          # carry on comparing.
+          # ------------------------------------------------------------------
+          sha_of() {
+            grep -oE '<!-- reviewed-commit: [0-9a-f]{7,40} -->' "$1" 2>/dev/null \
+              | head -1 | grep -oE '[0-9a-f]{7,40}' || true
+          }
+          JUDGE_SHA="$(sha_of .review-artifacts/judge.md)"
+          CHALLENGE_SHA="$(sha_of .review-artifacts/challenge.md)"
+          echo "Stamped commits: judge='${JUDGE_SHA:-none}' challenge='${CHALLENGE_SHA:-none}'"
+
+          if [ -n "$JUDGE_SHA" ] && [ -n "$CHALLENGE_SHA" ] && [ "$JUDGE_SHA" != "$CHALLENGE_SHA" ]; then
+            echo "::error::The two reviews describe DIFFERENT commits (judge $JUDGE_SHA, challenge $CHALLENGE_SHA). The comparison below cannot be trusted."
+            {
+              echo "> [!CAUTION]"
+              echo "> **The two reviews below are of different commits.** The judge-role review"
+              echo "> describes \`$JUDGE_SHA\` and the challenge-role review describes"
+              echo "> \`$CHALLENGE_SHA\`."
+              echo ">"
+              echo "> Everything the comparison says about *agreement* is therefore unreliable:"
+              echo "> \"both reviewers found this\" and \"only one reviewer found this\" are"
+              echo "> claims about the same code, and this was not the same code. Read the two"
+              echo "> reviews separately, and please report this — every job in the run is"
+              echo "> handed one pinned diff, so it should not be possible."
+              echo
+            } > .review-artifacts/sha-mismatch.md
+          elif [ -z "$JUDGE_SHA" ] || [ -z "$CHALLENGE_SHA" ]; then
+            echo "::warning::At least one review did not stamp the commit it reviewed - the same-commit check could not run."
+          else
+            echo "Both reviews describe ${JUDGE_SHA}."
+          fi
+
           # One review missing is a real finding about the review pipeline, not
           # a reason to stay quiet. Say WHICH one is missing, on the pull
           # request, so a green check never reads as "reviewed twice" when it
@@ -793,7 +905,52 @@ jobs:
           # about a BUG being unresolved does not trip it.
           PUNTS='^#+.*(unresolved|needs? a decision|for the author to judge|undecided|open questions?)|a human decides|neither review is authoritative|cannot be resolved here|leave (it|this) to the (author|operator|human)'
 
-          if grep -Eiq "$PUNTS" .review-artifacts/referee-comment.md; then
+          # THE POSITIVE CHECK, which the blocklist above cannot replace.
+          #
+          # `PUNTS` is a list of ways of saying "you decide" that have actually been seen.
+          # That is its value and its ceiling: it catches what already happened, and a
+          # model phrasing its hesitation a new way walks straight through it. A blocklist
+          # is only ever as good as the last incident.
+          #
+          # So also assert what a ruling LOOKS like. The prompt requires every settled
+          # disagreement to carry a line starting `Verdict:`. If the comparison has a
+          # settled-disagreements section with content but not one `Verdict:` line in it,
+          # the referee has written the section without ruling — whatever words it used.
+          # That cannot be evaded by rewording, because it is not about words.
+          PUNTED=false
+          grep -Eiq "$PUNTS" .review-artifacts/referee-comment.md && PUNTED=true
+
+          # `/^##/` and not `/^#{2,3}[[:space:]]/`, which is what this was first written as.
+          #
+          # Under mawk — the default awk on a hosted Ubuntu runner — that construct does
+          # not match `### A`, verified by hand. `/^###[[:space:]]/` and `/^##/` both do.
+          # The consequence was silent and total: the section never ended, every later
+          # heading was swallowed into it, and a correctly ruled comparison got a "this is
+          # a bug" banner stapled to it.
+          #
+          # DELIBERATELY NOT GENERALISED. Interval expressions mostly work in this awk —
+          # `tools/lib/config.sh` relies on `{2}` and is fine — so "mawk cannot do
+          # intervals" would be a false rule, and a false rule in a comment is worse than
+          # no rule. What is true and sufficient: this section terminator needs no interval
+          # at all, and the version without one is portable by inspection.
+          SETTLED="$(awk '
+            /^###[[:space:]]*Settled disagreements/ { inside = 1; next }
+            inside && /^##/                         { inside = 0 }
+            inside                                  { print }
+          ' .review-artifacts/referee-comment.md)"
+
+          # `^[^A-Za-z]*Verdict:` — anything non-alphabetic may precede it. The referee
+          # writes markdown, so a correctly ruled line is far more often `- **Verdict:**`
+          # than a bare `Verdict:`; a stricter anchor put a "this is a bug" banner on top
+          # of good output, which is how a reader learns to ignore the banner. Still
+          # anchored, so `Verdict:` mid-sentence does not count as having ruled.
+          if [ -n "$(printf '%s' "$SETTLED" | tr -d '[:space:]')" ] \
+             && ! printf '%s\n' "$SETTLED" | grep -q '^[^A-Za-z]*Verdict:'; then
+            echo "::warning::The referee wrote a settled-disagreements section with no Verdict: line in it."
+            PUNTED=true
+          fi
+
+          if [ "$PUNTED" = true ]; then
             echo "::warning::The referee punted at least one disagreement instead of ruling on it. This is a referee defect, not a decision for the operator. See $RUN_URL"
             grep -Ein "$PUNTS" .review-artifacts/referee-comment.md || true
             {
@@ -816,16 +973,29 @@ jobs:
 
       # Prepended HERE rather than inside the posting step, so posting stays a
       # plain "send the file" and cannot grow a reason to send nothing.
-      - name: Note that the pull request moved after the reviews
+      - name: Prepend any caveats the comparison has to carry
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
-          [ -s .review-artifacts/head-moved.md ] || exit 0
           [ -s .review-artifacts/referee-comment.md ] || exit 0
-          cat .review-artifacts/head-moved.md .review-artifacts/referee-comment.md \
+
+          # Caveats are prepended HERE rather than inside the posting step, so posting
+          # stays a plain "send the file" and cannot grow a reason to send nothing.
+          #
+          # Most severe first: a same-commit mismatch invalidates the comparison itself,
+          # while a moved head only dates it. Both are notes ON the comparison — neither
+          # never a reason to suppress it.
+          notes=""
+          for n in .review-artifacts/sha-mismatch.md .review-artifacts/head-moved.md; do
+            [ -s "$n" ] && notes="$notes $n"
+          done
+          [ -n "$notes" ] || exit 0
+
+          # shellcheck disable=SC2086
+          cat $notes .review-artifacts/referee-comment.md \
             > .review-artifacts/referee-comment.annotated.md
           mv .review-artifacts/referee-comment.annotated.md .review-artifacts/referee-comment.md
-          echo "Noted on the comparison that the pull request head moved after the reviews."
+          echo "Prepended caveats to the comparison:$notes"
 
       # Posting is a plain script step for the same reason reviewer A's posting
       # is not left to the agent's discretion: an agent that decides for itself
@@ -922,51 +1092,40 @@ jobs:
             *) echo "PR #$PR is human-authored ($PR_AUTHOR, $HEAD_REF) and was reviewed - no handoff."; exit 0 ;;
           esac
 
-          # Read BOTH reviews the collector split out, not one comment body.
+          # The decision — which reviews landed, and whether any carry findings — lives
+          # in tools/review-handoff-decide.sh. It DECIDES; this step ACTS. That split is
+          # what lets the decision be exercised on its own with crafted inputs, instead of
+          # only by carving a step body out of YAML.
           #
-          # Keyed on the CLEAN phrase, not on a finding marker, on purpose: an
-          # unrecognised format then counts as findings and gets escalated
-          # rather than silently dropped. Wrong in the direction of one spurious
-          # issue, never in the direction of another stranded finding.
-          #
-          # A review is judged only when it actually landed. `wc -c` and not
-          # `-s`: the collector writes an empty jq result as a lone newline, so a
-          # 1-byte file means "this reviewer posted nothing".
-          CLEAN_COUNT=0
-          REVIEWS_WITH_FINDINGS=0
-          REVIEWS_PRESENT=""
-          for f in .review-artifacts/judge.md .review-artifacts/challenge.md; do
-            [ -f "$f" ] || continue
-            [ "$(wc -c < "$f")" -gt 1 ] || continue
-            case "$f" in
-              *judge.md)     REVIEWS_PRESENT="${REVIEWS_PRESENT}the judge role, " ;;
-              *challenge.md) REVIEWS_PRESENT="${REVIEWS_PRESENT}the challenge role, " ;;
-            esac
-            if grep -qF 'No issues found' "$f"; then
-              CLEAN_COUNT=$((CLEAN_COUNT + 1))
-            else
-              REVIEWS_WITH_FINDINGS=$((REVIEWS_WITH_FINDINGS + 1))
-            fi
-          done
-          REVIEWS_PRESENT="${REVIEWS_PRESENT%, }"
+          # `.` and not `$(...)`: the script prints KEY=VALUE lines, so sourcing them sets
+          # DECISION, REVIEWS_PRESENT, CLEAN_COUNT and REVIEWS_WITH_FINDINGS here.
+          DECIDE="$BODY_DIR/handoff-decision.env"
+          tools/review-handoff-decide.sh \
+            --judge .review-artifacts/judge.md \
+            --challenge .review-artifacts/challenge.md \
+            --collector-outcome "$COLLECT_OUTCOME" > "$DECIDE"
+          # shellcheck disable=SC1090
+          . "$DECIDE"
+          echo "Handoff decision: $DECISION (present='$REVIEWS_PRESENT', findings=$REVIEWS_WITH_FINDINGS, clean=$CLEAN_COUNT)"
 
-          if [ "$CLEAN_COUNT" = "0" ] && [ "$REVIEWS_WITH_FINDINGS" = "0" ]; then
-            # TWO DIFFERENT THINGS LOOK IDENTICAL HERE, and one of them is a stranded
-            # finding. Both leave judge.md and challenge.md empty or absent:
-            #
-            #   a. The collector ran and there was genuinely nothing to collect. The
-            #      review job's lost-review check owns that, and has already filed for it.
-            #   b. THE COLLECTOR ITSELF FAILED — a transient API error under `set -e` is
-            #      enough. The reviews are sitting on the pull request with real findings,
-            #      the lost-review check saw them and correctly filed nothing, and this
-            #      step then reads "no reviews" and exits quietly. Nobody is woken, and
-            #      the only trace is a red step in a log nobody opens.
-            #
-            # (b) is the exact stranded-finding failure this handoff exists to prevent,
-            # arriving through a different door. So it gets said ON THE PULL REQUEST,
-            # where whoever merges will see it — the same rule as the supply-chain
-            # carve-out in the review job.
-            if [ "$COLLECT_OUTCOME" != "success" ]; then
+          case "$DECISION" in
+            none)
+              # The collector looked and found nothing. The review job's lost-review check
+              # owns that and has already filed for it; a second issue from here would be
+              # a duplicate pointing at the same cause.
+              echo "No review reached PR #$PR - the lost-review check owns this, not the handoff."
+              exit 0
+              ;;
+            clean)
+              echo "All reviews of #$PR are clean ($REVIEWS_PRESENT) - no handoff."
+              exit 0
+              ;;
+            collector-failed)
+              # Nothing landed BECAUSE THE READER DIED, not because there was nothing to
+              # read. The reviews are on the pull request, possibly with blocking findings,
+              # and the lost-review check correctly filed nothing because it saw them. Said
+              # ON THE PULL REQUEST — same rule as the supply-chain carve-out — because the
+              # person merging is the only one who can act on it.
               echo "::error::The review collector failed (outcome=$COLLECT_OUTCOME), so no steward handoff could be computed for PR #$PR. Any findings on this pull request have no listener."
               {
                 echo "## The review handoff did not run"
@@ -983,16 +1142,8 @@ jobs:
               gh pr comment "$PR" --repo "$REPO" --body-file "$BODY_DIR/handoff-broken.md" \
                 || echo "::error::Could not even post the broken-handoff notice to PR #$PR."
               exit 0
-            fi
-
-            echo "No review reached PR #$PR - the lost-review check owns this, not the handoff."
-            exit 0
-          fi
-
-          if [ "$REVIEWS_WITH_FINDINGS" = "0" ]; then
-            echo "All reviews of #$PR are clean ($REVIEWS_PRESENT) - no handoff."
-            exit 0
-          fi
+              ;;
+          esac
 
           TITLE="[steward-handoff] Review findings on PR #$PR"
 

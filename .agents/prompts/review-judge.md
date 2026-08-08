@@ -40,6 +40,14 @@ and be compared as though they had reviewed the same one — and nothing in the 
 look wrong. The pull request may have moved on since; that is the referee's business to
 report, not yours to chase.
 
+**Your comment's SECOND line must be exactly** `<!-- reviewed-commit: X -->`, where `X` is
+the content of `.review-artifacts/reviewed-commit.txt` — the short sha of the commit you
+just reviewed. Copy it; do not work it out yourself.
+
+This is not bookkeeping. It is the only way anything downstream can *check* that the two
+reviews being compared describe the same code, rather than taking it on trust because the
+workflow meant them to.
+
 ## What the comment covers
 
 Correctness, security, architecture fit, test coverage for the change, and the process

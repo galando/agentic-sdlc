@@ -282,14 +282,18 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 # WHY: The clean/not-clean decision is keyed on the phrase that means clean, not on the marker 
 # WHY: that means a finding. An unrecognised output format then counts as findings and gets 
 # WHY: escalated rather than silently dropped: wrong in the direction of one spurious 
-# WHY: escalation, never in the direction of another stranded finding.
-@test "pin[review-escalate-unrecognised-format]: .github/workflows/review.yml" {
-  run grep -E -q -- unrecognised\ format "$REPO_ROOT/.github/workflows/review.yml"
+# WHY: escalation, never in the direction of another stranded finding. MOVED 2026-08-08: the 
+# WHY: handoff decision was extracted from .github/workflows/review.yml into 
+# WHY: tools/review-handoff-decide.sh so it could be exercised directly instead of by carving a 
+# WHY: step body out of YAML. The pattern is unchanged — the lesson moved home, it did not 
+# WHY: weaken — and it now sits beside the branch it governs.
+@test "pin[review-escalate-unrecognised-format]: tools/review-handoff-decide.sh" {
+  run grep -E -q -- unrecognised\ format "$REPO_ROOT/tools/review-handoff-decide.sh"
   if [ "$status" -ne 0 ]; then
     echo "PIN LOST: review-escalate-unrecognised-format"
     echo "  source: .github/workflows/<VENDOR-REVIEW-WORKFLOW>.yml:325"
-    echo "  why:    The clean/not-clean decision is keyed on the phrase that means clean, not on the marker that means a finding. An unrecognised output format then counts as findings and gets escalated rather than silently dropped: wrong in the direction of one spurious escalation, never in the direction of another stranded finding."
-    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    echo "  why:    The clean/not-clean decision is keyed on the phrase that means clean, not on the marker that means a finding. An unrecognised output format then counts as findings and gets escalated rather than silently dropped: wrong in the direction of one spurious escalation, never in the direction of another stranded finding. MOVED 2026-08-08: the handoff decision was extracted from .github/workflows/review.yml into tools/review-handoff-decide.sh so it could be exercised directly instead of by carving a step body out of YAML. The pattern is unchanged — the lesson moved home, it did not weaken — and it now sits beside the branch it governs."
+    echo "  Restore the string in tools/review-handoff-decide.sh. Do NOT weaken the pin."
     false
   fi
 }

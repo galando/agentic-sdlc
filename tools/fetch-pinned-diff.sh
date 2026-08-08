@@ -81,6 +81,16 @@ fi
 
 echo "Pinned diff: $(wc -c < "$OUT") bytes at ${HEAD}"
 
+# The sha, next to the diff, for the reviewer to copy into its comment.
+#
+# WHY A FILE AND NOT JUST THE PROMPT. "All three jobs read the same commit" is enforced
+# for the FETCH — one script, one range, shas fixed at trigger. That a reviewer then
+# actually read the file is a prompt instruction, and a prompt is a request. Writing the
+# sha here lets each reviewer stamp what it read, and lets the referee CHECK that the two
+# reviews it is about to compare describe the same commit. A claim you can verify beats a
+# claim you have to trust.
+printf '%s\n' "$(printf '%.7s' "$HEAD")" > "$(dirname "$OUT")/reviewed-commit.txt"
+
 [ -n "$NOTE" ] || exit 0
 
 # Has the pull request moved on since the reviewed commit?

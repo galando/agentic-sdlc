@@ -190,3 +190,142 @@ RUNBOOK="$REPO_ROOT/docs/runbooks/multi-model-review.md"
   run grep -qi 'Verdicts are advice' "$RUNBOOK"
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# The punt check, EXECUTED. The blocklist half is asserted above by running its pattern;
+# this runs the whole step, because the half that matters now is a positive assertion
+# about structure and there is no pattern to test in isolation.
+# ---------------------------------------------------------------------------
+
+extract_punt_step() {
+  awk '
+    /^      - name: Check the referee actually ruled/ { instep = 1; next }
+    instep && !inrun && /^      [^ ]/ { exit }
+    instep && /^        run: \|/ { inrun = 1; next }
+    inrun && NF && !/^          / { exit }
+    inrun { sub(/^          /, ""); print }
+  ' "$REVIEW"
+}
+
+# PUNTWORK is created in setup(), NOT inside the function bats calls through `run`.
+#
+# It was, and that made the negative assertions pass for the wrong reason: `run` executes
+# in a subshell, so the variable never came back, `annotated` cat'd a path that did not
+# exist, and every `[[ "$output" != *"broke its own rule"* ]]` passed against an error
+# message. Three tests were green while asserting nothing — the exact failure this whole
+# directory exists to prevent, in the directory that exists to prevent it.
+setup() {
+  PUNTWORK="$(mktemp -d)"
+  export PUNTWORK
+  mkdir -p "$PUNTWORK/.review-artifacts"
+  extract_punt_step > "$PUNTWORK/step.sh"
+  # If the extraction ever yields nothing, every assertion below would pass vacuously.
+  [ -s "$PUNTWORK/step.sh" ]
+  grep -q 'PUNTS=' "$PUNTWORK/step.sh"
+}
+
+teardown() { rm -rf "$PUNTWORK"; }
+
+# $1 = the comparison body to feed it. Leaves the (possibly annotated) comment at
+# $PUNTWORK/.review-artifacts/referee-comment.md
+run_punt_check() {
+  printf '%s\n' "$1" > "$PUNTWORK/.review-artifacts/referee-comment.md"
+  ( cd "$PUNTWORK" && RUN_URL="https://e.invalid/run" bash step.sh )
+}
+
+annotated() {
+  # Fail loudly rather than returning an error string that a `!=` assertion would swallow.
+  [ -f "$PUNTWORK/.review-artifacts/referee-comment.md" ] || { echo "MISSING COMMENT FILE"; return 1; }
+  cat "$PUNTWORK/.review-artifacts/referee-comment.md"
+}
+
+@test "punt check: a properly ruled comparison passes through untouched" {
+  body='## Reviewer comparison
+
+### Settled disagreements
+
+- Both claimed different things about src/a.js:10.
+  Verdict: the challenge role is right — src/a.js:12 closes the handle.'
+  run run_punt_check "$body"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no punt language found"* ]]
+  run annotated
+  [[ "$output" != *"broke its own rule"* ]]
+}
+
+@test "punt check: a settled section with NO Verdict line is caught — no banned words needed" {
+  # The whole point of the positive check. This wording appears in no blocklist and never
+  # will; a model can invent a new way to hesitate every time. What it cannot do is write
+  # a ruling without writing a ruling.
+  body='## Reviewer comparison
+
+### Settled disagreements
+
+- The two reviewers take different views on src/a.js:10. Both positions are reasonable
+  and the right call depends on what the team wants from this module.'
+  run run_punt_check "$body"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no Verdict: line"* ]]
+  run annotated
+  [[ "$output" == *"broke its own rule"* ]]
+}
+
+@test "punt check: an EMPTY settled section is fine — nothing to rule on" {
+  # Omitting the section when it is genuinely empty is what the prompt asks for. Treating
+  # "no disagreements" as "refused to rule" would put a warning on every clean comparison,
+  # and a warning on everything is a warning on nothing.
+  body='## Reviewer comparison
+
+### Both reviewers found this
+
+- src/a.js:10 leaks a handle.
+
+### Settled disagreements
+
+### Only the judge role found this
+
+- src/b.js:4 is unreachable.'
+  run run_punt_check "$body"
+  [ "$status" -eq 0 ]
+  run annotated
+  [[ "$output" != *"broke its own rule"* ]]
+}
+
+@test "punt check: the blocklist still fires on the sentence that started this" {
+  body='## Reviewer comparison
+
+Neither review is authoritative. A human decides.'
+  run run_punt_check "$body"
+  [ "$status" -eq 0 ]
+  run annotated
+  [[ "$output" == *"broke its own rule"* ]]
+}
+
+@test "punt check: a Verdict line survives bullet and emphasis markers" {
+  # The referee writes markdown. Requiring a bare line start would fail on "- **Verdict:**",
+  # which is a correctly ruled disagreement, and put a bug warning on good output.
+  body='## Reviewer comparison
+
+### Settled disagreements
+
+- **Verdict:** the judge role is right, src/a.js:10.'
+  run run_punt_check "$body"
+  [ "$status" -eq 0 ]
+  run annotated
+  [[ "$output" != *"broke its own rule"* ]]
+}
+
+@test "punt check: an annotated comparison still contains the original comparison" {
+  # Never suppress. The warning goes on top; everything the referee wrote follows it.
+  body='## Reviewer comparison
+
+### Settled disagreements
+
+- Someone should decide this.'
+  run run_punt_check "$body"
+  [ "$status" -eq 0 ]
+  run annotated
+  [[ "$output" == *"broke its own rule"* ]]
+  [[ "$output" == *"Someone should decide this."* ]]
+  [[ "$output" == *"## Reviewer comparison"* ]]
+}
