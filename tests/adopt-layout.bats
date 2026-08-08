@@ -89,3 +89,26 @@ teardown() {
   [ "$status" -eq 0 ]
   ! grep -qF 'examples/' "$FIXTURE/.github/workflows/w.yml"
 }
+
+@test "refuses to delete examples/ carrying uncommitted work — an rm -rf must not eat WIP" {
+  # The example is the working reference, which makes it the tempting place to
+  # start building. Committed work survives deletion in git history; uncommitted
+  # work would be simply gone, so the retirement refuses and names the files.
+  git -C "$FIXTURE" init -q -b main
+  git -C "$FIXTURE" config user.email t@t
+  git -C "$FIXTURE" config user.name t
+  git -C "$FIXTURE" add -A
+  git -C "$FIXTURE" commit -qm seed
+  echo "my real product code" > "$FIXTURE/examples/backend/MyService.java"
+  run bash "$FIXTURE/tools/adopt-layout.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"UNCOMMITTED"* ]]
+  [[ "$output" == *"MyService.java"* ]]
+  [ -f "$FIXTURE/examples/backend/MyService.java" ]
+
+  # Committed (or moved-away) work lifts the refusal: the same tree, clean, deletes.
+  git -C "$FIXTURE" add -A && git -C "$FIXTURE" commit -qm wip
+  run bash "$FIXTURE/tools/adopt-layout.sh"
+  [ "$status" -eq 0 ]
+  [ ! -d "$FIXTURE/examples" ]
+}

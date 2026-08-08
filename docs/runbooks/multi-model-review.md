@@ -306,7 +306,7 @@ spend is genuinely required, and it is small.
 
 | Where | Name | Effect if missing |
 |---|---|---|
-| Repository secrets | `CHALLENGE_API_KEY` | `challenge-review` skips with a workflow warning; the `judge` review still runs. The `referee` job still runs and posts a notice **on the pull request** saying which review is missing and that it had one reviewer at most — it is not gated on the second review, because the steward handoff is filed from it. **The pull request is never failed by the absence.** |
+| Repository secrets | `CHALLENGE_API_KEY` | `challenge-review` skips with a workflow warning; the `judge` review still runs. The `referee` job still runs and posts a notice **on the pull request** naming which review is missing and how many it therefore had — it is not gated on the second review, because the steward handoff is filed from it. **The pull request is never failed by the absence.** |
 | The scheduled runner's environment | `CHALLENGE_API_KEY` | The challenger re-derives on the `judge` model and records `"challenge":"unavailable — key unset"`. The check still happens, with a stated caveat. |
 
 Never put the key in a tracked file (`AGENTS.md` guardrail 5). Any settings file that is
@@ -405,7 +405,7 @@ the routines — runs on a flat-rate subscription where the marginal cost of a r
 
 - **Pull-request reviews:** delete the `CHALLENGE_API_KEY` repository secret.
   `challenge-review` skips with a warning and the `judge` review carries on unchanged. The
-  referee still runs, posts "one reviewer at most" on the pull request instead of a
+  referee still runs, posts a notice naming the missing review on the pull request instead of a
   comparison, and still files the steward handoff. Nothing else to do.
 - **The challenger agent:** delete the environment secret. It reports
   `"challenge":"unavailable — key unset"` and re-derives on the `judge` model.

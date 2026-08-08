@@ -224,6 +224,36 @@ flagged five lines of working code. **A guard whose premise you cannot state cor
 worse than none** — it churns code that was right and teaches a rule that is not true. The
 verified fact now lives next to the line it changed, saying only what was reproduced.
 
+### Merged with `main`, and what that changed
+
+`main` gained the guided adoption (`tools/adopt.sh`), an `ADOPTING.md` regeneration step in
+the interview, the adapter's `--bare` fix and a model-id hint. Only three files overlapped
+and only one conflicted — `tests/init-idempotent.bats`, where both sides had appended tests;
+both sets were kept.
+
+Two things needed adapting rather than merging, and neither was a textual conflict:
+
+- **Three documents quoted a string the code no longer emits.** The missing-review notice
+  used to say "one reviewer at most"; it now names which review is missing and says
+  "no automated review at all" when neither arrived. `README.md` and
+  `docs/runbooks/multi-model-review.md` were still quoting the old wording. A document that
+  quotes a string the code does not produce is a document the next reader stops trusting.
+- **`review-sweep.yml` joined the never-require list** in
+  `docs/runbooks/branch-protection.md`. It runs on a `workflow_run` completion and acts only
+  when the review was **cancelled**, so on an ordinary pull request it never reports —
+  requiring it would block every pull request forever, which is the exact trap that page
+  exists to prevent.
+
+Checked and needing nothing: `adopt.sh` drives `init.sh`, so the template-only deletions run
+inside the guided path too; the `ADOPTING.md` regeneration lands *after* those deletions, so
+it reflects the final tree; and the default tool grant already includes `Read`, so the
+reviewers can open the pinned diff they are now told to read. Verified by running a full
+non-interactive adoption against the merged tree.
+
+The `CHALLENGE_API_KEY` row in `README.md` also gained a sibling: a pull request **from a
+fork** receives no secrets at all, so neither reviewer can authenticate and both skip with a
+notice on the pull request.
+
 ### Maintainer-facing (skim unless you maintain a fork of this template)
 
 `tools/init.sh` deletes everything in this section during adoption — it describes the

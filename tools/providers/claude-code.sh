@@ -8,19 +8,31 @@
 ADAPTER_STATUS=verified                                        # verified | unverified — THE source of truth (design.md 3.4)
 ADAPTER_DOCS_URL=https://code.claude.com/docs/en/headless       # confirm flags here before changing this file
 ADAPTER_AUTH_HINT='SUBSCRIPTION MODE (the default): run `claude setup-token` on a machine already signed in to a Pro or Max plan, and paste the OAuth token it prints. This is NOT an API key, it is not billed per token, and it is not the key from the developer console. API-KEY MODE: use a console API key instead, and set auth.claude-code.mode to api-key.'
+ADAPTER_MODEL_HINT='as of 2026-08: judge -> claude-opus-5 (strongest generally-available tier), execute -> claude-sonnet-5 (or claude-haiku-4-5-20251001 for the cheapest runs). Model ids churn faster than this file — the current list is https://docs.claude.com/en/docs/about-claude/models and `claude /model` shows what YOUR plan can reach.'
 #
 # tools/providers/claude-code.sh — the Claude Code CLI adapter.
 #
-# Owns the four things an adapter owns (design.md section 3): the headless flag (`-p`
-# with `--bare`, so a scheduled run gets the same result on every machine and never
-# picks up a stray hook or MCP server from the runner image), model selection
-# (`--model`), tool-permission granting (`--allowedTools`, fed from
-# AGENT_ALLOWED_TOOLS) and the working-tree handover (`cd "$AGENT_WORKDIR"` before
-# anything runs).
+# Owns the four things an adapter owns (design.md section 3): the headless flag
+# (`-p`), model selection (`--model`), tool-permission granting (`--allowedTools`,
+# fed from AGENT_ALLOWED_TOOLS) and the working-tree handover (`cd "$AGENT_WORKDIR"`
+# before anything runs).
+#
+# DELIBERATELY NOT `--bare`, despite its attractive isolation story (skip stray
+# hooks/plugins from the runner image). The CLI's own help is explicit: under
+# --bare, "Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via
+# --settings (OAuth and keychain are never read)" — so the SUBSCRIPTION token this
+# template defaults to (CLAUDE_CODE_OAUTH_TOKEN) is invisible in that mode. The
+# first live review to actually reach the CLI died with "Not logged in · Please
+# run /login" while a freshly-minted, valid token sat in the secret; reproduced
+# against CLI 2.1.224: garbage OAuth + --bare => "Not logged in" (never read),
+# garbage OAuth without --bare => an honest 401. The isolation --bare bought is
+# marginal on a hosted runner (fresh image, fresh npm install, no user hooks),
+# and the CI job runs repository scripts anyway — the supply-chain guard in
+# review.yml is the real boundary, not this flag.
 #
 # Verified by the source repository's own production use — see
 # .temper/specs/agent-sdlc-template/design.md section on Task 16's evidentiary
-# standard. `--model`, `-p`/`--print`, `--bare`, `--allowedTools` and
+# standard. `--model`, `-p`/`--print`, `--allowedTools` and
 # `--append-system-prompt-file` are confirmed current at the docs URL above;
 # `CLAUDE_CODE_OAUTH_TOKEN` (subscription) and `ANTHROPIC_API_KEY` (api-key) are the
 # two auth env vars Claude Code itself documents for non-interactive auth.
@@ -37,7 +49,6 @@ CLI_BIN="${CLAUDE_CODE_BIN:-claude}"
 print_argv() {
   printf '%s\n' \
     "$CLI_BIN" \
-    "--bare" \
     "-p" \
     "<contents of \$AGENT_PROMPT_FILE>" \
     "--model" \
@@ -99,7 +110,6 @@ case "$verb" in
 
     prompt_text="$(cat "$AGENT_PROMPT_FILE")"
     exec timeout "${AGENT_TIMEOUT_SECONDS:-600}" "$CLI_BIN" \
-      --bare \
       -p "$prompt_text" \
       --model "$AGENT_MODEL" \
       --allowedTools "$AGENT_ALLOWED_TOOLS" \

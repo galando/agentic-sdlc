@@ -8,6 +8,7 @@
 ADAPTER_STATUS=unverified                                            # verified | unverified — THE source of truth (design.md 3.4)
 ADAPTER_DOCS_URL=https://learn.chatgpt.com/docs/non-interactive-mode # confirm every flag below against this before flipping to verified
 ADAPTER_AUTH_HINT='SUBSCRIPTION MODE: authenticate the CLI against your plan and store the credential it issues. Confirm the exact command at ADAPTER_DOCS_URL before relying on this — this adapter is an UNVERIFIED STUB and refuses to run.'
+ADAPTER_MODEL_HINT='as of 2026-08: ids like gpt-5-codex / gpt-5 — but this adapter is an UNVERIFIED STUB, so confirm both the id and the flag that carries it against the live models list at https://platform.openai.com/docs/models before relying on either.'
 #
 # tools/providers/codex.sh — the Codex CLI adapter. UNVERIFIED STUB.
 #

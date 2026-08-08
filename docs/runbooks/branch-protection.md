@@ -148,6 +148,7 @@ pull request that does not touch those paths.
 |---|---|
 | `changes` | Plumbing. It is the paths-filter job whose outputs gate the others, not a gate itself. Requiring it pins an implementation detail into repository policy, and the day you replace the filter mechanism every open PR blocks. |
 | every `nightly-*` and `notify-*` context | They **do not run on pull requests at all.** Requiring one blocks every pull request forever, on day one, for a check that by design will never report. Nightly gates reach a human through the alert issue and `{{ALERT_CHANNEL}}` (see `nightly-alert.yml`), never through the merge button. |
+| `sweep` (`review-sweep.yml`) | It runs on a `workflow_run` completion and acts **only when the review run was cancelled**, so on an ordinary pull request it never reports. Requiring it blocks every pull request forever, waiting on a check that by design will not arrive — the same trap as the nightly contexts above. It is a reporter, not a gate: its whole job is to say *nobody is acting on these reviews*, which is information for the person merging, never a reason to stop them. |
 | `watch-ci-health` | Same reason — scheduled only, never on a pull request. It is also the one check whose *subject* is CI itself: requiring the watchdog that tells you the runners are down would mean a runner outage blocks every merge as well as every build, which is the outage helping itself along. |
 
 <!-- placeholder: {{ALERT_CHANNEL}} — where operational pings go (a chat channel,

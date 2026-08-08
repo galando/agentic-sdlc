@@ -32,6 +32,20 @@ echo "=== tools/adopt-layout.sh — adopt the root layout (backend/, frontend/) 
 
 # --- 1. Retire the bundled example ------------------------------------------
 if [ -d "$ROOT/examples" ]; then
+  # Refuse while examples/ carries UNCOMMITTED work. The example is the working
+  # reference implementation, which makes it the tempting place to start
+  # building — and this step is an rm -rf. Committed work survives in git
+  # history; uncommitted work would be simply gone. Product code belongs at
+  # backend// frontend/ (the layout this very script adopts); anything a user
+  # was editing in here must be moved or committed before the retirement runs.
+  # Degrades silently outside a git repo (the test fixtures), where there is no
+  # notion of uncommitted to protect.
+  dirty="$(git -C "$ROOT" status --porcelain -- examples 2>/dev/null || true)"
+  if [ -n "$dirty" ]; then
+    die "examples/ has UNCOMMITTED changes and this step DELETES the directory.
+If that is your own work, move it to backend// frontend/ (or commit it) first:
+$dirty"
+  fi
   rm -rf "$ROOT/examples"
   note "deleted examples/"
 else

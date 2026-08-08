@@ -380,6 +380,23 @@ adapter_auth_hint() { # HOW TO OBTAIN this provider's credential, in prose.
   printf '%s\n' "$val"
 }
 
+adapter_model_hint() { # WHICH MODEL IDS make sense for this provider, in prose, with a
+                       # pointer to the vendor's live list. Model names churn faster than
+                       # any template release, so the hint is dated guidance plus the URL
+                       # that stays authoritative — never a validated enum. Lives in the
+                       # adapter for the same reason the auth hint does: vendor-specific
+                       # by nature, and the adapter is the one legitimate vendor home.
+                       # Absent is not fatal: the interview just asks without a hint.
+  local provider="$1" file matches val
+  file="$(_cfg_root)/tools/providers/${provider}.sh"
+  [ -f "$file" ] || return 0
+  matches="$(grep -E '^ADAPTER_MODEL_HINT=' "$file" 2>/dev/null | head -1 || true)"
+  [ -z "$matches" ] && return 0
+  val="${matches#ADAPTER_MODEL_HINT=}"
+  val="${val#\'}"; val="${val%\'}"
+  printf '%s\n' "$val"
+}
+
 adapter_docs_url() {
   local provider="$1" file matches n val
   file="$(_cfg_root)/tools/providers/${provider}.sh"
