@@ -16,8 +16,26 @@ shape.
 An upstream-lessons release. Everything here landed first in the running system the
 template was extracted from and is carried back: the referee stops handing the operator
 decisions it can make itself, the steward stops being woken before half the evidence
-exists, and five standing decisions the fleet learned the hard way join
-`docs/runbooks/agent-modes.md`.
+exists, every review job reads the same commit, and five standing decisions the fleet
+learned the hard way join `docs/runbooks/agent-modes.md`.
+
+### If you read nothing else
+
+This entry is long, and skimming a changelog is how a lesson gets lost. So: **four things
+changed how the review loop behaves.** Everything after them is detail, fixes, and
+tooling — safe to skim.
+
+| What | Was | Is now |
+|---|---|---|
+| **The referee rules** | Sorted the two reviews and ended "a human decides" | Settles each real disagreement against the code, with a tie-break ladder that always terminates. Verdicts are advice; the author overrules at merge time. |
+| **All three jobs read one commit** | Each asked for "the current diff" at its own start time | One pinned `base...head` range from the event payload, shared by both reviewers and the referee, with the checkout pinned to match. |
+| **The handoff waits for both reviews** | Filed from the `review` job, before the second review could exist | Filed at the end of `referee`, reading both reviews — so a finding from either one reaches the steward. |
+| **The handoff issue closes itself** | Stayed open, blocking the next handoff for that pull request | Closed as `completed` when the steward finishes it. |
+
+If you have adopted an earlier version and are merging this by hand, those four are the
+ones to read in full. **The one that can bite silently is the third**: before it, a pull
+request where the judge role was clean and the challenge role found a bug filed no handoff
+at all.
 
 ### Changed
 
@@ -101,6 +119,19 @@ exists, and five standing decisions the fleet learned the hard way join
 
 ### Fixed
 
+- **The two reviewers could review different commits from each other.** Each asked the
+  platform for "this pull request's diff" at its own start time, and `challenge-review`
+  declares `needs: review`, so it starts strictly later. The referee then compared the two
+  as though they had read the same code. **"Both reviewers found this" and "only one
+  reviewer found this" are both meaningless when they were not** — and nothing in the
+  output would look wrong, because two blind spots that overlap by accident are
+  indistinguishable from two that genuinely agree.
+
+  All three jobs now fetch through one script, `tools/fetch-pinned-diff.sh`, with the same
+  `base...head` range from the event payload, and all three checkouts are pinned to the same
+  `head.sha`. A `pull_request` checkout otherwise defaults to the merge ref, which is
+  recomputed as the base branch moves, so even the working trees could differ. Both reviewer
+  prompts now name the pinned diff as the thing to review.
 - **The referee judged the reviews against the wrong commit.** It fetched the diff with the
   "give me this pull request's diff" command, which resolves the head *at the moment the
   referee runs* — while the two reviews it compares were written earlier, against whatever
@@ -131,12 +162,61 @@ exists, and five standing decisions the fleet learned the hard way join
 - `.agents/prompts/review-judge.md` asks what will run the change and when, so the
   never-deployed fix is caught at review time rather than a day later.
 
-### Note on `pins.json`
+### Maintainer-facing (skim unless you maintain a fork of this template)
 
-`referee-sorts-does-not-grade` is the first pinned lesson to be **superseded in part**. Its
-`why` now records what changed and why; its pattern is unchanged, because the phrase it
-pins ("grading its own paper") survives in `review.yml` as the objection being *answered*.
-If that phrase ever disappears, the reason the safeguards exist has gone with it.
+`tools/init.sh` deletes everything in this section during adoption — it describes the
+template's relationship with the system it was extracted from, which an adopter does not
+have.
+
+#### `tools/check-upstream-drift.sh` — "did I miss anything?" as a command
+
+Three syncs in a row were done by reading `git log` by hand. This lists every upstream
+commit since a recorded sync point that touches the surface this template actually carries
+(workflows, runbooks, prompts, standing decisions), excluding product-only changes. It does
+**not** judge portability — several upstream lessons have correctly not been carried — it
+tells you what to read.
+
+The sync point and the not-carried decisions live in `.agents/upstream-sync.json`, so
+"checked, not carried, because X" survives instead of being re-derived every sync.
+
+It shipped with a bug of exactly the kind it exists to catch, found by testing it: it read
+the local `HEAD`, and `git fetch` does not move a local branch, so a freshly-fetched clone
+reported one commit to read while four were waiting. It now prefers the remote-tracking ref,
+names which ref it read and how fresh it is, and warns loudly when falling back to a local
+one. An unresolvable sync point **fails** rather than producing an empty, reassuring list.
+
+#### `pins.json` gained a supersession record
+
+`referee-sorts-does-not-grade` is the first pinned lesson to be **reversed by later
+evidence**, and schema 1 had no way to say so. The reversal was first recorded by rewriting
+the entry's `why` — which loses the original reasoning and reads to the next person as
+though the rule had always said the new thing.
+
+Schema **2** adds `superseded_on`, `superseded_by` and `superseded_reason`. The rules that
+make it worth having:
+
+- **`why` keeps its original text.** The reason a rule existed is the most valuable thing to
+  preserve when reversing it — it is the cost you are choosing to pay.
+- **The pattern is not relaxed.** A superseded lesson is one whose *conclusion* changed, not
+  one that stopped mattering; the string usually survives in a new role. Here the pinned
+  phrase "grading its own paper" is now the objection being *answered*.
+- **Deleting a pin remains the only way to say a lesson no longer applies at all**, and it
+  is still not something to do quietly.
+- `gen-pin-tests.sh` carries the supersession into the generated failure message, so a red
+  pin never tells you to restore a rule the system has argued its way out of.
+
+`gen-pin-tests.sh` also gained proper escaping for the generated strings. Until now every
+`why` happened to contain no quote, dollar or backtick, so interpolating them raw was
+silently fine; the first entry carrying a quoted phrase produced a generated file whose
+`echo` arguments re-tokenised into something subtly different from the inventory.
+
+#### Gate 22's own rule is written down
+
+`docs/QUALITY-GATES.md` now states when a guard must **execute** rather than match text: if
+the dangerous failure is a wrong branch, a wrong composition, or a wrong-but-plausible
+value, the guard runs the real code. Four such failures have now been seen here, and a text
+pin would have missed every one. Two obligations come with it — prove the extraction found
+something, and mutation-test the guard by hand before trusting it.
 
 ## [0.2.0] - 2026-08-07
 

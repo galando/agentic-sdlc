@@ -89,9 +89,16 @@ jobs:
       # never posted because the primary provider is an unverified stub.
       harness_enabled: ${{ steps.harness-gate.outputs.enabled }}
     steps:
-      - name: Checkout repository
+      # PINNED TO THE REVIEWED COMMIT, in all three jobs.
+      #
+      # A `pull_request` checkout defaults to the MERGE ref, which is recomputed as the
+      # base branch moves — so two jobs in the same run can check out different trees, and
+      # the referee can compare two reviews of two different code states while every
+      # output still looks correct. `head.sha` is fixed when the run is triggered.
+      - name: Checkout the reviewed commit
         uses: actions/checkout@v5
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
 
       # Stamped BEFORE the review so the handoff step below can tell a comment
@@ -163,6 +170,25 @@ jobs:
       #     bot account, so nothing downstream can tell two reviews apart by
       #     author; the marker is the only discriminator. Constrain the
       #     producer — do not only parse defensively.
+
+      # THE SAME diff both other jobs read. Not "a fresh diff" — the same one.
+      # Without this each reviewer asked the platform for "this pull request's
+      # diff" at its own start time, and `challenge-review` starts strictly after
+      # `review`, so the two could review different commits and still be compared
+      # as though they had reviewed the same one. "Both reviewers found this" is
+      # meaningless when they were not reading the same code, and nothing in the
+      # output would have looked wrong.
+      - name: Fetch the pinned diff
+        if: steps.harness-gate.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tools/fetch-pinned-diff.sh \
+            --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --out .review-artifacts/diff.patch
+
       - name: Reviewer A (judge role)
         if: steps.harness-gate.outputs.enabled == 'true'
         env:
@@ -429,9 +455,16 @@ jobs:
     outputs:
       ran: ${{ steps.gate.outputs.run }}
     steps:
-      - name: Checkout repository
+      # PINNED TO THE REVIEWED COMMIT, in all three jobs.
+      #
+      # A `pull_request` checkout defaults to the MERGE ref, which is recomputed as the
+      # base branch moves — so two jobs in the same run can check out different trees, and
+      # the referee can compare two reviews of two different code states while every
+      # output still looks correct. `head.sha` is fixed when the run is triggered.
+      - name: Checkout the reviewed commit
         uses: actions/checkout@v5
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
 
       # An unset secret must degrade to "one reviewer", loudly, and never to a
@@ -470,6 +503,25 @@ jobs:
       # ("everything that is not the other one") — BOTH roles emit their own
       # marker and BOTH are selected by a positive match on it, so an extra
       # comment or a retry cannot silently swap the two.
+
+      # THE SAME diff both other jobs read. Not "a fresh diff" — the same one.
+      # Without this each reviewer asked the platform for "this pull request's
+      # diff" at its own start time, and `challenge-review` starts strictly after
+      # `review`, so the two could review different commits and still be compared
+      # as though they had reviewed the same one. "Both reviewers found this" is
+      # meaningless when they were not reading the same code, and nothing in the
+      # output would have looked wrong.
+      - name: Fetch the pinned diff
+        if: steps.gate.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tools/fetch-pinned-diff.sh \
+            --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --out .review-artifacts/diff.patch
+
       - name: Reviewer B (challenge role)
         if: steps.gate.outputs.run == 'true'
         env:
@@ -529,9 +581,16 @@ jobs:
       SINCE: ${{ needs.review.outputs.since }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - name: Checkout repository
+      # PINNED TO THE REVIEWED COMMIT, in all three jobs.
+      #
+      # A `pull_request` checkout defaults to the MERGE ref, which is recomputed as the
+      # base branch moves — so two jobs in the same run can check out different trees, and
+      # the referee can compare two reviews of two different code states while every
+      # output still looks correct. `head.sha` is fixed when the run is triggered.
+      - name: Checkout the reviewed commit
         uses: actions/checkout@v5
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
 
       # Fetched by a plain script, not by the agent. The agent gets two files
@@ -690,56 +749,17 @@ jobs:
       # is fetched here by a plain script rather than left to the agent — the
       # same reason the comments are. A failed fetch is not fatal: the referee
       # falls back to the checked-out tree, which is the pull request's merge ref.
-      - name: Fetch the diff both reviewers were reading
+      # Both reviewers read this same file, fetched the same way from the same two
+      # shas — see tools/fetch-pinned-diff.sh for why that matters more than freshness.
+      - name: Fetch the pinned diff, and note whether the PR has moved since
         if: steps.collect.outputs.skip_agent == 'false'
-        env:
-          # Fixed when the run is TRIGGERED, so they name the state the reviewers
-          # were sent and cannot drift while the run proceeds.
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          set -euo pipefail
-
-          # PINNED, not live.
-          #
-          # `gh pr diff` resolves the pull request's head AT THIS MOMENT. The two
-          # reviews being compared were written earlier, against whatever the head
-          # was then — and nothing tied them together. So a fix pushed between a
-          # review and this job made the reviewer who found the bug look wrong:
-          # the referee measured the FIX and scored it against the finding that
-          # produced it. Observed ruling two accurate reviewers wrong at once.
-          #
-          # The window is usually seconds, which is why it hid. It bites precisely
-          # when an author fixes findings as they arrive — so the more responsive
-          # the author, the more likely their reviewers are marked down. And the
-          # referee's comment is the last word on the page, so a reviewer who was
-          # right is recorded as wrong.
-          #
-          # Rule on the commit the reviews describe.
-          gh api "repos/$REPO/compare/${BASE_SHA}...${HEAD_SHA}" \
-               -H "Accept: application/vnd.github.v3.diff" \
-               > .review-artifacts/diff.patch || {
-            echo "::warning::Could not fetch the pinned diff — the referee will verify against the checked-out tree instead."
-            : > .review-artifacts/diff.patch
-          }
-          echo "Diff: $(wc -c < .review-artifacts/diff.patch) bytes at ${HEAD_SHA}"
-
-          # Has the pull request moved on since? Then the verdicts are about an
-          # older commit and the reader has to be told. Never a reason to post
-          # nothing — the note is prepended by its own step below.
-          LIVE_SHA="$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha 2>/dev/null || echo "")"
-          if [ -n "$LIVE_SHA" ] && [ "$LIVE_SHA" != "$HEAD_SHA" ]; then
-            echo "::warning::PR head moved from $HEAD_SHA to $LIVE_SHA after the reviews - the comparison describes the reviewed commit."
-            {
-              echo "> [!NOTE]"
-              echo "> **This compares the two reviews against \`$(printf '%.7s' "$HEAD_SHA")\`, the commit they"
-              echo "> were written for.** The pull request has since moved to \`$(printf '%.7s' "$LIVE_SHA")\`, so a"
-              echo "> finding below may no longer be present — usually because the author fixed it"
-              echo "> *after* the review and *because of* it. Verdicts here are about the reviewed"
-              echo "> commit."
-              echo
-            } > .review-artifacts/head-moved.md
-          fi
+          tools/fetch-pinned-diff.sh \
+            --repo "$REPO" --pr "$PR" \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --out .review-artifacts/diff.patch \
+            --note-file .review-artifacts/head-moved.md
 
       - name: Referee (judge role)
         if: steps.collect.outputs.skip_agent == 'false'

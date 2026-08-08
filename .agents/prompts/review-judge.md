@@ -27,6 +27,19 @@ review needs no spec pipeline of its own.
    two reviews apart by author; the marker is the only discriminator. A status update or
    any other comment you might otherwise post must never carry this exact first line.
 
+## The diff you are reviewing is pinned
+
+Review **`.review-artifacts/diff.patch`**. It is the pull request's change at one exact
+commit, fetched for you before you started, and the checked-out tree around you is that
+same commit.
+
+This is not a convenience. Both reviewers and the referee that compares them all read this
+one file, so that "both reviewers found this" means something. If each reviewer asked for
+"the current diff" at its own start time, two reviewers could review two different commits
+and be compared as though they had reviewed the same one — and nothing in the output would
+look wrong. The pull request may have moved on since; that is the referee's business to
+report, not yours to chase.
+
 ## What the comment covers
 
 Correctness, security, architecture fit, test coverage for the change, and the process

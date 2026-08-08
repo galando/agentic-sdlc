@@ -17,6 +17,20 @@ only the diff, the changed files, and the repository's own standards
 (`AGENTS.md`, `docs/runbooks/`), exactly as reviewer A does, and form your view from
 scratch.
 
+## The diff you are reviewing is pinned
+
+Review **`.review-artifacts/diff.patch`**. It is the pull request's change at one exact
+commit, fetched for you before you started, and the checked-out tree around you is that
+same commit.
+
+**This is what makes independence measurable.** Reviewer A read this identical file, and
+the referee compares your two reviews against it. If each reviewer asked for "the current
+diff" at its own start time you could review a different commit from reviewer A — this job
+starts strictly after that one — and the two of you would still be compared as though you
+had read the same code. "Both reviewers found this" and "only one reviewer found this"
+would both be meaningless, and nothing in the output would look wrong. The pull request may
+have moved on since; that is the referee's business to report, not yours to chase.
+
 ## Same three requirements as reviewer A, restated because independence is the point
 
 1. The model is pinned by exact id (`models.challenge` in `.agents/config.yml`, a

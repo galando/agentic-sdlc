@@ -21,6 +21,14 @@ OUT="$SCRIPT_DIR/pins.generated.bats"
 command -v jq >/dev/null 2>&1 || { echo "gen-pin-tests.sh: jq is required" >&2; exit 1; }
 [ -f "$PINS" ] || { echo "gen-pin-tests.sh: $PINS not found" >&2; exit 1; }
 
+# Escape a value for interpolation into a DOUBLE-QUOTED bash string in the generated
+# file. Backslash, dollar, backtick and double-quote all have meaning there. Until
+# supersession landed, every `why` in the inventory happened to contain none of them and
+# this was silently fine — the first entry carrying a quoted phrase produced a generated
+# file whose `echo` arguments re-tokenised into something subtly different from the text
+# in pins.json, and a `$(...)` in a future entry would have gone further than that.
+esc() { printf '%s' "$1" | sed -e 's/[\\`$"]/\\&/g'; }
+
 emit_literal_and_regex() {
   jq -c '.pins[] | select(.pin_kind=="literal" or .pin_kind=="regex")' "$PINS" |
   while IFS= read -r entry; do
@@ -30,8 +38,20 @@ emit_literal_and_regex() {
     source_file="$(jq -r '.source_file' <<<"$entry")"
     source_line="$(jq -r '.source_line' <<<"$entry")"
     why="$(jq -r '.why' <<<"$entry")"
+    # Supersession (schema 2). An entry whose CONCLUSION was later reversed keeps its
+    # pattern and its original `why` — the string usually survives in a new role, and the
+    # old reasoning is the cost the reversal chose to pay. But a reader who trips this
+    # assertion must not be told to restore a rule the system has since argued its way out
+    # of, so the reversal travels with the failure message.
+    superseded_on="$(jq -r '.superseded_on // ""' <<<"$entry")"
+    superseded_by="$(jq -r '.superseded_by // ""' <<<"$entry")"
+    superseded_reason="$(jq -r '.superseded_reason // ""' <<<"$entry")"
 
     printf '%s\n' "$why" | fold -s -w 90 | sed 's/^/# WHY: /'
+    if [ -n "$superseded_on" ]; then
+      printf '%s\n' "SUPERSEDED $superseded_on -> $superseded_by" | fold -s -w 90 | sed 's/^/# /'
+      printf '%s\n' "$superseded_reason" | fold -s -w 90 | sed 's/^/# SUPERSEDED: /'
+    fi
 
     if [ "$kind" = "literal" ]; then
       needle="$(jq -r '.quoted_source_string' <<<"$entry")"
@@ -41,14 +61,27 @@ emit_literal_and_regex() {
       grep_cmd="grep -E -q -- $(printf '%q' "$pattern")"
     fi
 
+    if [ -n "$superseded_on" ]; then
+      supersession_lines="$(cat <<EOF
+    echo "  NOTE:   this lesson was SUPERSEDED on $superseded_on."
+    echo "          now: $(esc "$superseded_by")"
+    echo "          why: $(esc "$superseded_reason")"
+    echo "          The pin still holds: the string survives in its new role. Restore it"
+    echo "          as that, NOT as the original rule."
+EOF
+)"
+    else
+      supersession_lines='    echo "  Restore the string in '"$expected_in"'. Do NOT weaken the pin."'
+    fi
+
     cat <<EOF
 @test "pin[$id]: $expected_in" {
   run $grep_cmd "\$REPO_ROOT/$expected_in"
   if [ "\$status" -ne 0 ]; then
     echo "PIN LOST: $id"
     echo "  source: $source_file:$source_line"
-    echo "  why:    $why"
-    echo "  Restore the string in $expected_in. Do NOT weaken the pin."
+    echo "  why:    $(esc "$why")"
+$supersession_lines
     false
   fi
 }

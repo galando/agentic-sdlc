@@ -306,6 +306,26 @@ if [ -d "$ROOT/site" ] || [ -f "$ROOT/.github/workflows/pages.yml" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Remove the TEMPLATE's upstream-drift tooling. Unconditional, same reasoning as
+# site/ above: this template was extracted from a running system and is kept in
+# step with it, so its maintainers need a "what has upstream learned since?"
+# command and a record of how far it has been carried. An ADOPTER has no
+# upstream — they copy once and never pull again (see CHANGELOG.md's opening) —
+# so both files would sit in their tree describing a relationship that does not
+# exist, pointing at a repository they cannot see.
+# ---------------------------------------------------------------------------
+if [ -f "$ROOT/tools/check-upstream-drift.sh" ] || [ -f "$ROOT/.agents/upstream-sync.json" ]; then
+  echo
+  echo "--- Template upstream tracking ---"
+  rm -f "$ROOT/tools/check-upstream-drift.sh" \
+        "$ROOT/.agents/upstream-sync.json" \
+        "$ROOT/tests/upstream-drift.bats"
+  echo "Removed tools/check-upstream-drift.sh, .agents/upstream-sync.json and their test:"
+  echo "they track the TEMPLATE against the system it was extracted from. You copied this"
+  echo "template once and never pull from it again, so there is no upstream to drift from."
+fi
+
+# ---------------------------------------------------------------------------
 # Offer to write the PRODUCT's README. The shipped README describes the
 # template itself ("click Use this template") and nothing else in the adoption
 # ever touches it — a real adopted repository kept it indefinitely, so its

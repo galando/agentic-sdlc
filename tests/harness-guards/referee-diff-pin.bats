@@ -1,67 +1,51 @@
 #!/usr/bin/env bats
 #
-# Gate 22 guard — the referee judges the reviews against THE COMMIT THEY WERE WRITTEN FOR.
+# Gate 22 guard — ALL THREE REVIEW JOBS READ THE SAME COMMIT.
 #
-# THE LESSON. The referee fetched the diff with `gh pr diff`, which resolves the pull
-# request's head at the moment the referee runs. The two reviews it compares were written
-# earlier, against whatever the head was then, and nothing tied them together.
+# THE FIRST LESSON. The referee fetched the diff with "give me this pull request's diff",
+# which resolves the head at the moment it runs. The two reviews it compares were written
+# earlier, against whatever the head was then, and nothing tied them together. So a fix
+# pushed in between made the reviewer who found the bug look wrong: the referee measured
+# the FIX and scored it against the finding that produced it. It bites precisely when an
+# author fixes findings as they arrive — THE MORE RESPONSIVE THE AUTHOR, THE MORE LIKELY
+# THEIR REVIEWERS ARE MARKED DOWN — and the referee's comment is the last word on the page.
 #
-# So a fix pushed between a review and this job made the reviewer who found the bug look
-# wrong: the referee measured the FIX and scored it against the finding that produced it.
-# Observed ruling two accurate reviewers wrong at once — it read a head two commits newer
-# than one review and one newer than the other, then accused a reviewer of miscounting
-# lines that really were that many in the commit it had read.
+# THE SECOND LESSON, which the first one exposed. The two REVIEWERS had the same problem
+# with each other. `challenge-review` declares `needs: review`, so it starts strictly
+# later; each reviewer asking for "the current diff" could read a different commit, and
+# the referee would compare them as though they had read the same one. "Both reviewers
+# found this" and "only one reviewer found this" are both meaningless in that case, and
+# NOTHING IN THE OUTPUT WOULD LOOK WRONG. Two blind spots that overlap by accident are
+# indistinguishable from two blind spots that genuinely agree.
 #
-# The window is usually seconds, which is why nobody saw it. It bites precisely when an
-# author fixes findings as they arrive, so THE MORE RESPONSIVE THE AUTHOR, THE MORE LIKELY
-# THEIR REVIEWERS ARE MARKED DOWN. And the referee's comment is the last word on the page,
-# so a reviewer who was right is recorded as wrong.
+# So the invariant is not "a fresh diff" — it is THE SAME diff, three times:
 #
-# Three parts, and all three are needed:
+#   PINNED    — one shared script, one compare range, from event-payload shas that are
+#               fixed when the run is triggered. The checkout is pinned to the same sha,
+#               so the tree agrees with the diff.
+#   DISCLOSED — when the live head has moved past the pinned one, the comparison says its
+#               verdicts describe the reviewed commit. In its OWN step, so posting stays
+#               a plain "send the file" and cannot grow a reason to send nothing.
+#   TOLD      — all three prompts say the diff is pinned; the referee's adds that a
+#               finding which looks already fixed is usually a reviewer being right.
 #
-#   PINNED    — the diff comes from a compare between the event payload's base and head
-#               shas, which are fixed when the run is triggered.
-#   DISCLOSED — when the live head has moved past the pinned one, a note says the verdicts
-#               describe the reviewed commit. In its OWN step, so posting stays a plain
-#               "send the file" and cannot grow a reason to send nothing.
-#   TOLD      — the prompt says the diff is pinned and that a finding which looks already
-#               fixed is usually a reviewer being right. Pinning the diff alone would not
-#               stop the referee reaching the same conclusion from the checked-out tree,
-#               which it also reads.
-#
-# BEHAVIOURAL, like review-collector.bats: the extracted step is run against a stubbed
-# `gh`, because "asks for the pinned range" and "asks for the live head" are two API calls
-# that look almost identical in the file and behave completely differently.
+# BEHAVIOURAL: the assertions below run tools/fetch-pinned-diff.sh against a stubbed `gh`,
+# because "asks for the pinned range" and "asks for the live head" are two calls that look
+# almost identical in a file and behave completely differently.
 
 REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 REVIEW="$REPO_ROOT/.github/workflows/review.yml"
+FETCH="$REPO_ROOT/tools/fetch-pinned-diff.sh"
 PROMPT="$REPO_ROOT/.agents/prompts/review-referee.md"
-
-# The `run:` body of the diff-fetch step, dedented. Same terminator rule as
-# steward-handoff-closure.bats: a block scalar ends at the first non-blank line that is not
-# indented into it, and NOT at the next `- name:` — a comment banner at that indent would
-# run the extraction on to the end of the file.
-extract_fetch_step() {
-  awk '
-    /^      - name: Fetch the diff both reviewers were reading/ { instep = 1; next }
-    instep && !inrun && /^      [^ ]/ { exit }
-    instep && /^        run: \|/ { inrun = 1; next }
-    inrun && NF && !/^          / { exit }
-    inrun { sub(/^          /, ""); print }
-  ' "$REVIEW"
-}
+JUDGE_PROMPT="$REPO_ROOT/.agents/prompts/review-judge.md"
+CHALLENGE_PROMPT="$REPO_ROOT/.agents/prompts/review-challenge.md"
 
 setup() {
   WORK="$(mktemp -d)"
   export WORK
-  extract_fetch_step > "$WORK/fetch.sh"
-  # An empty extraction would make every assertion below pass for the wrong reason.
-  [ -s "$WORK/fetch.sh" ]
-  grep -q 'diff.patch' "$WORK/fetch.sh"
+  mkdir -p "$WORK/bin" "$WORK/run"
 
-  mkdir -p "$WORK/bin" "$WORK/run/.review-artifacts"
-
-  # A stubbed `gh` that records every argv line and answers the two calls the step makes.
+  # A stubbed `gh` that records every argv line and answers the two calls the script makes.
   cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$GH_CALLS"
@@ -82,55 +66,73 @@ STUB
 
 teardown() { rm -rf "$WORK"; }
 
-# $1 live head sha the stub reports; $2/$3 optional failure switches
+PINNED_HEAD="headsha0000000000000000000000000000000"
+PINNED_BASE="basesha0000000000000000000000000000000"
+
+# $1 live head the stub reports; $2 compare fails; $3 live lookup fails; $4 extra args
 run_fetch() {
   ( cd "$WORK/run" \
     && PATH="$WORK/bin:$PATH" \
        GH_CALLS="$WORK/calls.txt" \
-       STUB_LIVE_SHA="${1:-headsha0000000000000000000000000000000}" \
+       STUB_LIVE_SHA="${1:-$PINNED_HEAD}" \
        STUB_COMPARE_FAILS="${2:-false}" \
        STUB_LIVE_FAILS="${3:-false}" \
-       REPO="o/r" PR="12" \
-       BASE_SHA="basesha0000000000000000000000000000000" \
-       HEAD_SHA="headsha0000000000000000000000000000000" \
-       bash "$WORK/fetch.sh" )
+       bash "$FETCH" \
+         --repo o/r --pr 12 \
+         --base "$PINNED_BASE" --head "$PINNED_HEAD" \
+         --out .review-artifacts/diff.patch ${4:-} )
 }
 
 calls() { cat "$WORK/calls.txt"; }
 
-@test "diff pin: the diff is fetched for the PINNED base...head range" {
+@test "pinned diff: the script exists and is executable" {
+  [ -x "$FETCH" ]
+}
+
+@test "pinned diff: the diff is fetched for the PINNED base...head range" {
   run run_fetch
   [ "$status" -eq 0 ]
   run calls
-  [[ "$output" == *"repos/o/r/compare/basesha0000000000000000000000000000000...headsha0000000000000000000000000000000"* ]]
+  [[ "$output" == *"repos/o/r/compare/${PINNED_BASE}...${PINNED_HEAD}"* ]]
 }
 
-@test "diff pin: the LIVE diff is never asked for" {
-  # `gh pr diff` is the bug. It resolves the head now, not the head the reviews read.
+@test "pinned diff: the LIVE diff is never asked for" {
+  # `gh pr diff` is the bug: it resolves the head now, not the head the reviews read.
   run run_fetch
   [ "$status" -eq 0 ]
   run calls
   [[ "$output" != *"pr diff"* ]]
+  run grep -c 'gh pr diff' "$REVIEW"
+  [ "$output" -eq 0 ]
 }
 
-@test "diff pin: the compare request asks for diff media type, not JSON" {
-  # Without the Accept header this writes a JSON object into diff.patch and the referee
-  # rules on a blob of metadata while everything still looks green.
+@test "pinned diff: the compare request asks for the diff media type, not JSON" {
+  # Without the Accept header this writes a JSON object into diff.patch and the reviewer
+  # reads a blob of metadata while everything still looks green.
   run run_fetch
   [ "$status" -eq 0 ]
   run calls
   [[ "$output" == *"vnd.github.v3.diff"* ]]
 }
 
-@test "diff pin: no note is written when the head has NOT moved" {
+@test "pinned diff: a missing --head is a LOUD usage error, never a silent default" {
+  # A default of "whatever is current" would reintroduce the bug invisibly — the output
+  # file would still be a perfectly valid diff.
+  run env PATH="$WORK/bin:$PATH" GH_CALLS="$WORK/calls.txt" bash "$FETCH" \
+    --repo o/r --pr 12 --base "$PINNED_BASE" --out "$WORK/run/d.patch"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--head is required"* ]]
+}
+
+@test "pinned diff: no note is written when the head has NOT moved" {
   # A note on every comparison is a note nobody reads.
-  run run_fetch "headsha0000000000000000000000000000000"
+  run run_fetch "$PINNED_HEAD" false false "--note-file .review-artifacts/head-moved.md"
   [ "$status" -eq 0 ]
   [ ! -s "$WORK/run/.review-artifacts/head-moved.md" ]
 }
 
-@test "diff pin: a note IS written when the head has moved" {
-  run run_fetch "newersha000000000000000000000000000000"
+@test "pinned diff: a note IS written when the head has moved" {
+  run run_fetch "newersha000000000000000000000000000000" false false "--note-file .review-artifacts/head-moved.md"
   [ "$status" -eq 0 ]
   [ -s "$WORK/run/.review-artifacts/head-moved.md" ]
   run cat "$WORK/run/.review-artifacts/head-moved.md"
@@ -143,46 +145,129 @@ calls() { cat "$WORK/calls.txt"; }
   [[ "$output" == *"because of"* ]]
 }
 
-@test "diff pin: an unreadable live head is not treated as a moved head" {
+@test "pinned diff: no note file is asked for, no live lookup happens" {
+  # A reviewer does not need to know: it reviews the pinned commit and says so. Looking
+  # anyway would be a needless API call on every review job in the repository.
+  run run_fetch
+  [ "$status" -eq 0 ]
+  run calls
+  [[ "$output" != *"/pulls/12"* ]]
+}
+
+@test "pinned diff: an unreadable live head is not treated as a moved head" {
   # Guessing "moved" from a failed lookup puts a caveat on a comparison that needs none.
-  run run_fetch "" false true
+  run run_fetch "" false true "--note-file .review-artifacts/head-moved.md"
   [ "$status" -eq 0 ]
   [ ! -s "$WORK/run/.review-artifacts/head-moved.md" ]
 }
 
-@test "diff pin: a failed compare degrades to an empty diff, never a failed job" {
-  # Same rule as every other optional input here: degrade loudly, never cancel. The referee
-  # falls back to the checked-out tree.
-  run run_fetch "headsha0000000000000000000000000000000" true
+@test "pinned diff: a failed compare degrades to an empty diff, never a failed job" {
+  # Same rule as every other optional input here: degrade loudly, never cancel.
+  run run_fetch "$PINNED_HEAD" true
   [ "$status" -eq 0 ]
   [ -f "$WORK/run/.review-artifacts/diff.patch" ]
   [ ! -s "$WORK/run/.review-artifacts/diff.patch" ]
   [[ "$output" == *"::warning::"* ]]
 }
 
-@test "diff pin: the note is prepended by its OWN step, not by the posting step" {
-  # Posting must stay a plain "send the file". Every time a posting step grows a condition,
-  # it grows a path where it sends nothing and still goes green.
+# ---------------------------------------------------------------------------
+# The workflow wiring: same script, same shas, three jobs.
+# ---------------------------------------------------------------------------
+
+job_block() { # job-name
+  awk -v job="  $1:" '
+    $0 == job          { injob = 1; print; next }
+    injob && /^  [^ ]/ { exit }
+    injob              { print }
+  ' "$REVIEW"
+}
+
+@test "same commit: all three jobs fetch the diff through the one shared script" {
+  # Three copies of the fetch is three places for one of them to drift back to the live
+  # head, and the drift would be invisible in every output.
+  for job in review challenge-review referee; do
+    run grep -q 'tools/fetch-pinned-diff.sh' <<<"$(job_block "$job")"
+    if [ "$status" -ne 0 ]; then
+      echo "# job '$job' does not use tools/fetch-pinned-diff.sh"
+      false
+    fi
+  done
+}
+
+@test "same commit: every job passes the event payload's shas, not a recomputed head" {
+  # `github.event.pull_request.head.sha` is fixed when the run is triggered. Anything
+  # resolved later can differ per job, which is the whole bug.
+  run grep -c 'github.event.pull_request.head.sha' "$REVIEW"
+  [ "$output" -ge 6 ]   # 3 checkouts + 3 fetches
+  run grep -c 'github.event.pull_request.base.sha' "$REVIEW"
+  [ "$output" -ge 3 ]
+}
+
+@test "same commit: every checkout is pinned to the reviewed commit, not the merge ref" {
+  # A `pull_request` checkout defaults to the MERGE ref, which is recomputed as the base
+  # branch moves — so two jobs in one run can check out different trees.
+  run grep -c 'ref: ${{ github.event.pull_request.head.sha }}' "$REVIEW"
+  [ "$output" -eq 3 ]
+  # And no checkout is left on the default.
+  run grep -c 'name: Checkout repository' "$REVIEW"
+  [ "$output" -eq 0 ]
+}
+
+@test "same commit: the note is prepended by its OWN step, not by the posting step" {
+  # Posting must stay a plain "send the file". Every time a posting step grows a
+  # condition, it grows a path where it sends nothing and still goes green.
   run grep -q 'name: Note that the pull request moved after the reviews' "$REVIEW"
   [ "$status" -eq 0 ]
   post_block="$(awk '/^      - name: Post the comparison/ { p = 1 } p' "$REVIEW")"
   [[ "$post_block" != *"head-moved.md"* ]]
 }
 
-@test "diff pin: the prompt tells the referee the diff is pinned and the tree may be newer" {
-  # Pinning the diff alone is not enough — the referee reads the repository too, so it can
-  # reach the same wrong conclusion from the working tree.
-  run grep -qi 'pinned to the exact commit' "$PROMPT"
-  [ "$status" -eq 0 ]
-  run grep -qi 'may be' "$PROMPT"
+@test "same commit: only the referee asks for the moved-head note" {
+  run grep -c -- '--note-file' "$REVIEW"
+  [ "$output" -eq 1 ]
+  run grep -q -- '--note-file' <<<"$(job_block referee)"
   [ "$status" -eq 0 ]
 }
 
-@test "diff pin: the prompt says an already-fixed finding is the reviewer being RIGHT" {
+# ---------------------------------------------------------------------------
+# The prompts: pinning the fetch is not enough if the agent reads elsewhere.
+# ---------------------------------------------------------------------------
+
+@test "told: both reviewer prompts name the pinned diff file" {
+  for p in "$JUDGE_PROMPT" "$CHALLENGE_PROMPT"; do
+    run grep -q '.review-artifacts/diff.patch' "$p"
+    if [ "$status" -ne 0 ]; then
+      echo "# $p does not tell the reviewer which diff to read"
+      false
+    fi
+    run grep -qi 'pinned' "$p"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "told: the referee prompt says the diff is pinned to the reviewed commit" {
+  # Pinning the fetch alone is not enough — the referee reads the repository too.
+  run grep -qi 'pinned to the exact commit' "$PROMPT"
+  [ "$status" -eq 0 ]
+}
+
+@test "told: the referee prompt says an already-fixed finding is the reviewer being RIGHT" {
   # The actual failure. Without this the referee marks down exactly the reviewers whose
   # findings were acted on fastest.
   run grep -qi 'never evidence the reviewer was wrong' "$PROMPT"
   [ "$status" -eq 0 ]
   run grep -qi 'pinned diff itself shows the fix' "$PROMPT"
   [ "$status" -eq 0 ]
+}
+
+@test "told: no prompt claims the checked-out tree may be newer than the diff" {
+  # It was, before the checkouts were pinned. A false statement in a prompt is worse than
+  # a missing one: the next agent inherits the bad reasoning along with the rule.
+  for p in "$PROMPT" "$JUDGE_PROMPT" "$CHALLENGE_PROMPT"; do
+    run grep -qiE 'tree (around you |checked out )?may be (\*\*)?newer' "$p"
+    if [ "$status" -eq 0 ]; then
+      echo "# $p still claims the working tree may be newer than the pinned diff"
+      false
+    fi
+  done
 }

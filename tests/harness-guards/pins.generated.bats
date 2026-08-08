@@ -33,22 +33,32 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 }
 
 # WHY: The comparison step runs on the same model family as one of the reviews it is comparing, 
-# WHY: so it is a party to the dispute and cannot simply be trusted to rule. SUPERSEDED IN PART, 
-# WHY: and deliberately: abstaining cost more than it saved, because every disagreement then 
-# WHY: became an operator decision and most were not disagreements at all. The comparator now 
-# WHY: rules, and the self-grading risk this entry names is answered structurally instead — it 
-# WHY: settles questions of FACT against the code, a ruling in its own side's favour requires 
-# WHY: quoted file:line evidence, a tie goes to the other reviewer, and every verdict is advice 
-# WHY: the author overrules at merge time. The pinned phrase must survive as the objection being 
-# WHY: ANSWERED; if it disappears, the reason the safeguards exist has gone with it. See 
-# WHY: tests/harness-guards/referee-verdict.bats and docs/runbooks/multi-model-review.md.
+# WHY: so it is a party to the dispute and may only sort findings, never rule on them. A 
+# WHY: comparator that picks winners is the first reviewer marking its own work, and the human 
+# WHY: loses the disagreement that was the point.
+# SUPERSEDED 2026-08-08 -> docs/runbooks/multi-model-review.md — "The referee settles 
+# disagreements"; guarded by tests/harness-guards/referee-verdict.bats
+# SUPERSEDED: Abstaining cost more than it saved. Every disagreement became an operator decision, and 
+# SUPERSEDED: most were not disagreements at all — one reviewer's silence, the same defect at two 
+# SUPERSEDED: severities, two valid fixes for one bug. The genuine ones were nearly always questions of 
+# SUPERSEDED: FACT about the code, which have an answer anyone can check. The comparator now rules, and 
+# SUPERSEDED: the self-grading risk this entry names is answered STRUCTURALLY rather than by 
+# SUPERSEDED: abstaining: it settles questions of fact against a diff pinned to the reviewed commit, a 
+# SUPERSEDED: ruling in its own side's favour requires quoted file:line evidence, a tie goes to the 
+# SUPERSEDED: other reviewer, and every verdict is advice the author overrules at merge time. The 
+# SUPERSEDED: pinned phrase must survive as the objection being ANSWERED — if it disappears, the 
+# SUPERSEDED: reason the safeguards exist has gone with it.
 @test "pin[referee-sorts-does-not-grade]: .github/workflows/review.yml" {
   run grep -E -q -- grading\ its\ own\ paper "$REPO_ROOT/.github/workflows/review.yml"
   if [ "$status" -ne 0 ]; then
     echo "PIN LOST: referee-sorts-does-not-grade"
     echo "  source: .github/workflows/<VENDOR-REVIEW-WORKFLOW>.yml:55"
-    echo "  why:    The comparison step runs on the same model family as one of the reviews it is comparing, so it is a party to the dispute and cannot simply be trusted to rule. SUPERSEDED IN PART, and deliberately: abstaining cost more than it saved, because every disagreement then became an operator decision and most were not disagreements at all. The comparator now rules, and the self-grading risk this entry names is answered structurally instead — it settles questions of FACT against the code, a ruling in its own side's favour requires quoted file:line evidence, a tie goes to the other reviewer, and every verdict is advice the author overrules at merge time. The pinned phrase must survive as the objection being ANSWERED; if it disappears, the reason the safeguards exist has gone with it. See tests/harness-guards/referee-verdict.bats and docs/runbooks/multi-model-review.md."
-    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    echo "  why:    The comparison step runs on the same model family as one of the reviews it is comparing, so it is a party to the dispute and may only sort findings, never rule on them. A comparator that picks winners is the first reviewer marking its own work, and the human loses the disagreement that was the point."
+    echo "  NOTE:   this lesson was SUPERSEDED on 2026-08-08."
+    echo "          now: docs/runbooks/multi-model-review.md — \"The referee settles disagreements\"; guarded by tests/harness-guards/referee-verdict.bats"
+    echo "          why: Abstaining cost more than it saved. Every disagreement became an operator decision, and most were not disagreements at all — one reviewer's silence, the same defect at two severities, two valid fixes for one bug. The genuine ones were nearly always questions of FACT about the code, which have an answer anyone can check. The comparator now rules, and the self-grading risk this entry names is answered STRUCTURALLY rather than by abstaining: it settles questions of fact against a diff pinned to the reviewed commit, a ruling in its own side's favour requires quoted file:line evidence, a tie goes to the other reviewer, and every verdict is advice the author overrules at merge time. The pinned phrase must survive as the objection being ANSWERED — if it disappears, the reason the safeguards exist has gone with it."
+    echo "          The pin still holds: the string survives in its new role. Restore it"
+    echo "          as that, NOT as the original rule."
     false
   fi
 }

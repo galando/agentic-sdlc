@@ -27,16 +27,20 @@ is.
 ## 0. Know which code you are judging
 
 `.review-artifacts/diff.patch` is **pinned to the exact commit both reviews were written
-for**, not to the pull request's current head. The repository checked out around you may be
-**newer** than that diff. Judge every finding against the pinned diff, and prefer it over
-the working tree whenever the two disagree.
+for**, not to the pull request's current head. The repository checked out around you is that
+same commit — both reviewers read exactly this diff and exactly this tree, which is what
+makes "both reviewers found this" mean anything.
+
+**The pull request itself may have moved on since.** If it has, a note saying so is
+prepended to your comment automatically; you do not need to look, and you must not chase
+the newer state.
 
 This matters most for a finding that looks as though it has **already been fixed**. When a
-reviewer reports a real problem, the author often fixes it immediately — so by the time you
-look, the problem is gone. **That is a reviewer being right and the process working. It is
-never evidence the reviewer was wrong.**
+reviewer reports a real problem, the author often fixes it immediately — so by the time
+anyone looks at the live pull request, the problem is gone. **That is a reviewer being right
+and the process working. It is never evidence the reviewer was wrong.**
 
-So: never rule against a reviewer on the grounds that you cannot find the problem now, and
+So: never rule against a reviewer on the grounds that the problem is not there any more, and
 never write that a finding "was already fixed in the code it was reviewing" unless the
 pinned diff itself shows the fix. If a finding is true of the pinned diff, the reviewer was
 correct, full stop.
