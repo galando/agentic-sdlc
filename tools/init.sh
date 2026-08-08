@@ -341,6 +341,23 @@ if [ -f "$ROOT/tools/check-upstream-drift.sh" ] || [ -f "$ROOT/.agents/upstream-
 fi
 
 # ---------------------------------------------------------------------------
+# Remove the maintainer-only docs. Same reasoning as site/ and the upstream
+# tooling above: docs/maintainers/ describes how the TEMPLATE's own public demo
+# repository is built and kept in step with the README's claims. An adopter has
+# no demo repository to rebuild, so these pages would sit in their tree
+# describing somebody else's project — the exact failure mode site/ was removed
+# for. docs/runbooks/ and docs/QUALITY-GATES.md are the adopter's docs and stay.
+# ---------------------------------------------------------------------------
+if [ -d "$ROOT/docs/maintainers" ]; then
+  echo
+  echo "--- Maintainer-only docs ---"
+  rm -rf "$ROOT/docs/maintainers"
+  echo "Removed docs/maintainers/: it documents the TEMPLATE's own demo repository,"
+  echo "not $PRODUCT_NAME. Your docs — docs/runbooks/ and docs/QUALITY-GATES.md — are"
+  echo "untouched."
+fi
+
+# ---------------------------------------------------------------------------
 # Offer to write the PRODUCT's README. The shipped README describes the
 # template itself ("click Use this template") and nothing else in the adoption
 # ever touches it — a real adopted repository kept it indefinitely, so its
