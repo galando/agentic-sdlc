@@ -153,6 +153,19 @@ at all.
   pull request as having had "one reviewer at most" — which describes zero as one. That
   notice is the only thing telling a reader a green check does not mean "reviewed twice", so
   it is now a whole sentence per case, and the zero case says "no automated review at all".
+- **A failed collector silently cancelled the steward handoff.** The "no review landed"
+  branch treated missing review bodies as "there was nothing to collect" and deferred to the
+  lost-review check. But the collector can also *fail*, and then the bodies are missing for
+  the opposite reason: the reviews are on the pull request with real findings, and the
+  lost-review check correctly filed nothing because it saw them. The handoff read "no
+  reviews", exited 0, and woke nobody — the stranded finding this machinery exists to
+  prevent, arriving through a different door. It now separates the two cases and posts a
+  notice **on the pull request** when it could not look.
+
+  Found by tracing the branches rather than by a test, and it is why
+  `steward-handoff-decision.bats` now exists: the text-only guard checked every string in
+  that step and all of them were correct. Reverting the fix fails **two** assertions in the
+  new behavioural guard and **zero** in the text-only one.
 - **`review.yml` wrote five files to fixed paths under `/tmp`.** `runs-on` honours
   `vars.AGENT_RUNNER`, and a self-hosted runner's `/tmp` outlives the job and is shared:
   mode 1777 lets anyone create a file there but never lets a non-owner truncate one, so

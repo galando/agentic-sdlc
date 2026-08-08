@@ -899,6 +899,9 @@ jobs:
           # using GITHUB_TOKEN.
           GH_TOKEN: ${{ secrets.STEWARD_HANDOFF_PAT || secrets.GITHUB_TOKEN }}
           TOKEN_TRIGGERS: ${{ secrets.STEWARD_HANDOFF_PAT != '' }}
+          # Whether the collector actually ran. Load-bearing: see the branch below that
+          # separates "looked and found nothing" from "could not look".
+          COLLECT_OUTCOME: ${{ steps.collect.outcome }}
         run: |
           set -euo pipefail
 
@@ -948,9 +951,40 @@ jobs:
           REVIEWS_PRESENT="${REVIEWS_PRESENT%, }"
 
           if [ "$CLEAN_COUNT" = "0" ] && [ "$REVIEWS_WITH_FINDINGS" = "0" ]; then
-            # No review landed at all. The review job's lost-review check owns
-            # that case and has already filed an issue for it; a second issue
-            # from here would be a duplicate pointing at the same cause.
+            # TWO DIFFERENT THINGS LOOK IDENTICAL HERE, and one of them is a stranded
+            # finding. Both leave judge.md and challenge.md empty or absent:
+            #
+            #   a. The collector ran and there was genuinely nothing to collect. The
+            #      review job's lost-review check owns that, and has already filed for it.
+            #   b. THE COLLECTOR ITSELF FAILED — a transient API error under `set -e` is
+            #      enough. The reviews are sitting on the pull request with real findings,
+            #      the lost-review check saw them and correctly filed nothing, and this
+            #      step then reads "no reviews" and exits quietly. Nobody is woken, and
+            #      the only trace is a red step in a log nobody opens.
+            #
+            # (b) is the exact stranded-finding failure this handoff exists to prevent,
+            # arriving through a different door. So it gets said ON THE PULL REQUEST,
+            # where whoever merges will see it — the same rule as the supply-chain
+            # carve-out in the review job.
+            if [ "$COLLECT_OUTCOME" != "success" ]; then
+              echo "::error::The review collector failed (outcome=$COLLECT_OUTCOME), so no steward handoff could be computed for PR #$PR. Any findings on this pull request have no listener."
+              {
+                echo "## The review handoff did not run"
+                echo
+                echo "The step that reads the reviews off this pull request **failed**, so the"
+                echo "steward was not woken and no handoff issue was filed."
+                echo
+                echo "**This is not a verdict on the change.** Any reviews above still stand and"
+                echo "may contain blocking findings — nothing is acting on them. Read them"
+                echo "yourself before merging, or re-run the review workflow."
+                echo
+                echo "- Run: $RUN_URL"
+              } > "$BODY_DIR/handoff-broken.md"
+              gh pr comment "$PR" --repo "$REPO" --body-file "$BODY_DIR/handoff-broken.md" \
+                || echo "::error::Could not even post the broken-handoff notice to PR #$PR."
+              exit 0
+            fi
+
             echo "No review reached PR #$PR - the lost-review check owns this, not the handoff."
             exit 0
           fi

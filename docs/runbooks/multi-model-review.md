@@ -213,6 +213,24 @@ findings. Two consequences worth knowing:
   using the `jq` that `gh` embeds. A missing `jq` costs the comparison only — never the
   handoff.
 
+### Two ways the handoff can still be lost, and what each does about it
+
+**The collector fails.** If the step that reads the two reviews off the pull request dies —
+a transient API error is enough — the review bodies are missing for a reason that looks
+identical on disk to "there were no reviews". But the reviews *are* there, with findings,
+and the lost-review check correctly filed nothing because it saw them. The handoff used to
+read "no reviews" and exit quietly, waking nobody. It now separates the two cases and
+**says so on the pull request** when it could not look, because the person merging is the
+only one who can act on it.
+
+**The run is cancelled.** The handoff is filed at the end of the last job, so a run
+cancelled part-way — routine on a busy single runner, and this workflow is advisory rather
+than a required check — files no handoff even though reviews were posted. This is the
+accepted cost of filing late: filing early is what produced a handoff built on one opinion
+out of three, and what dropped every finding the second reviewer raised alone. **If you
+cancel a review run, read the reviews yourself.** A cheap improvement would be a
+`workflow_run`-triggered sweep that finds pull requests with reviews and no handoff.
+
 ### The handoff issue closes itself
 
 That issue is **a signal shaped like a work item**. Filing it starts the steward's run, and
