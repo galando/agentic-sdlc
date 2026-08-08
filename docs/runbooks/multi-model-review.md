@@ -114,6 +114,58 @@ requirement.
 blocks nothing. The author overrules any verdict at merge time. That is what makes an
 occasional wrong call cheap — and why abstaining was never worth its cost.
 
+### The referee judges the commit the reviews were written for
+
+**What was wrong.** The referee fetched the diff with the "give me this pull request's
+diff" command, which resolves the head **at the moment the referee runs**. The two reviews
+it compares were written earlier, against whatever the head was then. Nothing tied them
+together.
+
+So a fix pushed between a review and the referee job made the reviewer who found the bug
+look wrong: the referee measured the **fix** and scored it against the finding that produced
+it. Observed ruling two accurate reviewers wrong at once — it read a head two commits newer
+than one review, then accused a reviewer of miscounting lines that really were that many in
+the commit it had read.
+
+The window is usually seconds, which is why it hid. **It bites precisely when an author
+fixes findings as they arrive — so the more responsive the author, the more likely their
+reviewers are marked down.** And the referee's comment is the last word on the page, so a
+reviewer who was right is recorded as wrong.
+
+**What changed**, in three parts, all of which are needed:
+
+- **Pinned.** The diff comes from a compare between the event payload's `base.sha` and
+  `head.sha`, which are fixed when the run is triggered, so they name the state the
+  reviewers were sent.
+- **Disclosed.** The step compares that pinned head against the live head, and when they
+  differ, a note is prepended saying the verdicts describe the reviewed commit. Prepending
+  happens in **its own step**, so posting stays a plain "send the file" and cannot grow a
+  reason to send nothing.
+- **Told.** The prompt says the diff is pinned, that the checked-out tree may be newer, and
+  that **a finding which looks already fixed is usually a reviewer being right and the
+  author acting on it**. This part matters on its own: the referee reads the repository as
+  well as the diff, so pinning the diff alone would not stop it reaching the same wrong
+  conclusion from the working tree.
+
+This does not stop the two *reviewers* reading different commits from each other — that
+needs both review jobs to pin their own fetch, and is a separate change.
+
+`tests/harness-guards/referee-diff-pin.bats` runs the real fetch step against a stubbed
+API, because "asks for the pinned range" and "asks for the live head" are two calls that
+look almost identical in the file and behave completely differently.
+
+### The missing-review notice has to agree with itself
+
+The notice that says a review did not arrive was built by splicing a noun into a fixed
+sentence. When **both** reviews were missing it rendered three contradictions at once: a
+plural in a sentence written for a singular ("**BOTH reviews** is not on this pull
+request"), a log line claiming one review was found when none were, and "one reviewer at
+most" used to describe **zero** — which reads as one.
+
+That notice is the only thing telling a reader a green check does not mean "reviewed
+twice". Its entire job is to be right about the count, so it is now a **whole sentence per
+case** rather than a noun in a hole, and the zero case says "no automated review at all".
+
 ### The prompt is a request, so the output is checked
 
 A prompt cannot force a model to do anything, and on a bad day it could still write "needs a

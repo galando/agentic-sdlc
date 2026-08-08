@@ -33,8 +33,9 @@ exists, and five standing decisions the fleet learned the hard way join
   The self-grading objection — the referee runs the same `judge` role that wrote one of
   the reviews — is answered structurally rather than by abstaining: a ruling in the judge
   role's favour requires a quoted `file:line`, a tie goes to the challenge role, and
-  every verdict is advice the author overrules at merge time. `review.yml` fetches
-  `.review-artifacts/diff.patch` so the referee can read the code it is ruling on.
+  every verdict is advice the author overrules at merge time. `review.yml` hands it
+  `.review-artifacts/diff.patch` so it can read the code it is ruling on — pinned to the
+  commit the reviews were written for, see *Fixed* below.
 - **The steward handoff moved from the `review` job to the end of `referee`.**
   `challenge-review` declares `needs: review`, so the handoff was filed before the second
   review and the referee comparison could exist — on every pull request, always. The
@@ -45,7 +46,7 @@ exists, and five standing decisions the fleet learned the hard way join
   The handoff now reads both collected reviews and files when either carries findings.
 - **The `referee` job is no longer gated on the challenge role having run.** That gate
   would have deleted every handoff behind a missing `CHALLENGE_API_KEY`, and it also made
-  the "one reviewer at most" notice unreachable in the one case it was written for. Either
+  the missing-review notice unreachable in the one case it was written for. Either
   reviewer producing a review enters the job; neither doing so skips it silently, which is
   the untouched-template state.
 - The referee's collector produces both review bodies even with no `jq` on the runner,
@@ -81,23 +82,46 @@ exists, and five standing decisions the fleet learned the hard way join
   purpose; reusing that for closing would let a human writing "hold on" close the ticket
   they were objecting to). Best-effort — a failure warns rather than reddening a run whose
   work is done.
-- `tests/harness-guards/referee-verdict.bats`,
-  `tests/harness-guards/steward-handoff-order.bats` and
-  `tests/harness-guards/steward-handoff-closure.bats` (gate 22), pinning all three changes
-  — including a guard that runs the workflow's own punt pattern against the phrasings that
-  caused it and against prose that must not trip it.
+- Five gate-22 guard files: `referee-verdict.bats`, `steward-handoff-order.bats`,
+  `steward-handoff-closure.bats`, `referee-diff-pin.bats` and
+  `referee-missing-review-notice.bats` — including a guard that runs the workflow's own punt
+  pattern against the phrasings that caused it and against prose that must not trip it.
 
-  The closure guard is **behavioural, not a text pin**: it extracts the real script out of
-  `steward.yml` and runs it against a stubbed API, because every dangerous failure there is
-  a wrong branch taken rather than a missing string, and the two conditions guarding the
-  close read almost identically to the ones guarding the outcome check above them. Both
-  dangerous mutations — swapping the any-author check back in, and dropping the title prefix
-  — were confirmed to fail it. It needs `node`; a missing `node` fails the guard loudly
-  rather than skipping it, because a guard that quietly does not run is the failure this
-  directory exists to prevent.
+  Four of the five are **behavioural rather than text pins**: they extract the real script
+  out of the workflow and run it against a stubbed API, because in each case the dangerous
+  failure is a wrong branch or a wrong composition, not a missing string — and the file
+  reads correctly in every one of them. Each was mutation-tested against the bug it exists
+  to catch: restoring the live diff fetch fails 5 assertions, restoring the spliced notice
+  noun fails 6, and both dangerous handoff-closure mutations fail their guards.
+
+  The closure guard needs `node`, and a missing `node` fails it loudly rather than skipping
+  it — a guard that quietly does not run is the failure this directory exists to prevent.
+  `pr-tests.yml` installs node explicitly rather than relying on the hosted runner having
+  one, since `runs-on` honours `vars.PR_RUNNER`.
 
 ### Fixed
 
+- **The referee judged the reviews against the wrong commit.** It fetched the diff with the
+  "give me this pull request's diff" command, which resolves the head *at the moment the
+  referee runs* — while the two reviews it compares were written earlier, against whatever
+  the head was then. A fix pushed in between made the reviewer who found the bug look wrong:
+  the referee measured the **fix** and scored it against the finding that produced it.
+  Upstream saw it rule two accurate reviewers wrong at once.
+
+  The window is usually seconds, which is why it hid. **It bites precisely when an author
+  fixes findings as they arrive, so the more responsive the author, the more likely their
+  reviewers are marked down** — and the referee's comment is the last word on the page, so a
+  reviewer who was right is recorded as wrong. Three parts, all needed: the diff is now
+  **pinned** to the event payload's `base.sha...head.sha`; a moved head is **disclosed** in a
+  note prepended by its own step (posting stays a plain "send the file"); and the referee is
+  **told** in its prompt that a finding which looks already fixed is usually a reviewer being
+  right, because it reads the working tree as well as the diff.
+- **The missing-review notice contradicted itself when both reviews were missing.** It
+  spliced a noun into a fixed sentence, so zero reviews rendered as "**BOTH reviews** is not
+  on this pull request", under a log line saying one was found, above advice to treat the
+  pull request as having had "one reviewer at most" — which describes zero as one. That
+  notice is the only thing telling a reader a green check does not mean "reviewed twice", so
+  it is now a whole sentence per case, and the zero case says "no automated review at all".
 - **`review.yml` wrote five files to fixed paths under `/tmp`.** `runs-on` honours
   `vars.AGENT_RUNNER`, and a self-hosted runner's `/tmp` outlives the job and is shared:
   mode 1777 lets anyone create a file there but never lets a non-owner truncate one, so

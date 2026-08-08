@@ -644,20 +644,36 @@ jobs:
           # request, so a green check never reads as "reviewed twice" when it
           # was reviewed once.
           if [ "$JUDGE_BYTES" -le 1 ] || [ "$CHALLENGE_BYTES" -le 1 ]; then
-            MISSING="the judge-role review"
-            [ "$CHALLENGE_BYTES" -le 1 ] && MISSING="the challenge-role review"
-            [ "$JUDGE_BYTES" -le 1 ] && [ "$CHALLENGE_BYTES" -le 1 ] && MISSING="BOTH reviews"
-            echo "::warning::Referee found only one review - $MISSING did not reach this PR."
+            # A WHOLE SENTENCE PER CASE, never a noun spliced into a fixed one.
+            # The both-missing case used to render "**BOTH reviews** is not on
+            # this pull request" under a log line reading "found only one review",
+            # and then told the reader to treat it as having had "one reviewer at
+            # most" — which describes zero as one. Three contradictions in the one
+            # notice whose entire job is to say how many reviews were lost. This
+            # is the only thing telling a reader that a green check does not mean
+            # "reviewed twice", so it has to be right about the count.
+            if [ "$JUDGE_BYTES" -le 1 ] && [ "$CHALLENGE_BYTES" -le 1 ]; then
+              SENTENCE="**Neither review** reached this pull request, so there is nothing to compare."
+              REMAINS="Treat this pull request as having had **no automated review at all**. Whatever the two reviewers would have caught, nobody caught."
+              LOG="neither review reached this PR"
+            elif [ "$CHALLENGE_BYTES" -le 1 ]; then
+              SENTENCE="**The challenge-role review** did not reach this pull request, so there is nothing to compare."
+              REMAINS="Treat this pull request as having had **one reviewer**, not two. Whatever the missing reviewer would have caught, nobody caught."
+              LOG="the challenge-role review did not reach this PR"
+            else
+              SENTENCE="**The judge-role review** did not reach this pull request, so there is nothing to compare."
+              REMAINS="Treat this pull request as having had **one reviewer**, not two. Whatever the missing reviewer would have caught, nobody caught."
+              LOG="the judge-role review did not reach this PR"
+            fi
+            echo "::warning::Reviewer comparison unavailable - ${LOG}."
             {
               echo "## Reviewer comparison - not available"
               echo
               echo "This pull request was supposed to be reviewed twice, by two different model"
-              echo "families, with this comment listing where they disagree. That did not"
-              echo "happen: **$MISSING** is not on this pull request, so there is nothing to"
-              echo "compare."
+              echo "families, with this comment listing where they disagree. That did not happen."
+              echo "${SENTENCE}"
               echo
-              echo "Treat this pull request as having had **one reviewer at most**. Whatever the"
-              echo "missing reviewer would have caught, nobody caught."
+              echo "${REMAINS}"
               echo
               echo "Both comment endpoints were searched, so this is not a collector looking in"
               echo "the wrong place."
@@ -676,13 +692,54 @@ jobs:
       # falls back to the checked-out tree, which is the pull request's merge ref.
       - name: Fetch the diff both reviewers were reading
         if: steps.collect.outputs.skip_agent == 'false'
+        env:
+          # Fixed when the run is TRIGGERED, so they name the state the reviewers
+          # were sent and cannot drift while the run proceeds.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          gh pr diff "$PR" --repo "$REPO" > .review-artifacts/diff.patch || {
-            echo "::warning::Could not fetch the diff — the referee will verify against the checked-out tree instead."
+
+          # PINNED, not live.
+          #
+          # `gh pr diff` resolves the pull request's head AT THIS MOMENT. The two
+          # reviews being compared were written earlier, against whatever the head
+          # was then — and nothing tied them together. So a fix pushed between a
+          # review and this job made the reviewer who found the bug look wrong:
+          # the referee measured the FIX and scored it against the finding that
+          # produced it. Observed ruling two accurate reviewers wrong at once.
+          #
+          # The window is usually seconds, which is why it hid. It bites precisely
+          # when an author fixes findings as they arrive — so the more responsive
+          # the author, the more likely their reviewers are marked down. And the
+          # referee's comment is the last word on the page, so a reviewer who was
+          # right is recorded as wrong.
+          #
+          # Rule on the commit the reviews describe.
+          gh api "repos/$REPO/compare/${BASE_SHA}...${HEAD_SHA}" \
+               -H "Accept: application/vnd.github.v3.diff" \
+               > .review-artifacts/diff.patch || {
+            echo "::warning::Could not fetch the pinned diff — the referee will verify against the checked-out tree instead."
             : > .review-artifacts/diff.patch
           }
-          echo "Diff: $(wc -c < .review-artifacts/diff.patch) bytes"
+          echo "Diff: $(wc -c < .review-artifacts/diff.patch) bytes at ${HEAD_SHA}"
+
+          # Has the pull request moved on since? Then the verdicts are about an
+          # older commit and the reader has to be told. Never a reason to post
+          # nothing — the note is prepended by its own step below.
+          LIVE_SHA="$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha 2>/dev/null || echo "")"
+          if [ -n "$LIVE_SHA" ] && [ "$LIVE_SHA" != "$HEAD_SHA" ]; then
+            echo "::warning::PR head moved from $HEAD_SHA to $LIVE_SHA after the reviews - the comparison describes the reviewed commit."
+            {
+              echo "> [!NOTE]"
+              echo "> **This compares the two reviews against \`$(printf '%.7s' "$HEAD_SHA")\`, the commit they"
+              echo "> were written for.** The pull request has since moved to \`$(printf '%.7s' "$LIVE_SHA")\`, so a"
+              echo "> finding below may no longer be present — usually because the author fixed it"
+              echo "> *after* the review and *because of* it. Verdicts here are about the reviewed"
+              echo "> commit."
+              echo
+            } > .review-artifacts/head-moved.md
+          fi
 
       - name: Referee (judge role)
         if: steps.collect.outputs.skip_agent == 'false'
@@ -736,6 +793,19 @@ jobs:
           else
             echo "Referee ruled on every disagreement - no punt language found."
           fi
+
+      # Prepended HERE rather than inside the posting step, so posting stays a
+      # plain "send the file" and cannot grow a reason to send nothing.
+      - name: Note that the pull request moved after the reviews
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          [ -s .review-artifacts/head-moved.md ] || exit 0
+          [ -s .review-artifacts/referee-comment.md ] || exit 0
+          cat .review-artifacts/head-moved.md .review-artifacts/referee-comment.md \
+            > .review-artifacts/referee-comment.annotated.md
+          mv .review-artifacts/referee-comment.annotated.md .review-artifacts/referee-comment.md
+          echo "Noted on the comparison that the pull request head moved after the reviews."
 
       # Posting is a plain script step for the same reason reviewer A's posting
       # is not left to the agent's discretion: an agent that decides for itself

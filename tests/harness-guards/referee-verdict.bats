@@ -102,7 +102,13 @@ RUNBOOK="$REPO_ROOT/docs/runbooks/multi-model-review.md"
   # It settles disagreements against the code, so it has to be able to see the code — and
   # fetching it in a script rather than letting the agent do it keeps the agent unable to
   # choose WHICH code it rules on.
-  run grep -q 'gh pr diff "\$PR" --repo "\$REPO" > .review-artifacts/diff.patch' "$REVIEW"
+  #
+  # Updated rather than deleted when the diff was PINNED to the reviewed commit: this now
+  # asserts the compare range too, so it is stricter than the version it replaced. The
+  # pinning behaviour itself lives in referee-diff-pin.bats.
+  run grep -q 'gh api "repos/\$REPO/compare/\${BASE_SHA}\.\.\.\${HEAD_SHA}"' "$REVIEW"
+  [ "$status" -eq 0 ]
+  run grep -q '> .review-artifacts/diff.patch' "$REVIEW"
   [ "$status" -eq 0 ]
   run grep -q 'diff.patch' "$PROMPT"
   [ "$status" -eq 0 ]

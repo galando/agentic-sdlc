@@ -24,6 +24,23 @@ same defect — never by wording. The two reviewers will describe one bug in dif
 words, and treating those as two separate findings makes the overlap look smaller than it
 is.
 
+## 0. Know which code you are judging
+
+`.review-artifacts/diff.patch` is **pinned to the exact commit both reviews were written
+for**, not to the pull request's current head. The repository checked out around you may be
+**newer** than that diff. Judge every finding against the pinned diff, and prefer it over
+the working tree whenever the two disagree.
+
+This matters most for a finding that looks as though it has **already been fixed**. When a
+reviewer reports a real problem, the author often fixes it immediately — so by the time you
+look, the problem is gone. **That is a reviewer being right and the process working. It is
+never evidence the reviewer was wrong.**
+
+So: never rule against a reviewer on the grounds that you cannot find the problem now, and
+never write that a finding "was already fixed in the code it was reviewing" unless the
+pinned diff itself shows the fix. If a finding is true of the pinned diff, the reviewer was
+correct, full stop.
+
 ## 1. Be strict about what a contradiction is
 
 Two reviewers contradict each other **only** when they make claims about the SAME code
