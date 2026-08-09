@@ -99,6 +99,16 @@ emit_semantic_manual() {
     echo "# SEMANTIC-MANUAL (hand-discharged, not asserted): $id"
     echo "#   concept: $concept"
     echo "#   discharged: $discharged"
+    # A superseded entry has to SAY SO here. Without this the generated inventory reads a
+    # replaced lesson back as current guidance, which is how the reason for a safeguard
+    # outlives the safeguard and then gets deleted as redundant. The literal/regex emitter
+    # has always printed this; semantic-manual did not, because until 2026-08-09 no
+    # semantic-manual entry had ever been superseded.
+    superseded_on="$(jq -r '.superseded_on // ""' <<<"$entry")"
+    if [ -n "$superseded_on" ]; then
+      echo "#   SUPERSEDED $superseded_on -> $(jq -r '.superseded_by // ""' <<<"$entry")"
+      echo "#   SUPERSEDED why: $(jq -r '.superseded_reason // ""' <<<"$entry")"
+    fi
   done
 }
 

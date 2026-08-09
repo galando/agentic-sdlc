@@ -373,6 +373,40 @@ Prefer extracting the logic into `tools/` when it is big enough to deserve a nam
 script is easier to test than a step body, and the guard then needs no extraction at all.
 `tools/fetch-pinned-diff.sh` exists for exactly that reason.
 
+### Scope a guard to the MISTAKE it is named after, not to the example in front of you
+
+A guard is written the day a bug is found, from the one instance of that bug the author is
+looking at. The instance is a *sample* of the mistake, and the sample's incidental shape —
+one operator, one call site, one spelling — has a way of ending up in the pattern.
+
+Two confirmed cases here, and they fail in opposite directions:
+
+- **Too narrow to catch the next one.** Upstream's guard against "an alert reads a counter
+  that does not exist yet, so it silently never fires" matched only alerts that *subtract*
+  one value from another, because subtraction was what the first instance did. Two alerts
+  comparing the same kind of missing counter to zero were dead for months, in a guarded
+  file, with the guard green. It has since been rewritten to judge every read of such a
+  counter on its own.
+- **Green for a behaviour that never once happened.** `review-clean-phrase-literal` pinned
+  `grep -qF 'No issues found'` and matched it every time. Nothing in this repository ever
+  emitted that phrase, so the branch it guarded had never been taken. See
+  `tests/harness-guards/semantic-discharges.md`, "Row 6 re-discharged".
+
+Two questions close both holes, and they cost a minute each:
+
+1. **Name the mistake without naming the example.** Write the sentence the guard is really
+   about ("an alert must not read a counter that may not exist"), then check the pattern
+   against *that*, not against the instance. If the sentence is broader than the pattern,
+   the pattern is scoped to your example.
+2. **Ask what PRODUCES the value the guard reads.** A guard on a consumer proves nothing
+   until something is shown to emit what it consumes. One `grep` over the tree for the
+   producer is the whole check.
+
+Widening has a cost, so state what you left out and why, next to the pattern. Upstream's
+rewritten counter guard deliberately excludes grouped aggregations, and says so in the
+comment with the one alert that would otherwise be flagged — a guard that pages for a
+correct rule gets weakened or deleted, and then it guards nothing.
+
 ## Running the gauntlet locally
 
 The commands are the **reference stack's**. On another stack, replace the commands and

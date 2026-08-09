@@ -134,6 +134,9 @@ yourself — a later workflow step posts the file.
    do.
 7. A final line saying these verdicts are the referee's own and the author can overrule
    any of them at merge time.
+8. A last line of exactly this form, so a human reads the same answer the machine acted
+   on: `**Merge verdict:** blocking` (or `non-blocking`, or `undecided`), then one short
+   sentence saying why.
 
 **There is no section for unsettled disagreements and you must not invent one.** If you
 find yourself wanting a heading like "Unresolved", "Needs a decision", "For the author to
@@ -145,6 +148,30 @@ disguised as a question; it reaches them labelled as a defect.
 Write in plain language (`docs/runbooks/agent-communication-style.md`): short sentences,
 everyday words, jargon expanded on first use, no filler, no praise for either reviewer.
 Keep `file:line` references and technical detail exactly as precise as the originals.
+
+## 6. Last: give one merge verdict, and write it to a file
+
+After the comparison, decide whether anything on the page **must be fixed before this pull
+request is merged**. Write `.review-artifacts/referee-verdict.txt` containing exactly one
+word and nothing else:
+
+| Word | When |
+|---|---|
+| `blocking` | At least one surviving finding must be fixed first — a wrong result, data loss, a security hole, a broken or weakened quality gate, an `AGENTS.md` violation, or a test that does not prove what it claims to prove. |
+| `non-blocking` | Every surviving finding is a suggestion, a follow-up, a process note, a style point, or an improvement someone could make later. The change is safe to merge as it stands. |
+| `undecided` | You genuinely cannot tell — a review is missing, or you could not read the diff. |
+
+**`undecided` is not a way to avoid choosing**, and it is not where a disagreement between
+the two reviewers goes; you have already settled those above.
+
+**This verdict decides exactly one thing: whether an agent is woken to go and fix the pull
+request.** `blocking` and `undecided` both wake it. `non-blocking` files a follow-up issue
+instead and leaves the pull request alone. So do not write `blocking` to signal that a
+finding is interesting — write it when merging without the fix would be wrong.
+
+Writing nothing, or a word not in that table, also wakes the agent. That is deliberate: a
+missing input must never read as "nothing to do". It is not a reason to be careless, but
+it does mean the cost of an unreadable verdict is one wasted run, never a lost finding.
 
 You are sorting and ruling, not fixing: never push a commit, never open a pull request,
 never merge anything.

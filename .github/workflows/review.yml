@@ -971,6 +971,53 @@ jobs:
             echo "Referee ruled on every disagreement - no punt language found."
           fi
 
+      # ---------------------------------------------------------------------
+      # THE REFEREE DECIDES WHETHER THE STEWARD IS WOKEN (2026-08-09).
+      #
+      # The handoff step below used to decide for itself, by asking whether a
+      # review body contained the literal words "No issues found" — a code-review
+      # PLUGIN's clean marker. Nothing here emits it: both reviewer prompts ask
+      # for prose, and prose never contains that phrase. So every review that
+      # landed counted as findings, and every agent pull request got a handoff.
+      # The steward woke on pull requests both reviewers had approved, pushed
+      # commits onto them and reset CI. Upstream measured 46 such issues, one per
+      # agent pull request, before the same defect was found there.
+      #
+      # The referee already reads both reviews AND the pinned diff and rules on
+      # them. It now writes one word, and that word decides.
+      #
+      # Normalised and checked HERE rather than parsed at the point of use, so
+      # the handoff step keeps reading a value from a fixed vocabulary. An
+      # unreadable verdict is left unreadable on purpose: every value that is not
+      # exactly `non-blocking` wakes the steward, so the most a bad one can cost
+      # is a single unnecessary run — never a lost finding. Do not "helpfully"
+      # default it to non-blocking here.
+      # ---------------------------------------------------------------------
+      - name: Read the referee's merge verdict
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          VERDICT_FILE=.review-artifacts/referee-verdict.txt
+
+          if [ ! -s "$VERDICT_FILE" ]; then
+            echo "::warning::The referee left no merge verdict - the steward will be woken. See $RUN_URL"
+            exit 0
+          fi
+
+          # One word, lowercase, no markdown or stray punctuation around it. The
+          # same reduction tools/review-handoff-decide.sh applies, done early so
+          # the log and the decision cannot disagree about what was written.
+          VERDICT="$(tr '[:upper:]' '[:lower:]' < "$VERDICT_FILE" \
+                     | tr -d '`*_"'"'"' \t\r' | head -n1 | tr -cd 'a-z0-9-' | cut -c1-32)"
+          printf '%s' "$VERDICT" > "$VERDICT_FILE"
+
+          case "$VERDICT" in
+            blocking|non-blocking|undecided)
+              echo "Referee merge verdict: $VERDICT" ;;
+            *)
+              echo "::warning::The referee wrote an unrecognised merge verdict ('$VERDICT') - the steward will be woken. See $RUN_URL" ;;
+          esac
+
       # Prepended HERE rather than inside the posting step, so posting stays a
       # plain "send the file" and cannot grow a reason to send nothing.
       - name: Prepend any caveats the comparison has to carry
@@ -1048,7 +1095,9 @@ jobs:
       #      prevent, reintroduced for the second reviewer.
       #
       # Here both reviews have already posted and the collector above has already
-      # split them by marker, so the check below reads BOTH.
+      # split them by marker. The reason to run at this point only got stronger
+      # when the decision moved to the referee's verdict: the referee cannot rule
+      # on two reviews until both of them exist.
       #
       # Loop safety is unchanged: this workflow triggers only on `opened` and
       # `ready_for_review`, never on `synchronize`, so the steward's fix push
@@ -1069,6 +1118,14 @@ jobs:
           # using GITHUB_TOKEN.
           GH_TOKEN: ${{ secrets.STEWARD_HANDOFF_PAT || secrets.GITHUB_TOKEN }}
           TOKEN_TRIGGERS: ${{ secrets.STEWARD_HANDOFF_PAT != '' }}
+          # THE TOKEN IS THE SWITCH, and this is the off position.
+          #
+          # The `followup` branch below files an issue that must NOT wake the steward. It
+          # gets this token rather than the one above, for the exact reason the one above
+          # exists: GitHub does not start workflow runs from events created with
+          # GITHUB_TOKEN. Swapping this for the PAT would silently wake the steward for
+          # precisely the findings the referee just ruled it should not be woken for.
+          GH_TOKEN_INERT: ${{ secrets.GITHUB_TOKEN }}
           # Whether the collector actually ran. Load-bearing: see the branch below that
           # separates "looked and found nothing" from "could not look".
           COLLECT_OUTCOME: ${{ steps.collect.outcome }}
@@ -1092,21 +1149,22 @@ jobs:
             *) echo "PR #$PR is human-authored ($PR_AUTHOR, $HEAD_REF) and was reviewed - no handoff."; exit 0 ;;
           esac
 
-          # The decision — which reviews landed, and whether any carry findings — lives
-          # in tools/review-handoff-decide.sh. It DECIDES; this step ACTS. That split is
-          # what lets the decision be exercised on its own with crafted inputs, instead of
-          # only by carving a step body out of YAML.
+          # The decision — which reviews landed, and what the referee ruled — lives in
+          # tools/review-handoff-decide.sh. It DECIDES; this step ACTS. That split is what
+          # lets the decision be exercised on its own with crafted inputs, instead of only
+          # by carving a step body out of YAML.
           #
           # `.` and not `$(...)`: the script prints KEY=VALUE lines, so sourcing them sets
-          # DECISION, REVIEWS_PRESENT, CLEAN_COUNT and REVIEWS_WITH_FINDINGS here.
+          # DECISION, REVIEWS_PRESENT, REVIEWS_LANDED, VERDICT and VERDICT_RECOGNISED here.
           DECIDE="$BODY_DIR/handoff-decision.env"
           tools/review-handoff-decide.sh \
             --judge .review-artifacts/judge.md \
             --challenge .review-artifacts/challenge.md \
+            --verdict .review-artifacts/referee-verdict.txt \
             --collector-outcome "$COLLECT_OUTCOME" > "$DECIDE"
           # shellcheck disable=SC1090
           . "$DECIDE"
-          echo "Handoff decision: $DECISION (present='$REVIEWS_PRESENT', findings=$REVIEWS_WITH_FINDINGS, clean=$CLEAN_COUNT)"
+          echo "Handoff decision: $DECISION (present='$REVIEWS_PRESENT', landed=$REVIEWS_LANDED, verdict='$VERDICT', recognised=$VERDICT_RECOGNISED)"
 
           case "$DECISION" in
             none)
@@ -1116,8 +1174,45 @@ jobs:
               echo "No review reached PR #$PR - the lost-review check owns this, not the handoff."
               exit 0
               ;;
-            clean)
-              echo "All reviews of #$PR are clean ($REVIEWS_PRESENT) - no handoff."
+            followup)
+              # The referee ruled that nothing here has to be fixed before merge.
+              #
+              # The findings are still REAL — dropping them is the stranded-finding failure
+              # this whole machinery exists to prevent, arriving through the front door
+              # this time. So they are filed for later, with the INERT token, and nothing
+              # is woken. The pull request is left alone for its author to merge.
+              FOLLOWUP_TITLE="[review-followup] Non-blocking findings on PR #$PR"
+              OPEN="$(GH_TOKEN="$GH_TOKEN_INERT" gh issue list --repo "$REPO" --state open --limit 200 \
+                        --json title --jq '.[].title' \
+                      | grep -cFx "$FOLLOWUP_TITLE" || true)"
+              if [ "$OPEN" != "0" ]; then
+                echo "A follow-up issue for #$PR is already open - not filing another."
+                exit 0
+              fi
+              {
+                echo "The automatic reviews of **PR #$PR** - _${PR_TITLE}_ - raised findings, and the"
+                echo "referee ruled that **none of them has to be fixed before that pull request merges**."
+                echo
+                echo "So no agent was woken and the pull request was left alone. This issue exists so"
+                echo "the findings are not lost: they are worth doing, just not now."
+                echo
+                echo "**Task:** read the reviews on PR #$PR, decide which suggestions are worth"
+                echo "keeping, and do them here - or close this issue saying why not. Reviews"
+                echo "posted: **$REVIEWS_PRESENT**, plus the referee's comparison."
+                echo
+                echo "- Pull request: $SERVER/$REPO/pull/$PR"
+                echo "- Review run: $RUN_URL"
+                echo
+                echo "Filed automatically by \`review.yml\`, with \`GITHUB_TOKEN\` deliberately, so"
+                echo "opening it does not wake the steward."
+              } > "$BODY_DIR/review-followup-body.md"
+
+              GH_TOKEN="$GH_TOKEN_INERT" gh issue create --repo "$REPO" --title "$FOLLOWUP_TITLE" \
+                --body-file "$BODY_DIR/review-followup-body.md" --label agent-report \
+              || GH_TOKEN="$GH_TOKEN_INERT" gh issue create --repo "$REPO" --title "$FOLLOWUP_TITLE" \
+                --body-file "$BODY_DIR/review-followup-body.md"
+
+              echo "Referee ruled non-blocking on #$PR - filed a follow-up issue, woke nobody."
               exit 0
               ;;
             collector-failed)
@@ -1183,6 +1278,30 @@ jobs:
             echo "The automatic review of **PR #$PR** - _${PR_TITLE}_ - reported findings, and"
             echo "that pull request is agent-authored (\`$PR_AUTHOR\`, \`$HEAD_REF\`)."
             echo
+            # Name the verdict that woke it. Without this the reader cannot tell a
+            # deliberate "this must be fixed before merge" from the fail-safe firing,
+            # and those two call for very different amounts of trust in what follows.
+            case "$VERDICT" in
+              blocking)
+                echo "The referee's merge verdict was **blocking**: at least one finding has to be"
+                echo "fixed before this pull request merges."
+                ;;
+              undecided)
+                echo "> [!NOTE]"
+                echo "> The referee's merge verdict was **undecided** - it could not tell whether"
+                echo "> anything here blocks merge. This issue was filed anyway, because a missing"
+                echo "> answer must never read as \"nothing to do\". Read the reviews before"
+                echo "> assuming there is work here."
+                ;;
+              *)
+                echo "> [!NOTE]"
+                echo "> **The referee left no usable merge verdict** (\`${VERDICT:-<empty>}\`), so this"
+                echo "> issue was filed by the fail-safe rather than by a ruling. That is a defect in"
+                echo "> the referee worth reporting. Read the reviews before assuming there is work"
+                echo "> here — there may be none."
+                ;;
+            esac
+            echo
             echo "This issue exists because the reviewer cannot act on its own findings:"
             echo "\`review.yml\` holds \`contents: read\`, and \`steward.yml\` ignores every"
             echo "comment whose sender is a Bot. Opening an issue is the one path that reaches"
@@ -1195,11 +1314,10 @@ jobs:
             echo
             echo "**Every review is already on the pull request before this issue is filed.**"
             echo "This ran after both reviewers and the referee, so nothing is still coming."
-            echo "Reviews posted: **$REVIEWS_PRESENT** (${REVIEWS_WITH_FINDINGS} with findings,"
-            echo "${CLEAN_COUNT} clean), plus the referee's comparison. Read all of them,"
-            echo "including any review that reported no issues - a finding only ONE reviewer"
-            echo "raised is still a finding, and it is not outvoted by the other reviewer's"
-            echo "silence."
+            echo "Reviews posted: **$REVIEWS_PRESENT** (${REVIEWS_LANDED} of 2), plus the"
+            echo "referee's comparison. Read all of them, including any review that reported"
+            echo "no issues - a finding only ONE reviewer raised is still a finding, and it is"
+            echo "not outvoted by the other reviewer's silence."
             if [ "$REVIEWS_PRESENT" = "the challenge role" ]; then
               echo
               echo "> [!NOTE]"

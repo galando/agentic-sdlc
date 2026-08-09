@@ -171,6 +171,39 @@ and `.agents/health-signals.yml` holds the actual queries.
    the token's scope. A prompt that says "please only read" is not an access control.
 4. **Dry-run before schedule, branch protection last.** The order is the safety property.
 
+## The one write an agent cannot do: `.github/workflows/`
+
+The steward pushes code. It cannot push a **workflow file** — GitHub refuses a push from a
+GitHub App identity that creates or updates anything under `.github/workflows/` unless the
+app holds the `workflows` permission, which the default agent installation does not:
+
+```
+! [remote rejected] refusing to allow a GitHub App to create or update workflow
+  `.github/workflows/<name>.yml` without `workflows` permission
+```
+
+This matters more here than in an ordinary repository, because a large share of this
+harness *is* workflow files. An agent asked to fix a scheduled job, add a gate, or wire a
+new check will produce a change it is structurally unable to push, and it will find out at
+the very end.
+
+**The failure mode to avoid is a half-closed fix.** The push fails, the agent drops the
+workflow edit, and the rest of the change merges looking complete — the script exists, the
+gate is written, and nothing runs it. That reads as done in every signal an operator has.
+
+So an agent that hits this does three things, and says all three plainly:
+
+1. Ships everything it *can* push, as usual.
+2. Ships the workflow edit as a patch file (`docs/patches/<issue>-workflows.patch`), which
+   one `git apply` turns back into the change.
+3. States in the pull-request body — not only in a log — that **the change is not live
+   until a human applies the patch**, and what is still broken until then.
+
+An operator who would rather not do this by hand can grant the `workflows` permission to
+the app installation instead. That is a deliberate widening of what an autonomous agent may
+change, so it is an operator decision and not a default: it puts CI itself inside the blast
+radius of an agent pull request, and the review gates are themselves workflow files.
+
 ## What an operator does when this goes wrong
 
 An agent reporting "no data" is the ambiguous case, and it is common. Work in this order:

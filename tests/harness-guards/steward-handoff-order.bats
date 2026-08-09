@@ -69,23 +69,46 @@ job_block() { # job-name
   [ "$output" -eq 1 ]
 }
 
-@test "handoff: the clean check reads BOTH review bodies, not one comment body" {
+@test "handoff: the decision reads BOTH review bodies, not one comment body" {
   block="$(job_block referee)"
   # Both files are handed to the decision script by the step, and the script reads both.
   run grep -q -- '--judge .review-artifacts/judge.md' <<<"$block"
   [ "$status" -eq 0 ]
   run grep -q -- '--challenge .review-artifacts/challenge.md' <<<"$block"
   [ "$status" -eq 0 ]
-  block="$(cat "$DECIDE")"
-  # Keyed on the CLEAN phrase, so an unrecognised format escalates rather than being
-  # dropped — the same direction-of-error rule as before the move.
-  run grep -q "grep -qF 'No issues found'" <<<"$block"
+}
+
+@test "handoff: the REFEREE'S VERDICT decides, and no phrase in the prose does" {
+  # Superseded 2026-08-09. This used to pin `grep -qF 'No issues found'` — a code-review
+  # plugin's clean marker that neither reviewer prompt in this repository asks for. Prose
+  # never contains it, so every landed review counted as findings and every agent pull
+  # request woke the steward. The pin was green throughout: the string it checked was
+  # present and correct, and the behaviour it stood for had never once happened.
+  #
+  # What survives is the DIRECTION-OF-ERROR rule, now anchored to the verdict file.
+  block="$(job_block referee)"
+  run grep -q -- '--verdict .review-artifacts/referee-verdict.txt' <<<"$block"
+  [ "$status" -eq 0 ]
+
+  # And the decision may never go back to reading a phrase out of a review body. Matched
+  # against the CODE form, not the words: the header of that script explains this defect at
+  # length and has to be free to quote the phrase that caused it.
+  run grep -qE "grep [^|]*['\"]No issues found" "$DECIDE"
+  [ "$status" -ne 0 ]
+}
+
+@test "handoff: only an explicit non-blocking verdict may keep the steward asleep" {
+  # The fail-safe, pinned as an equality against ONE word. A `case` that listed the words
+  # which WAKE it would let a new spelling, a typo or an empty file fall through to
+  # silence — which is the stranded finding this whole machinery exists to prevent.
+  run grep -q 'elif \[ "\$VERDICT" = "non-blocking" \]; then' "$DECIDE"
   [ "$status" -eq 0 ]
 }
 
-@test "handoff: a review that posted nothing is not counted as a clean review" {
+@test "handoff: a review that posted nothing is not counted as a review that landed" {
   # The collector writes an empty jq result as a lone newline, so `-s` would call a missing
-  # review "present and clean" and suppress the handoff. `wc -c` > 1 is the real test.
+  # review "present", and a pull request nobody reviewed would reach the verdict branch.
+  # `wc -c` > 1 is the real test.
   run grep -q 'wc -c < "\$f"' "$DECIDE"
   [ "$status" -eq 0 ]
 }
@@ -95,14 +118,15 @@ job_block() { # job-name
   [ "$status" -eq 0 ]
 }
 
-@test "handoff: findings from EITHER reviewer file a handoff" {
-  # The bug this whole move fixes: judge clean + challenge finds a bug used to file
-  # nothing. The counter must be incremented per review, and the exit-early branch must
-  # test the total rather than one review's verdict.
-  run grep -q 'WITH_FINDINGS=\$((WITH_FINDINGS + 1))' "$DECIDE"
+@test "handoff: neither reviewer's silence can outvote the other's finding" {
+  # The bug that moved this step into the referee job: judge clean + challenge finds a bug
+  # used to file nothing. Both reviews still have to be COUNTED here — that is what proves
+  # something landed to rule on — but which of them landed must never change the outcome,
+  # so the counter is incremented identically for both and the branch below it reads the
+  # TOTAL. Anything that tests one role's file on its own has reintroduced the bug.
+  run grep -q 'LANDED=\$((LANDED + 1))' "$DECIDE"
   [ "$status" -eq 0 ]
-  # The exit-early branch must test the TOTAL, never one review's verdict.
-  run grep -q 'elif \[ "\$WITH_FINDINGS" = "0" \]; then' "$DECIDE"
+  run grep -q 'if \[ "\$LANDED" = "0" \]; then' "$DECIDE"
   [ "$status" -eq 0 ]
 }
 

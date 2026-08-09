@@ -286,13 +286,19 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 # WHY: handoff decision was extracted from .github/workflows/review.yml into 
 # WHY: tools/review-handoff-decide.sh so it could be exercised directly instead of by carving a 
 # WHY: step body out of YAML. The pattern is unchanged — the lesson moved home, it did not 
-# WHY: weaken — and it now sits beside the branch it governs.
+# WHY: weaken — and it now sits beside the branch it governs. RE-KEYED 2026-08-09: the value 
+# WHY: being read changed — from a clean phrase in a review body, which nothing in this 
+# WHY: template emits, to the referee's one-word merge verdict. The lesson is unchanged and now 
+# WHY: covers more: the test is an equality against the single word that means "leave it alone", 
+# WHY: so a missing file, an empty file and an unrecognised word all escalate. Rewriting it as a 
+# WHY: list of the words that WAKE the steward would let a new spelling or a typo fall through 
+# WHY: to silence, which is the failure this pin exists to prevent.
 @test "pin[review-escalate-unrecognised-format]: tools/review-handoff-decide.sh" {
   run grep -E -q -- unrecognised\ format "$REPO_ROOT/tools/review-handoff-decide.sh"
   if [ "$status" -ne 0 ]; then
     echo "PIN LOST: review-escalate-unrecognised-format"
     echo "  source: .github/workflows/<VENDOR-REVIEW-WORKFLOW>.yml:325"
-    echo "  why:    The clean/not-clean decision is keyed on the phrase that means clean, not on the marker that means a finding. An unrecognised output format then counts as findings and gets escalated rather than silently dropped: wrong in the direction of one spurious escalation, never in the direction of another stranded finding. MOVED 2026-08-08: the handoff decision was extracted from .github/workflows/review.yml into tools/review-handoff-decide.sh so it could be exercised directly instead of by carving a step body out of YAML. The pattern is unchanged — the lesson moved home, it did not weaken — and it now sits beside the branch it governs."
+    echo "  why:    The clean/not-clean decision is keyed on the phrase that means clean, not on the marker that means a finding. An unrecognised output format then counts as findings and gets escalated rather than silently dropped: wrong in the direction of one spurious escalation, never in the direction of another stranded finding. MOVED 2026-08-08: the handoff decision was extracted from .github/workflows/review.yml into tools/review-handoff-decide.sh so it could be exercised directly instead of by carving a step body out of YAML. The pattern is unchanged — the lesson moved home, it did not weaken — and it now sits beside the branch it governs. RE-KEYED 2026-08-09: the value being read changed — from a clean phrase in a review body, which nothing in this template emits, to the referee's one-word merge verdict. The lesson is unchanged and now covers more: the test is an equality against the single word that means \"leave it alone\", so a missing file, an empty file and an unrecognised word all escalate. Rewriting it as a list of the words that WAKE the steward would let a new spelling or a typo fall through to silence, which is the failure this pin exists to prevent."
     echo "  Restore the string in tools/review-handoff-decide.sh. Do NOT weaken the pin."
     false
   fi
@@ -1446,7 +1452,9 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 #   discharged: .github/workflows/review.yml — the supply-chain carve-out notice states that both reviewers are affected and that the green check means the job exited cleanly, not that anything was reviewed. See tests/harness-guards/semantic-discharges.md row 5.
 # SEMANTIC-MANUAL (hand-discharged, not asserted): review-clean-phrase-literal
 #   concept: Exactly one literal phrase means clean; everything else, including malformed output, means escalate.
-#   discharged: .github/workflows/review.yml — `grep -qF 'No issues found'`, keyed on the clean phrase so unrecognised output escalates rather than being dropped. See tests/harness-guards/semantic-discharges.md row 6.
+#   discharged: .github/workflows/review.yml + tools/review-handoff-decide.sh — the single-value test moved from a phrase in a review body to the referee's one-word merge verdict: `elif [ "$VERDICT" = "non-blocking" ]`, with every other value — blocking, undecided, empty, missing, unrecognised — waking the steward. See tests/harness-guards/semantic-discharges.md row 6.
+#   SUPERSEDED 2026-08-09 -> docs/runbooks/multi-model-review.md — "The merge verdict — who wakes the steward"; guarded by tests/harness-guards/steward-handoff-decision.bats and tests/harness-guards/steward-handoff-order.bats
+#   SUPERSEDED why: The clean phrase was a code-review PLUGIN's marker, and this template does not run that plugin. Neither .agents/prompts/review-judge.md nor review-challenge.md asks for the phrase, and prose never contains it, so EVERY review that landed counted as findings and every agent pull request woke the steward — which pushed commits onto pull requests both reviewers had approved and reset CI. Upstream measured 46 such issues before finding the same defect. The decision now belongs to the referee, which already reads both reviews and the pinned diff: it writes one word to .review-artifacts/referee-verdict.txt and that word decides. THE CONCEPT THIS ENTRY NAMES SURVIVES INTACT and must not be lost — exactly one value (`non-blocking`) means "leave it alone", and everything else, including malformed output, a missing file and a word nobody recognises, escalates. Only the thing being read changed: a phrase in prose an agent was never asked to emit, for a single word it is. The direction-of-error rule is the part to defend in any future replacement.
 # SEMANTIC-MANUAL (hand-discharged, not asserted): reviewer-b-gate-warning-one-reviewer
 #   concept: Missing optional credential produces a warning annotation naming the secret and stating the reduced level of assurance, then continues.
 #   discharged: OPEN — not yet discharged
