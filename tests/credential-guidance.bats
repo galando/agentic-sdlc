@@ -91,6 +91,36 @@ setup() {
   [[ "$output" != *"how to obtain it:"* ]]
 }
 
+@test "an EVENT-DRIVEN agent can be credential-checked with its role" {
+  # The steward is the agent an adopter needs AGENT_CLI_TOKEN for first, so it is the
+  # one adopt.sh, status.sh and the setup docs all name. It is deliberately absent from
+  # ledger.agents, which used to make this exact command die on a missing --prompt-file
+  # — a prompt a credential check never opens, because it invokes nothing.
+  cd "$SCRATCH"
+  run env -u AGENT_CLI_TOKEN tools/run-agent.sh --check-credentials steward --role judge
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"AGENT_CLI_TOKEN"* ]]
+  [[ "$output" == *"agent 'steward', role 'judge'"* ]]
+  [[ "$output" != *"prompt-file"* ]]
+}
+
+@test "an event-driven agent with no role is still refused, and says which flag is missing" {
+  # Roles may map to different providers, so guessing one would answer about a
+  # credential the adopter did not ask about.
+  cd "$SCRATCH"
+  run env -u AGENT_CLI_TOKEN tools/run-agent.sh --check-credentials steward
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--role"* ]]
+}
+
+@test "the guided-adoption tools invoke the credential check in a form that resolves" {
+  # adopt.sh step 5 and status.sh both print this command's output to the adopter.
+  # If it degrades to a usage error, the one step that explains the required secret
+  # explains nothing instead.
+  grep -q -- '--check-credentials steward --role judge' "$REPO_ROOT/tools/adopt.sh"
+  grep -q -- '--check-credentials steward --role judge' "$REPO_ROOT/tools/status.sh"
+}
+
 @test "the hint never leaks the credential's value" {
   cd "$SCRATCH"
   run env AGENT_CLI_TOKEN="super-secret-must-not-appear" tools/run-agent.sh --check-credentials health

@@ -93,8 +93,11 @@ change.
    as your first pull request, branch protection (it can apply the exact rule
    via `gh` with your yes), and the first agent-run issue. **Nothing happens
    without an explicit yes**; every declined offer prints the manual command.
-   Pause whenever you like (e.g. to add your product code at `backend/` /
-   `frontend/`) and run it again — it picks up where you are. The read-only
+   Pause whenever you like and run it again — it picks up where you are. It
+   also pauses **itself** at one point: once the bundled example is retired and
+   `backend/` / `frontend/` are still empty, it stops and hands you back the
+   keyboard, because every step after that one needs your code to exist to mean
+   anything. Add it, run the command again, and it carries on. The read-only
    version of the same map is `tools/status.sh`.
 
    Prefer the steps individually? The interview alone is `tools/init.sh`; it

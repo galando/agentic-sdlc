@@ -18,6 +18,7 @@
 #
 # Non-interactive acceptance (for tests and scripting) mirrors init.sh's pattern:
 #   ADOPT_COMMIT=y  ADOPT_MEASURE=y  ADOPT_PROTECT=y  ADOPT_ISSUE=y
+#   ADOPT_CONTINUE_WITHOUT_PRODUCT=y  (walk past step 2 with no backend//frontend/)
 # plus init.sh's own DELETE_EXAMPLE / WRITE_README / CREATE_LEDGER_BRANCH.
 set -uo pipefail
 
@@ -95,6 +96,18 @@ if [ ! -d "$ROOT/backend" ] && [ ! -d "$ROOT/frontend" ] && [ ! -d "$ROOT/exampl
   note "the floors are measured FROM this code (step 5), and branch protection (step 7)"
   note "deliberately comes last — the guarantees are prospective, they govern changes"
   note "made after the bar is set, and the gates skip cleanly until code exists."
+  # This is a genuine stop, not a note in passing. Every remaining step needs the
+  # code to exist to mean anything: the floors are measured FROM it, branch
+  # protection requires the FAST tier green on a real pull request, and the first
+  # agent-run change has nothing to change. Walking on would offer all four
+  # anyway and contradict the "then re-run tools/adopt.sh" two lines above.
+  if ! offer ADOPT_CONTINUE_WITHOUT_PRODUCT "Nothing after this step can be done without that code. Walk the rest anyway?"; then
+    note "Stopping here. Add your code, then run tools/adopt.sh again — it resumes."
+    note "Read-only map of everything still ahead, any time: tools/status.sh"
+    exit 0
+  fi
+  note "Continuing without product code, at your request — steps 6 and 7 will not"
+  note "produce anything meaningful until it is there."
 elif [ -d "$ROOT/backend" ] || [ -d "$ROOT/frontend" ]; then
   present=""
   [ -d "$ROOT/backend" ] && present="backend/"
@@ -164,7 +177,10 @@ else
   note "[????] Cannot check repository secrets without an authenticated gh."
 fi
 note "What belongs in it (subscription token vs API key), for YOUR provider:"
-"$ROOT/tools/run-agent.sh" --check-credentials steward 2>&1 | sed 's/^/    /' || true
+# --role is not optional here: the steward is event-driven, so it is deliberately
+# absent from ledger.agents and nothing about it can be looked up. It runs as
+# `judge` in steward.yml, so that is the role whose provider we ask about.
+"$ROOT/tools/run-agent.sh" --check-credentials steward --role judge 2>&1 | sed 's/^/    /' || true
 
 # ---------------------------------------------------------------------------
 # 6. Calibrate the floors — through a pull request, the first real one.

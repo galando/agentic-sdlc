@@ -449,7 +449,9 @@ cat <<'EOF'
      (It is the agents' run diary: docs/runbooks/agent-ledgers.md.)
   2. Add repository secrets. AGENT_CLI_TOKEN is REQUIRED and is normally a
      SUBSCRIPTION TOKEN, not an API key — run
-       tools/run-agent.sh --check-credentials <agent>
+       tools/run-agent.sh --check-credentials health
+     (any scheduled agent will do; --list-agents names them, and an event-driven
+     one such as the steward needs its role too: --check-credentials steward --role judge)
      and it prints, for the provider you just chose, which secret is missing, how to
      mint it, and where to paste it. CHALLENGE_API_KEY (a real API key, optional, buys
      the second reviewer) and ALERT_WEBHOOK_URL follow the same table in README.md.
