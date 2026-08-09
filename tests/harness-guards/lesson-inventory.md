@@ -111,6 +111,7 @@ _42 entries: 29 mechanical, 13 semantic-manual._
 - **Source:** `.github/workflows/<VENDOR-REVIEW-WORKFLOW>.yml:55`
 - **Pin kind:** `regex` — pattern `grading its own paper`
 - **Lesson:** The comparison step runs on the same model family as one of the reviews it is comparing, so it is a party to the dispute and may only sort findings, never rule on them. A comparator that picks winners is the first reviewer marking its own work, and the human loses the disagreement that was the point.
+- **Superseded 2026-08-08** by `docs/runbooks/multi-model-review.md` — "The referee settles disagreements". Abstaining cost more than it saved: every disagreement became an operator decision. The self-grading risk named above is now answered **structurally** — rulings are settled against a diff pinned to the reviewed commit, a ruling in the referee's own side's favour requires quoted `file:line`, a tie goes to the other reviewer, and every verdict is advice the author overrules at merge time. The pinned phrase survives in `review.yml` as the objection being answered; if it disappears, the reason those safeguards exist goes with it.
 
 ### `review-triggers-opened-and-ready-for-review`
 
@@ -242,7 +243,8 @@ _42 entries: 29 mechanical, 13 semantic-manual._
 - **Lesson:** The clean-result test is a fixed-string match on one exact phrase the reviewer is required to emit. The phrase itself is tool-specific and will change with the runner, but it must stay a single literal fixed-string match, because a loosened or pattern-based test silently reclassifies findings as clean.
 - **Concept:** Exactly one literal phrase means clean; everything else, including malformed output, means escalate.
 - **Replacement must preserve:** A fixed-string (non-regex) match against the template's own clean phrase, with the surrounding comment explaining that keying on the clean phrase rather than the finding marker is what makes unrecognised output escalate.
-- **Discharged in:** .github/workflows/review.yml — `grep -qF 'No issues found'`, keyed on the clean phrase so unrecognised output escalates rather than being dropped. See tests/harness-guards/semantic-discharges.md row 6.
+- **Discharged in:** .github/workflows/review.yml + tools/review-handoff-decide.sh — the single-value test moved from a phrase in a review body to the referee's one-word merge verdict: `elif [ "$VERDICT" = "non-blocking" ]`, with every other value — blocking, undecided, empty, missing, unrecognised — waking the steward. See tests/harness-guards/semantic-discharges.md row 6.
+- **Superseded 2026-08-09** by `docs/runbooks/multi-model-review.md` — "The merge verdict — who wakes the steward". The clean phrase was a code-review **plugin's** marker and nothing in this template emits it, so the test had one branch and every agent pull request woke the steward. **The concept above survives intact** — one value means clean, everything else escalates — and is the part to defend in any future replacement; only the thing being read changed.
 
 ### `dedupe-avoids-search-in-title`
 

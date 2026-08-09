@@ -66,7 +66,7 @@ that exists, and a null one must carry a `partial_discharge`.
 | 3 | `handoff-files-issue-not-comment` | discharged | `.github/workflows/review.yml`, "Hand blocking findings to the steward": `issues: [opened]` is named as the ONE auto-invoke path carrying no sender check, with the loop-guard reasoning intact — a review posts as a bot, and the bot-sender gate in `steward.yml` makes commenting structurally unreachable. |
 | 4 | `handoff-warns-loudly-when-elevated-token-absent` | discharged | `.github/workflows/review.yml`: both channels present — a `::warning::` annotation AND a `> [!WARNING]` block inside the filed issue, each naming `STEWARD_HANDOFF_PAT`. Nothing may read as "handed off" when it was not. |
 | 5 | `carveout-silences-both-reviewers` | discharged | `.github/workflows/review.yml`, the supply-chain carve-out notice: "**Both reviewers are affected** — `review` and `challenge-review` run the same way, so neither produced an opinion." The carve-out is a skip, not a pass, and it says so on the pull request rather than in a log. |
-| 6 | `review-clean-phrase-literal` | discharged | `.github/workflows/review.yml`: `grep -qF 'No issues found'` — fixed-string, keyed on the CLEAN phrase so that unrecognised output escalates instead of being dropped. Wrong in the direction of one spurious issue, never toward another stranded finding. |
+| 6 | `review-clean-phrase-literal` | discharged — **re-discharged 2026-08-09, see below** | `.github/workflows/review.yml` + `tools/review-handoff-decide.sh`: the single-value test is now `elif [ "$VERDICT" = "non-blocking" ]` against the referee's one-word merge verdict. Every other value — `blocking`, `undecided`, empty, missing, unrecognised — escalates. Wrong in the direction of one spurious issue, never toward another stranded finding. |
 | 7 | `reviewer-b-gate-warning-one-reviewer` | **partial** | The credential gate and the degrade-never-fail branch are in `.github/workflows/review.yml` now. **Not landed:** the literal "one reviewer, not two" sentence, which belongs in `tools/run-agent.sh` so the wording exists in one place — and `run-agent.sh` is not written yet. `discharged_in` stays `null`. |
 | 8 | `reviewer-b-must-not-read-first-review` | discharged | `.github/workflows/review.yml`, reviewer B step comment states the prohibition and its reason: agreement it copied is noise, and the whole value of a second family is that it did not see the first opinion. Enforced again in the prompt file when prompts land. |
 | 9 | `reviewer-marker-required-first-line` | discharged | `.github/workflows/review.yml`: both reviewer step comments state the exact first-line marker (`<!-- reviewer: judge -->`, `<!-- reviewer: challenge -->`) as a non-optional part of the contract. Constrain the producer; do not only parse defensively. |
@@ -106,6 +106,44 @@ cannot survive genericisation, is a place where "genericise" silently means "del
 remaining clause still reads like a filter, so the code looks finished. Everywhere a
 `semantic-manual` pin exists, ask what the source's version of that string was doing that
 the replacement is not.
+
+### Row 6 re-discharged, 2026-08-09 — and the same shape again
+
+Row 6 pinned "exactly one literal phrase means clean, everything else escalates", and was
+discharged with `grep -qF 'No issues found'`. That phrase is a code-review **plugin's**
+clean marker. This template does not run that plugin: `.agents/prompts/review-judge.md`
+and `review-challenge.md` both ask for prose, and prose does not contain the phrase.
+
+So the test had exactly one branch. Every review that landed counted as findings, every
+agent pull request filed a steward handoff, and the steward pushed commits onto pull
+requests both reviewers had approved. Upstream reached 46 such issues before the defect
+was found there and carried back here.
+
+**Row 12 and row 6 are the same failure twice.** In row 12 a filter clause that could not
+survive genericisation was deleted and the remaining clause still looked like a filter. In
+row 6 a phrase that could not survive genericisation was *kept*, and the surviving code
+still looked like a two-way test. Both passed every text pin, because in each case the
+string the pin checked for was present and correct — and in each case the behaviour the
+string stood for had never once happened.
+
+The generalisation that covers both: **a `semantic-manual` discharge has to name what
+PRODUCES the value it reads, not only what consumes it.** Row 6's discharge named the
+consumer (`grep -qF …`) and never asked which file in this repository emits that phrase.
+Nobody does. One `grep` over the tree at discharge time would have shown it.
+
+Re-discharged against the referee's one-word merge verdict, which the referee prompt is
+now explicitly required to write — so the producer is named, in the same repository, and
+is checkable. The pinned CONCEPT is unchanged and is the part to defend: one value means
+"leave it alone", everything else escalates.
+
+**And the rule is applied to itself.** Writing the sentence above was not enough — the
+first version of the re-discharge guarded the new consumer thoroughly (the decision
+script, the step that acts on it, every verdict state) and left the producer unguarded,
+which is the same hole one layer up. Deleting the verdict instruction from
+`.agents/prompts/review-referee.md` would have left every test green while the fail-safe
+fired on every pull request forever. `tests/harness-guards/referee-verdict.bats` now reads
+the path out of the workflow and asserts the prompt writes *that* file. It was
+mutation-tested against exactly that deletion before being trusted.
 
 ---
 

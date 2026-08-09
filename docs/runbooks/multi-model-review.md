@@ -114,6 +114,9 @@ requirement.
 blocks nothing. The author overrules any verdict at merge time. That is what makes an
 occasional wrong call cheap — and why abstaining was never worth its cost.
 
+The one thing a referee verdict *does* decide is whether an agent is woken to go and fix
+the pull request — see "The merge verdict — who wakes the steward" below.
+
 ### The referee judges the commit the reviews were written for
 
 **What was wrong.** The referee fetched the diff with the "give me this pull request's
@@ -202,8 +205,8 @@ not by bad luck. Three things followed.
    the challenge role found a bug filed **no handoff at all** — the stranded-finding failure
    the handoff exists to prevent, reintroduced for the second reviewer.
 
-The handoff now reads both collected review bodies and files when **either** carries
-findings. Two consequences worth knowing:
+The handoff now runs where both reviews and the referee's ruling already exist. Two
+consequences worth knowing:
 
 - The `referee` job is no longer gated on the challenge role having run. Gating it that way
   would have deleted every handoff behind a missing `CHALLENGE_API_KEY`, which is far worse
@@ -212,6 +215,79 @@ findings. Two consequences worth knowing:
 - The collector produces the two review bodies even when `jq` is missing from the runner,
   using the `jq` that `gh` embeds. A missing `jq` costs the comparison only — never the
   handoff.
+
+### The merge verdict — who wakes the steward (2026-08-09)
+
+**What was wrong.** Filing the handoff issue is what wakes the steward, and the step that
+filed it never read the referee's ruling. It decided for itself, by asking whether a review
+body contained the literal words `No issues found` — a code-review **plugin's** clean
+marker, inherited from the system this template was extracted from.
+
+This template does not run that plugin. `.agents/prompts/review-judge.md` and
+`review-challenge.md` both ask for prose, and prose never contains that phrase. So the test
+had exactly one branch: every review that landed counted as findings, and **every**
+agent-authored pull request got a handoff. The steward woke on pull requests both reviewers
+had approved, pushed commits onto them and reset CI. Upstream reached 46 such issues, one
+per agent pull request, before the defect was found there.
+
+**What changed.** The referee already reads both reviews and the pinned diff and rules on
+them. It now also writes one word to `.review-artifacts/referee-verdict.txt`, and that word
+decides:
+
+| Verdict | What it means | What happens |
+|---|---|---|
+| `blocking` | At least one finding must be fixed before this merges — a wrong result, data loss, a security hole, a weakened gate, an `AGENTS.md` violation, or a test that does not prove what it claims | `[steward-handoff]` issue filed **with `STEWARD_HANDOFF_PAT`**. The steward wakes and fixes the pull request. |
+| `non-blocking` | Every finding is a suggestion, a follow-up or a process note. The change is safe as it stands | `[review-followup]` issue filed **with `GITHUB_TOKEN`**. Nothing is woken; the pull request is left alone for its author to merge. |
+| `undecided`, missing, empty, unrecognised | The referee could not tell, did not run, or wrote something nobody recognises | Same as `blocking`. **Fail safe.** |
+
+The referee also ends its comment with `**Merge verdict:** <word>`, so a human reads the
+same answer the machine acted on.
+
+**The token is the switch.** GitHub does not start workflow runs from events created with
+`GITHUB_TOKEN`, and `steward.yml` auto-invokes on `issues.opened`. Filing the follow-up
+with the weaker token is what makes it a note instead of a job. Swapping it for the PAT
+would silently wake the steward for exactly the findings the verdict says not to wake it
+for — and nothing else in the workflow would look any different.
+
+**Why the fallback wakes rather than sleeps.** A missing input must never read as "nothing
+to do". One unnecessary steward run costs one person one look; a real finding nobody ever
+sees costs a defect in production. Do not "helpfully" default an unreadable verdict to
+`non-blocking`.
+
+**Why the findings are still filed when nothing is woken.** Dropping them would be the
+stranded-finding failure this whole machinery exists to prevent, arriving through the front
+door. `non-blocking` means "not before merge", never "not worth doing".
+
+**Known consequence: with only one reviewer, every agent pull request still wakes the
+steward.** The referee is skipped when fewer than two reviews land — there is nothing to
+compare — so no verdict is written, and the fail-safe applies. A repository with no
+`CHALLENGE_API_KEY` is therefore in exactly the state this fix was written to end, on every
+pull request. That is not an oversight and it is not a regression (the old behaviour was the
+same, for a worse reason), but it does mean **the fix only pays off once the second reviewer
+is configured** — which is one more reason to configure it. An operator who wants the
+quieter behaviour without a second model family has one supported option: set
+`CHALLENGE_API_KEY` to a second family, per "Setup" below. Do not reach for the alternative
+of letting a single reviewer rule on its own work — that is the self-grading problem the
+whole referee design exists to answer.
+
+**What pins it.** `tests/harness-guards/steward-handoff-decision.bats` runs the real step
+against a stubbed `gh` for every verdict state and asserts which issue is filed **with which
+token**; `tests/handoff-decision.bats` exercises the decision on its own, including that two
+reviews of plain approving prose can now reach a non-blocking outcome and that a verdict
+file cannot inject shell into the step that sources it.
+
+**And what pins the PRODUCER**, which is the half the defect above was really about.
+`tests/harness-guards/referee-verdict.bats` reads the verdict path *out of the workflow*
+and asserts the referee's prompt tells it to write **that** file — so renaming it on one
+side alone fails, and deleting the instruction from the prompt fails loudly instead of
+quietly falling back to the fail-safe on every pull request forever. The same file checks
+that the prompt teaches the same three words the decision script recognises, and that the
+workflow keeps no second copy of the normalisation.
+
+That guard exists because the original defect was never really "the grep was wrong" — it
+was that **nothing in the repository emitted the value the grep looked for, and no test
+noticed**. Guarding a consumer proves nothing until something is shown to produce what it
+consumes. See "Row 6 re-discharged" in `tests/harness-guards/semantic-discharges.md`.
 
 ### Are the verdicts any good? The challenger audits them
 
