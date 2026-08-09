@@ -329,3 +329,115 @@ Neither review is authoritative. A human decides.'
   [[ "$output" == *"Someone should decide this."* ]]
   [[ "$output" == *"## Reviewer comparison"* ]]
 }
+
+# ---------------------------------------------------------------------------
+# THE MERGE VERDICT: the value has a PRODUCER, and these tests are what say so.
+#
+# The verdict file decides whether the steward is woken. Everything that reads it is
+# guarded — the decision script by tests/handoff-decision.bats, the step that acts on it
+# by steward-handoff-decision.bats. All of that guards the CONSUMER.
+#
+# Nothing guarded the PRODUCER, and the bug this whole change fixes is what happens when
+# a consumer reads a value nothing emits. `review-clean-phrase-literal` pinned a `grep`
+# for "No issues found" and matched it on every run for months; no prompt in this
+# repository ever asked a reviewer to write that phrase, so the branch behind it had
+# never once been taken and every agent pull request woke the steward.
+#
+# Delete the verdict instruction from the referee's prompt and the identical failure
+# returns through a different door: no file is ever written, the fail-safe fires on every
+# pull request, and all 574 tests stay green while the steward is woken every time.
+#
+# So the rule recorded in semantic-discharges.md — "name what PRODUCES the value it
+# reads, not only what consumes it" — is applied to itself here. The path is read OUT of
+# the workflow rather than written twice, so renaming it on one side alone fails.
+# ---------------------------------------------------------------------------
+
+# The path the workflow hands to the decision script as --verdict.
+verdict_path() {
+  grep -oE -- '--verdict[[:space:]]+[^[:space:]]+' "$REVIEW" | head -n1 | awk '{print $2}'
+}
+
+@test "verdict: the workflow reads a verdict path at all (else every test below is vacuous)" {
+  path="$(verdict_path)"
+  [ -n "$path" ]
+  [[ "$path" == .review-artifacts/* ]]
+}
+
+@test "verdict: THE PROMPT WRITES THE FILE THE WORKFLOW READS — same path, not two literals" {
+  # The producer/consumer link. Extracted from the workflow so that renaming the file on
+  # one side and not the other cannot pass.
+  path="$(verdict_path)"
+  run grep -qF "$path" "$PROMPT"
+  [ "$status" -eq 0 ]
+  # And it must be an instruction to WRITE it, not a passing mention.
+  run grep -qiE "write[^.]*$(printf '%s' "$path" | sed 's/[.[\*^$]/\\&/g')" "$PROMPT"
+  [ "$status" -eq 0 ]
+}
+
+@test "verdict: the workflow actually runs the prompt file these tests inspect" {
+  # Without this, the two tests above could both pass while the referee ran some other
+  # prompt entirely.
+  run grep -qF -- "--prompt-file .agents/prompts/review-referee.md" "$REVIEW"
+  [ "$status" -eq 0 ]
+}
+
+@test "verdict: the prompt defines all three words, and only those three" {
+  for word in blocking non-blocking undecided; do
+    run grep -qF "$word" "$PROMPT"
+    [ "$status" -eq 0 ] || { echo "prompt never defines '$word'"; return 1; }
+  done
+  # The vocabulary the decision script recognises must be the vocabulary the prompt
+  # teaches. A word in one and not the other is a verdict that always fails safe.
+  DECIDE="$REPO_ROOT/tools/review-handoff-decide.sh"
+  run grep -q 'blocking|non-blocking|undecided' "$DECIDE"
+  [ "$status" -eq 0 ]
+}
+
+@test "verdict: the prompt says WHICH verdicts wake an agent, so the meaning cannot invert" {
+  # The referee is choosing whether to wake a fixer, not grading the change. A prompt that
+  # asks only for a label gets `blocking` used to mean "interesting", which is the
+  # over-waking this change exists to end.
+  # Backticks are optional in the pattern: the prompt marks the words up as code, and a
+  # guard that breaks when someone adds or removes a backtick teaches people to delete it.
+  run grep -qiE '`?blocking`? and `?undecided`? both wake' "$PROMPT"
+  [ "$status" -eq 0 ]
+  run grep -qiE '`?non-blocking`? files a follow-up' "$PROMPT"
+  [ "$status" -eq 0 ]
+}
+
+@test "verdict: the prompt tells the referee an unusable verdict still wakes the agent" {
+  # It must know the fail-safe exists — otherwise "write nothing when unsure" looks like
+  # the cautious choice, and it is the opposite.
+  run grep -qiE 'also wakes the agent|missing input must never read' "$PROMPT"
+  [ "$status" -eq 0 ]
+}
+
+@test "verdict: the runbook documents the verdict and the token that makes it work" {
+  # A rule whose reason lives only in a workflow comment is a rule the next person deletes.
+  run grep -qi 'merge verdict' "$RUNBOOK"
+  [ "$status" -eq 0 ]
+  run grep -qi 'token is the switch' "$RUNBOOK"
+  [ "$status" -eq 0 ]
+}
+
+@test "verdict: the workflow does NOT keep its own copy of the normalisation" {
+  # The reporting step and the acting step must get the word from one place. When they had
+  # a pipeline each, the comment above them claimed the log and the decision could not
+  # disagree — which two copies is exactly how they eventually would, with the operator
+  # reading the log the last to find out.
+  step="$(awk '
+    /^      - name: Read the referee.s merge verdict/ { instep = 1; next }
+    instep && !inrun && /^      [^ ]/ { exit }
+    instep && /^        run: \|/ { inrun = 1; next }
+    inrun && NF && !/^          / { exit }
+    inrun { print }
+  ' "$REVIEW")"
+  [ -n "$step" ]
+
+  # It asks the decision script for the word...
+  run grep -q -- '--verdict-only' <<<"$step"
+  [ "$status" -eq 0 ]
+  # ...and does not re-derive it. `tr -cd` and `head -n1` are the tell.
+  run grep -qE 'tr -cd|head -n1' <<<"$step"
+  [ "$status" -ne 0 ]
+}

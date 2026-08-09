@@ -136,6 +136,15 @@ now explicitly required to write — so the producer is named, in the same repos
 is checkable. The pinned CONCEPT is unchanged and is the part to defend: one value means
 "leave it alone", everything else escalates.
 
+**And the rule is applied to itself.** Writing the sentence above was not enough — the
+first version of the re-discharge guarded the new consumer thoroughly (the decision
+script, the step that acts on it, every verdict state) and left the producer unguarded,
+which is the same hole one layer up. Deleting the verdict instruction from
+`.agents/prompts/review-referee.md` would have left every test green while the fail-safe
+fired on every pull request forever. `tests/harness-guards/referee-verdict.bats` now reads
+the path out of the workflow and asserts the prompt writes *that* file. It was
+mutation-tested against exactly that deletion before being trusted.
+
 ---
 
 ## `<VENDOR-STEWARD-WORKFLOW>.yml` → `.github/workflows/steward.yml`

@@ -276,6 +276,19 @@ token**; `tests/handoff-decision.bats` exercises the decision on its own, includ
 reviews of plain approving prose can now reach a non-blocking outcome and that a verdict
 file cannot inject shell into the step that sources it.
 
+**And what pins the PRODUCER**, which is the half the defect above was really about.
+`tests/harness-guards/referee-verdict.bats` reads the verdict path *out of the workflow*
+and asserts the referee's prompt tells it to write **that** file — so renaming it on one
+side alone fails, and deleting the instruction from the prompt fails loudly instead of
+quietly falling back to the fail-safe on every pull request forever. The same file checks
+that the prompt teaches the same three words the decision script recognises, and that the
+workflow keeps no second copy of the normalisation.
+
+That guard exists because the original defect was never really "the grep was wrong" — it
+was that **nothing in the repository emitted the value the grep looked for, and no test
+noticed**. Guarding a consumer proves nothing until something is shown to produce what it
+consumes. See "Row 6 re-discharged" in `tests/harness-guards/semantic-discharges.md`.
+
 ### Are the verdicts any good? The challenger audits them
 
 Letting the referee rule created an instrument gap: the pipeline is thoroughly instrumented

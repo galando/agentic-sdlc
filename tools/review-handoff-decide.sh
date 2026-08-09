@@ -5,9 +5,18 @@
 #                                  --verdict <file> \
 #                                  --collector-outcome <success|failure|cancelled|...>
 #
+#   tools/review-handoff-decide.sh --verdict <file> --verdict-only
+#
 # Prints shell-assignable KEY=VALUE lines on stdout and exits 0. It DECIDES; it never
 # files, comments or talks to anything. That separation is the point — the caller owns the
 # side effects, so the decision can be exercised on its own with crafted inputs.
+#
+# `--verdict-only` reads and normalises the referee's word and prints VERDICT and
+# VERDICT_RECOGNISED, nothing else. It exists so the workflow step that REPORTS the
+# verdict to the operator and the step that ACTS on it share one implementation. They
+# used to normalise separately, with the same pipeline written out twice — under a comment
+# claiming the log and the decision could not disagree, which two copies is exactly how
+# they eventually would.
 #
 #   DECISION=findings         something must be fixed before merge -> file the handoff and
 #                             wake the steward
@@ -60,7 +69,7 @@
 #     value that starts life in a file an agent wrote.
 set -euo pipefail
 
-JUDGE="" CHALLENGE="" OUTCOME="" VERDICT_FILE=""
+JUDGE="" CHALLENGE="" OUTCOME="" VERDICT_FILE="" VERDICT_ONLY=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -68,17 +77,22 @@ while [ $# -gt 0 ]; do
     --challenge)         CHALLENGE="${2:-}";    shift 2 ;;
     --verdict)           VERDICT_FILE="${2:-}"; shift 2 ;;
     --collector-outcome) OUTCOME="${2:-}";      shift 2 ;;
+    --verdict-only)      VERDICT_ONLY=true;     shift   ;;
     *) echo "review-handoff-decide.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
 
-for pair in "judge:$JUDGE" "challenge:$CHALLENGE" "verdict:$VERDICT_FILE" \
-            "collector-outcome:$OUTCOME"; do
-  if [ -z "${pair#*:}" ]; then
-    echo "review-handoff-decide.sh: --${pair%%:*} is required" >&2
-    exit 2
-  fi
-done
+# Checked one at a time rather than by iterating a joined string: a joined string has to
+# be left unquoted to split, and would then split a path containing a space into two
+# arguments that both look present.
+missing() { echo "review-handoff-decide.sh: --$1 is required" >&2; exit 2; }
+
+[ -n "$VERDICT_FILE" ] || missing verdict
+if [ "$VERDICT_ONLY" = false ]; then
+  [ -n "$JUDGE" ]     || missing judge
+  [ -n "$CHALLENGE" ] || missing challenge
+  [ -n "$OUTCOME" ]   || missing collector-outcome
+fi
 
 LANDED=0
 PRESENT=""
@@ -98,18 +112,38 @@ done
 
 PRESENT="${PRESENT%, }"
 
-# The referee's word, normalised. Lowercased, stripped of the markdown an agent tends to
-# wrap a lone word in, first line only, then reduced to a safe charset and truncated.
+# The referee's word, normalised. THE ONLY implementation of this — see --verdict-only.
+#
+#   awk    the first NON-BLANK line, not simply the first. An agent asked for one bare
+#          word occasionally leads with a newline, and `head -n1` would then read the
+#          blank and fire the fail-safe on a referee that ruled correctly.
+#   tr     lowercase, then reduce to `a-z0-9-`. That one step removes every wrapper an
+#          agent reaches for — backticks, asterisks, underscores, quotes, stray spaces,
+#          a trailing CR — without needing to enumerate them, AND it is what makes the
+#          value safe to print into output the caller sources.
+#   sed    drop leading hyphens, so a markdown bullet (`- non-blocking`) still reads as
+#          the word it obviously is. It cannot manufacture a match out of prose.
+#   cut    bound the length. Nothing legitimate is close to 32 characters.
+#
+# Deliberately NOT lenient beyond that: `not blocking` reduces to `notblocking` and is
+# unrecognised, which wakes the steward. Guessing at near-misses is how a fail-safe stops
+# being one.
 VERDICT=""
 if [ -f "$VERDICT_FILE" ]; then
-  VERDICT="$(tr '[:upper:]' '[:lower:]' < "$VERDICT_FILE" \
-             | tr -d '`*_"'"'"' \t\r' | head -n1 | tr -cd 'a-z0-9-' | cut -c1-32)"
+  VERDICT="$(awk 'NF { print; exit }' "$VERDICT_FILE" \
+             | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-' | sed 's/^-*//' | cut -c1-32)"
 fi
 
 case "$VERDICT" in
   blocking|non-blocking|undecided) VERDICT_RECOGNISED=true  ;;
   *)                               VERDICT_RECOGNISED=false ;;
 esac
+
+if [ "$VERDICT_ONLY" = true ]; then
+  printf 'VERDICT="%s"\n'          "$VERDICT"
+  printf 'VERDICT_RECOGNISED=%s\n' "$VERDICT_RECOGNISED"
+  exit 0
+fi
 
 if [ "$LANDED" = "0" ]; then
   # WHY `none` AND `collector-failed` ARE DIFFERENT, when they look identical on disk.

@@ -986,37 +986,37 @@ jobs:
       # The referee already reads both reviews AND the pinned diff and rules on
       # them. It now writes one word, and that word decides.
       #
-      # Normalised and checked HERE rather than parsed at the point of use, so
-      # the handoff step keeps reading a value from a fixed vocabulary. An
-      # unreadable verdict is left unreadable on purpose: every value that is not
-      # exactly `non-blocking` wakes the steward, so the most a bad one can cost
-      # is a single unnecessary run — never a lost finding. Do not "helpfully"
-      # default it to non-blocking here.
+      # This step REPORTS the verdict to the operator; the handoff step below ACTS
+      # on it. Both get the word from tools/review-handoff-decide.sh --verdict-only,
+      # so there is exactly ONE normalisation. Writing the pipeline out twice — once
+      # to log and once to decide — is how a log that claims to agree with a decision
+      # comes to disagree with it.
+      #
+      # An unreadable verdict is left unreadable on purpose: every value that is not
+      # exactly `non-blocking` wakes the steward, so the most a bad one can cost is a
+      # single unnecessary run — never a lost finding. Do not "helpfully" default it
+      # to non-blocking here.
       # ---------------------------------------------------------------------
       - name: Read the referee's merge verdict
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
-          VERDICT_FILE=.review-artifacts/referee-verdict.txt
 
-          if [ ! -s "$VERDICT_FILE" ]; then
-            echo "::warning::The referee left no merge verdict - the steward will be woken. See $RUN_URL"
-            exit 0
+          # shellcheck disable=SC1090
+          . <(tools/review-handoff-decide.sh \
+                --verdict .review-artifacts/referee-verdict.txt --verdict-only)
+
+          # "will be woken IF a review landed": with no review at all the handoff
+          # defers to the lost-review check and files nothing, so an unconditional
+          # promise here would be wrong on the one path an operator most needs to
+          # read accurately.
+          if [ "$VERDICT_RECOGNISED" = true ]; then
+            echo "Referee merge verdict: $VERDICT"
+          elif [ -z "$VERDICT" ]; then
+            echo "::warning::The referee left no merge verdict - the steward will be woken if a review landed. See $RUN_URL"
+          else
+            echo "::warning::The referee wrote an unrecognised merge verdict ('$VERDICT') - the steward will be woken if a review landed. See $RUN_URL"
           fi
-
-          # One word, lowercase, no markdown or stray punctuation around it. The
-          # same reduction tools/review-handoff-decide.sh applies, done early so
-          # the log and the decision cannot disagree about what was written.
-          VERDICT="$(tr '[:upper:]' '[:lower:]' < "$VERDICT_FILE" \
-                     | tr -d '`*_"'"'"' \t\r' | head -n1 | tr -cd 'a-z0-9-' | cut -c1-32)"
-          printf '%s' "$VERDICT" > "$VERDICT_FILE"
-
-          case "$VERDICT" in
-            blocking|non-blocking|undecided)
-              echo "Referee merge verdict: $VERDICT" ;;
-            *)
-              echo "::warning::The referee wrote an unrecognised merge verdict ('$VERDICT') - the steward will be woken. See $RUN_URL" ;;
-          esac
 
       # Prepended HERE rather than inside the posting step, so posting stays a
       # plain "send the file" and cannot grow a reason to send nothing.

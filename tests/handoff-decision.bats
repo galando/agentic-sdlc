@@ -88,14 +88,74 @@ REVIEW="Looks mostly fine. One thing: src/a.js:10 drops the error."
 }
 
 @test "decide: the verdict is normalised, not taken literally" {
-  # An agent asked for one bare word will sometimes wrap it in markdown, capitalise it, or
-  # add a trailing line. None of those is a different answer, and treating them as
-  # unrecognised would fire the fail-safe on a referee that ruled correctly.
-  for raw in "Non-Blocking" '`non-blocking`' "**non-blocking**" "non-blocking
-and here is why"; do
+  # An agent asked for one bare word will sometimes wrap it in markdown, capitalise it,
+  # bullet it, lead with a blank line, or add a trailing sentence. None of those is a
+  # different answer, and treating them as unrecognised would fire the fail-safe on a
+  # referee that ruled correctly — which is a wasted steward run every time.
+  for raw in "Non-Blocking" '`non-blocking`' "**non-blocking**" "- non-blocking" \
+             "non-blocking
+and here is why" "
+non-blocking"; do
     run decide "$REVIEW" "$REVIEW" "$raw"
     [[ "$output" == *"DECISION=followup"* ]] || {
       echo "not normalised: [$raw] -> $output"; return 1
+    }
+  done
+}
+
+@test "decide: normalisation stops well short of guessing" {
+  # The other half of the rule. A fail-safe that stretches to cover near-misses is not a
+  # fail-safe — each of these wakes the steward, and that is correct.
+  for raw in "not blocking" "nonblocking" "no" "merge" "LGTM" "blocking?"; do
+    run decide "$REVIEW" "$REVIEW" "$raw"
+    [[ "$output" == *"DECISION=findings"* ]] || {
+      echo "should have woken the steward: [$raw] -> $output"; return 1
+    }
+  done
+}
+
+# ---------------------------------------------------------------------------
+# --verdict-only: ONE normalisation, shared by the step that reports the verdict and the
+# step that acts on it.
+#
+# They used to have a copy each — the same pipeline written out twice, under a comment
+# claiming the log and the decision could not disagree. Two copies is precisely how they
+# would have come to disagree, and the operator reading the log would have been the last
+# to find out.
+# ---------------------------------------------------------------------------
+
+@test "verdict-only: prints the verdict and nothing else" {
+  printf 'non-blocking\n' > "$WORK/verdict.txt"
+  run "$TOOL" --verdict "$WORK/verdict.txt" --verdict-only
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'VERDICT="non-blocking"'* ]]
+  [[ "$output" == *"VERDICT_RECOGNISED=true"* ]]
+  # No decision is made in this mode — that needs the reviews, which this mode never reads.
+  [[ "$output" != *"DECISION="* ]]
+  [[ "$output" != *"REVIEWS_LANDED="* ]]
+}
+
+@test "verdict-only: needs no reviews, but still needs a verdict path" {
+  run "$TOOL" --verdict-only
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--verdict is required"* ]]
+}
+
+@test "verdict-only: THE SAME WORD the full decision acts on, case for case" {
+  # The property that makes one implementation worth having. If these two ever disagree,
+  # the workflow logs one verdict to the operator and acts on another.
+  for raw in "blocking" "non-blocking" "undecided" "**Non-Blocking**" "- undecided" \
+             "merge" "not blocking" ""; do
+    [ -n "$raw" ] && printf '%s\n' "$raw" > "$WORK/verdict.txt" || rm -f "$WORK/verdict.txt"
+    printf '%s\n' "$REVIEW" > "$WORK/judge.md"
+    printf '%s\n' "$REVIEW" > "$WORK/challenge.md"
+
+    only="$("$TOOL" --verdict "$WORK/verdict.txt" --verdict-only | grep '^VERDICT=')"
+    full="$("$TOOL" --judge "$WORK/judge.md" --challenge "$WORK/challenge.md" \
+                    --verdict "$WORK/verdict.txt" --collector-outcome success \
+            | grep '^VERDICT=')"
+    [ "$only" = "$full" ] || {
+      echo "drift on [$raw]: verdict-only=$only full=$full"; return 1
     }
   done
 }
