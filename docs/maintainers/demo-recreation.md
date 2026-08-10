@@ -58,8 +58,12 @@ screenshots and prose in `site/`.
 You will also need, on the demo repository:
 
 - `AGENT_CLI_TOKEN` — a **subscription token**, not an API key. Mint it with your
-  agent CLI's own token command; `tools/run-agent.sh --check-credentials steward`
-  prints the exact one for the provider above.
+  agent CLI's own token command;
+  `tools/run-agent.sh --check-credentials steward --role judge` prints the exact one
+  for the provider above. The `--role` is not decoration: the steward is event-driven
+  and therefore deliberately absent from `ledger.agents`, so nothing about it can be
+  looked up, and roles may map to different providers. Any scheduled agent answers the
+  same question without it — `--check-credentials health`.
 - `CHALLENGE_API_KEY` — a real API key for the second model family. Optional
   everywhere else; **required for the demo**, because "two reviews from two model
   families" is one of the three things the demo exists to show.
@@ -122,8 +126,14 @@ Answer the interview with Part A's table. When it offers, say **yes** to:
 - writing the product README,
 - creating the `agent-ledger` branch.
 
-Then let it stop at step 2/8, where it tells you to add your product code. That is
-where Part C comes in.
+It then stops at step 2/8, where it tells you to add your product code, and asks
+whether to walk the rest anyway. Say **no** — everything after that step needs the
+code to exist to mean anything, and you come back to the same command in step 6. That
+is where Part C comes in.
+
+The adoption edits are still uncommitted at that point, and that is fine: step 6
+commits them together with the product build. Nothing between here and there reads
+them from a commit.
 
 > The demo currently in production was adopted *before* `tools/adopt.sh` existed and
 > used the individual tools (`init.sh`, `adopt-layout.sh`, `create-ledger-branch.sh`)
@@ -153,11 +163,17 @@ cd backend
 mvn clean verify -DskipITs                       # unit + slice + Cucumber + ArchUnit
 mvn clean verify -Djacoco.skip=true              # integration, against a real postgres:16
 mvn -P mutation test                             # PIT runs clean (uncalibrated, cannot fail yet)
+# Gate 10, against a FRESH database. Flyway reads these natively; do NOT pass them
+# as -D flags, which would expand them into mvn's argv (see pr-validation.yml).
+FLYWAY_URL=jdbc:postgresql://localhost:5432/validatedb \
+FLYWAY_USER=postgres FLYWAY_PASSWORD=validate-pw \
+  mvn -B flyway:migrate flyway:validate -Dflyway.cleanDisabled=false
 
 cd ../frontend
 npm install
 npm run lint && npm run test:coverage && npm run build
 npm run test:e2e && npm run check:design-system && npm run audit:ci
+npm run check:bundle                             # gate 19 — build first, it reads dist/
 
 cd ..
 bats tests/ tests/harness-guards/
@@ -189,11 +205,32 @@ BSD-`sed` test failure) each produced a real upstream change.
 
 ### 6. Commit, push, and calibrate the floors
 
+Re-run the guided adoption. This is the resume it was built for: it now sees your
+product at `backend/` / `frontend/`, walks past step 2, and offers the two things
+this step is — the commit at 4/8 and the calibration at 6/8.
+
+```bash
+tools/adopt.sh
+#   4/8  "Commit ALL current changes ... and push?"  -> y
+#   5/8  reads the AGENT_CLI_TOKEN secret; it is not set yet, which is correct —
+#        step 7 below is where that happens
+#   6/8  "Run tools/measure-floors.sh now?"          -> y   (slow, online, clean tree)
+#   7/8  branch protection                            -> N  (step 8, after FAST is green)
+```
+
+Its commit message at 4/8 is the generic `adopt the agentic-sdlc process`. If you
+want the demo's history to read better, do that commit yourself first and let 4/8
+find a clean tree:
+
 ```bash
 git add -A && git commit -m "Build Shortlink: URL shortener backend and frontend"
 git push -u origin main
+```
 
-tools/measure-floors.sh              # slow, online, needs a clean tree
+Calibration leaves the new floors uncommitted on purpose. Put them up as a branch —
+`adopt.sh` prints these same three lines when it finishes measuring:
+
+```bash
 git checkout -b calibrate-floors && git add -A
 git commit -m "calibrate the ratchet against Shortlink" && git push -u origin calibrate-floors
 ```
@@ -341,9 +378,12 @@ VERIFY, and report exactly what you saw rather than what you expected:
   cd backend  && mvn clean verify -DskipITs
               && mvn clean verify -Djacoco.skip=true    (real postgres:16 on 5433/itdb/it)
               && mvn -P mutation test
-              && mvn flyway:migrate flyway:validate     (fresh database)
+              && mvn flyway:migrate flyway:validate     (fresh database; connection via
+                 the FLYWAY_URL / FLYWAY_USER / FLYWAY_PASSWORD env vars, never as -D
+                 flags — .github/workflows/pr-validation.yml shows the exact invocation)
   cd frontend && npm install && npm run lint && npm run test:coverage && npm run build
               && npm run test:e2e && npm run check:design-system && npm run audit:ci
+              && npm run check:bundle                  (reads dist/, so build first)
   bats tests/ tests/harness-guards/
 
 Finally, write `ADOPTION-LOG.md` at the repository root: what you built, gate by gate,
