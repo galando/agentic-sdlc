@@ -47,8 +47,8 @@ screenshots and prose in `site/`.
 | `PROVIDER` | `claude-code` |
 | `MODEL_JUDGE` | `claude-opus-5` |
 | `MODEL_EXECUTE` | `claude-sonnet-5` |
-| `MODEL_CHALLENGE` | `gpt-5-mini` *(a different model family — that is the whole point)* |
-| `CHALLENGE_BASE_URL` | `https://api.openai.com/v1` |
+| `MODEL_CHALLENGE` | `glm-4.7` — z.ai's GLM series *(a different model family, which is the whole point)*. **Confirm the exact id against the endpoint's own `GET /v1/models` before you answer**, the way `tools/providers/compatible-endpoint.sh`'s model hint says to: the model policy wants a pinned id, and a stale one here fails at the first review rather than at the interview. |
+| `CHALLENGE_BASE_URL` | `https://api.z.ai/api/anthropic` — the **Anthropic-compatible** surface, not the OpenAI-compatible one. `compatible-endpoint.sh` reuses the same CLI binary as the primary provider and repoints it with `ANTHROPIC_BASE_URL`, so the backend has to speak that protocol. |
 | `ALERT_CHANNEL` | `none` *(issues only; a demo does not need a pager)* |
 | `RUNNER_LABEL` | `ubuntu-latest` |
 | `LEDGER_COMMIT_NAME` | `sdlc-agent` |
@@ -64,9 +64,16 @@ You will also need, on the demo repository:
   and therefore deliberately absent from `ledger.agents`, so nothing about it can be
   looked up, and roles may map to different providers. Any scheduled agent answers the
   same question without it — `--check-credentials health`.
-- `CHALLENGE_API_KEY` — a real API key for the second model family. Optional
-  everywhere else; **required for the demo**, because "two reviews from two model
-  families" is one of the three things the demo exists to show.
+- `CHALLENGE_API_KEY` — a real API key from z.ai, for the second model family. Optional
+  everywhere else; **required for the demo**, and for two reasons rather than one.
+
+  The obvious one: "two reviews from two model families" is one of the three things the
+  demo exists to show. The one that catches people out: **the referee is skipped when
+  fewer than two reviews land**, because there is nothing to compare. No referee means no
+  merge verdict, and the fail-safe in `tools/review-handoff-decide.sh` treats a missing
+  verdict as blocking — so without this key, *every* agent pull request wakes the steward.
+  The demo would then show the exact behaviour the verdict machinery was written to end.
+  `docs/runbooks/multi-model-review.md` records this as a known consequence.
 
 ---
 
