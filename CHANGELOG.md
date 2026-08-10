@@ -119,6 +119,26 @@ at all.
 
 ### Fixed
 
+- **`tools/adopt.sh` told you to stop at step 2 and then carried on regardless.** With the
+  bundled example retired and no `backend/` or `frontend/` yet, step 2 printed "add your
+  product code, then re-run `tools/adopt.sh`" — and immediately walked steps 3 to 8 anyway,
+  offering to commit, to calibrate the floors and to switch on branch protection. Every one
+  of those needs the code to exist to mean anything: the floors are measured *from* it,
+  branch protection needs the FAST tier green on a real pull request, and the first
+  agent-run change has nothing to change. It now stops there for real, the way an
+  unanswered interview already stopped step 1. `ADOPT_CONTINUE_WITHOUT_PRODUCT=y` walks on
+  for anyone who means to.
+
+- **`tools/run-agent.sh --check-credentials steward` could not run at all.** It exited 2
+  with a usage error, because the steward is event-driven and therefore deliberately absent
+  from `ledger.agents`, so nothing about it — including its prompt file — can be looked up.
+  A credential check invokes nothing and never opens a prompt, so it no longer demands one;
+  `--role` is still required, since roles may map to different providers and guessing one
+  would answer about a credential you did not ask about. This mattered more than it looks:
+  `tools/adopt.sh` step 5 and `tools/status.sh` both print this command's output as the one
+  place that explains which secret an adopter needs and how to mint it, and both hardcoded
+  `steward`. The step that explains the required credential was explaining a usage error.
+
 - **The two reviewers could review different commits from each other.** Each asked the
   platform for "this pull request's diff" at its own start time, and `challenge-review`
   declares `needs: review`, so it starts strictly later. The referee then compared the two

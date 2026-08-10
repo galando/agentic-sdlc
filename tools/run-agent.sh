@@ -156,15 +156,23 @@ PROMPT_FILE="$PROMPT_FILE_OVERRIDE"
 if [ -z "$PROMPT_FILE" ]; then
   if [ "$known" -eq 1 ]; then
     PROMPT_FILE="$(cfg_agent_field "$AGENT" prompt)" || die_config "no prompt configured for agent '$AGENT'"
+  elif [ "$CHECK_CREDS_ONLY" -eq 1 ]; then
+    # A credential check invokes nothing, so it needs no prompt. Demanding one
+    # here made `--check-credentials steward --role judge` impossible — and the
+    # steward is precisely the agent an adopter needs the credential for FIRST,
+    # which is why adopt.sh, status.sh and the setup docs all name it.
+    :
   else
     die_usage "unknown agent '$AGENT' needs --prompt-file explicitly"
   fi
 fi
-case "$PROMPT_FILE" in
-  /*) : ;;
-  *) PROMPT_FILE="$ROOT/$PROMPT_FILE" ;;
-esac
-[ -f "$PROMPT_FILE" ] || die_usage "prompt file not found: $PROMPT_FILE"
+if [ -n "$PROMPT_FILE" ]; then
+  case "$PROMPT_FILE" in
+    /*) : ;;
+    *) PROMPT_FILE="$ROOT/$PROMPT_FILE" ;;
+  esac
+  [ -f "$PROMPT_FILE" ] || die_usage "prompt file not found: $PROMPT_FILE"
+fi
 
 SYSTEM_PROMPT_FILE="$ROOT/.github/agent-temper-headless.md"
 [ -f "$SYSTEM_PROMPT_FILE" ] || die_config "system prompt file missing: $SYSTEM_PROMPT_FILE"

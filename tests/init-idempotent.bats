@@ -334,6 +334,8 @@ $line" ;;
   cp "$REPO_ROOT/tools/check-upstream-drift.sh" "$FIXTURE/tools/check-upstream-drift.sh"
   cp "$REPO_ROOT/.agents/upstream-sync.json"    "$FIXTURE/.agents/upstream-sync.json"
   echo x > "$FIXTURE/tests/upstream-drift.bats"
+  mkdir -p "$FIXTURE/docs/maintainers"
+  echo x > "$FIXTURE/docs/maintainers/demo-recreation.md"
 
   cd "$FIXTURE"
   run bash tools/init.sh --answers answers.env
@@ -341,7 +343,7 @@ $line" ;;
 
   for leftover in site .github/workflows/pages.yml \
                   tools/check-upstream-drift.sh .agents/upstream-sync.json \
-                  tests/upstream-drift.bats; do
+                  tests/upstream-drift.bats docs/maintainers; do
     if [ -e "$FIXTURE/$leftover" ]; then
       echo "# init.sh left a template-only file in the adopted tree: $leftover"
       false

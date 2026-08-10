@@ -341,6 +341,23 @@ if [ -f "$ROOT/tools/check-upstream-drift.sh" ] || [ -f "$ROOT/.agents/upstream-
 fi
 
 # ---------------------------------------------------------------------------
+# Remove the maintainer-only docs. Same reasoning as site/ and the upstream
+# tooling above: docs/maintainers/ describes how the TEMPLATE's own public demo
+# repository is built and kept in step with the README's claims. An adopter has
+# no demo repository to rebuild, so these pages would sit in their tree
+# describing somebody else's project — the exact failure mode site/ was removed
+# for. docs/runbooks/ and docs/QUALITY-GATES.md are the adopter's docs and stay.
+# ---------------------------------------------------------------------------
+if [ -d "$ROOT/docs/maintainers" ]; then
+  echo
+  echo "--- Maintainer-only docs ---"
+  rm -rf "$ROOT/docs/maintainers"
+  echo "Removed docs/maintainers/: it documents the TEMPLATE's own demo repository,"
+  echo "not $PRODUCT_NAME. Your docs — docs/runbooks/ and docs/QUALITY-GATES.md — are"
+  echo "untouched."
+fi
+
+# ---------------------------------------------------------------------------
 # Offer to write the PRODUCT's README. The shipped README describes the
 # template itself ("click Use this template") and nothing else in the adoption
 # ever touches it — a real adopted repository kept it indefinitely, so its
@@ -449,7 +466,9 @@ cat <<'EOF'
      (It is the agents' run diary: docs/runbooks/agent-ledgers.md.)
   2. Add repository secrets. AGENT_CLI_TOKEN is REQUIRED and is normally a
      SUBSCRIPTION TOKEN, not an API key — run
-       tools/run-agent.sh --check-credentials <agent>
+       tools/run-agent.sh --check-credentials health
+     (any scheduled agent will do; --list-agents names them, and an event-driven
+     one such as the steward needs its role too: --check-credentials steward --role judge)
      and it prints, for the provider you just chose, which secret is missing, how to
      mint it, and where to paste it. CHALLENGE_API_KEY (a real API key, optional, buys
      the second reviewer) and ALERT_WEBHOOK_URL follow the same table in README.md.

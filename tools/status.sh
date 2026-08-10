@@ -108,7 +108,8 @@ if [ -n "$next" ]; then
 else
   cat <<'EOF'
 All four tool steps are done. What remains lives in GitHub's UI, in order:
-  - add the AGENT_CLI_TOKEN secret (run: tools/run-agent.sh --check-credentials steward)
+  - add the AGENT_CLI_TOKEN secret
+    (run: tools/run-agent.sh --check-credentials steward --role judge)
   - install your agent CLI's GitHub App for this repository
   - see the FAST checks green once in the Actions tab
   - enable branch protection (docs/runbooks/branch-protection.md has the exact strings)

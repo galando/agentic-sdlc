@@ -91,6 +91,38 @@ run_adopt() {
   [ ! -d "$FIXTURE/examples" ]
 }
 
+@test "no product code stops the run at step 2 rather than walking on" {
+  rm -rf "$FIXTURE/examples"   # untracked-empty in the fixture: nothing to commit
+  run run_adopt
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[YOURS] Add your product code"* ]]
+  [[ "$output" == *"Stopping here"* ]]
+  # The steps after it all need that code to mean anything, so none may be
+  # claimed, offered, or reported on while it is missing.
+  [[ "$output" != *"3/8"* ]]
+  [[ "$output" != *"8/8"* ]]
+}
+
+@test "ADOPT_CONTINUE_WITHOUT_PRODUCT=y walks the rest with the code still missing" {
+  rm -rf "$FIXTURE/examples"   # untracked-empty in the fixture: nothing to commit
+  ADOPT_CONTINUE_WITHOUT_PRODUCT=y run run_adopt
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"8/8"* ]]
+}
+
+@test "a product at the root layout is not asked about at all" {
+  rm -rf "$FIXTURE/examples"
+  mkdir -p "$FIXTURE/backend"
+  echo x > "$FIXTURE/backend/pom.xml"
+  git -C "$FIXTURE" add -A
+  git -C "$FIXTURE" commit -qm "product"
+  run run_adopt
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[done] product present at: backend/"* ]]
+  [[ "$output" != *"Stopping here"* ]]
+  [[ "$output" == *"8/8"* ]]
+}
+
 @test "a dirty tree is offered a commit and left alone on the default No" {
   echo x > "$FIXTURE/newfile"
   run run_adopt
