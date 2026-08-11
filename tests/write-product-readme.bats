@@ -112,7 +112,9 @@ teardown() {
 @test "an unresolved placeholder as the product name is refused, not written" {
   # AGENTS.md before the interview still carries the token; generating a README
   # titled with it would just relocate the broken-placeholder front page.
-  sed -i 's/operating on Widget,/operating on {{PRODUCT_NAME}},/' "$FIXTURE/AGENTS.md"
+  # sed -i.bak, never a bare sed -i — BSD sed reads the next argument as the suffix.
+  sed -i.bak 's/operating on Widget,/operating on {{PRODUCT_NAME}},/' "$FIXTURE/AGENTS.md"
+  rm -f "$FIXTURE/AGENTS.md.bak"
   run bash "$FIXTURE/tools/write-product-readme.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"init.sh"* ]]
