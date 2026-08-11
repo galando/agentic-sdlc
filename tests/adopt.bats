@@ -76,7 +76,11 @@ run_adopt() {
 }
 
 @test "an unanswered interview stops the non-interactive run at step 1" {
-  sed -i 's/^provider: some-provider/provider: "{{PROVIDER}}"/' "$FIXTURE/.agents/config.yml"
+  # sed -i.bak, never a bare sed -i: BSD sed reads the next argument as the suffix and
+  # a macOS run dies with "invalid command code". The .bak is removed so the fixture's
+  # working tree stays clean — adopt.sh branches on exactly that.
+  sed -i.bak 's/^provider: some-provider/provider: "{{PROVIDER}}"/' "$FIXTURE/.agents/config.yml"
+  rm -f "$FIXTURE/.agents/config.yml.bak"
   git -C "$FIXTURE" commit -aqm token
   run run_adopt
   [ "$status" -eq 0 ]
@@ -160,7 +164,8 @@ run_adopt() {
 }
 
 @test "calibrated floors read as done" {
-  sed -i 's/value: unset/value: 0.9/' "$FIXTURE/floors.yml"
+  sed -i.bak 's/value: unset/value: 0.9/' "$FIXTURE/floors.yml"   # .bak: see step 1's note
+  rm -f "$FIXTURE/floors.yml.bak"
   git -C "$FIXTURE" commit -aqm armed
   run run_adopt
   [ "$status" -eq 0 ]
