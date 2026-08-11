@@ -163,9 +163,42 @@ Every command below must be green. This is the list the current `ADOPTION-LOG.md
 records as having been run — reproduce it, and record what you actually saw, not
 what you expected to see.
 
-```bash
-export JAVA_HOME=<a JDK inside pom.xml's [17,25) enforcer window>   # see Part E
+**Do the prerequisites first.** Both of them have now cost a rebuild real time, because
+this section used to state what had to be true without saying how to make it true.
 
+```bash
+# 1. A JDK inside the enforcer window (Part E's first snag). macOS/Homebrew:
+/usr/libexec/java_home -V                        # already have a 17-24? use it
+export JAVA_HOME=$(/usr/libexec/java_home -v 21) # ...or:
+#   brew install openjdk@21
+#   export JAVA_HOME=$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home
+mvn -version                                     # must NOT report your system JDK
+
+# 2. Two databases, on the coordinates the two gates actually use. Without them
+#    every integration test fails at context load with `Connection refused`, which
+#    reads like a product defect and is not one.
+docker run -d --name shortlink-it       -p 5433:5432 \
+  -e POSTGRES_DB=itdb       -e POSTGRES_USER=it       -e POSTGRES_PASSWORD=it \
+  postgres:16                                    # gate 2  — application-it.yml
+docker run -d --name shortlink-validate -p 5432:5432 \
+  -e POSTGRES_DB=validatedb -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=validate-pw \
+  postgres:16                                    # gate 10 — the Flyway block below
+
+# WAIT for them. Do not skip this: pr-tests.yml carries a healthcheck with a comment
+# saying why — "the application context refresh races a still-initialising database
+# and fails on first connect, which reads as a test failure rather than a timing
+# problem". You get the identical `Connection refused` with the container running.
+until docker exec shortlink-it       pg_isready -U it       -d itdb       >/dev/null 2>&1; do sleep 1; done
+until docker exec shortlink-validate pg_isready -U postgres -d validatedb >/dev/null 2>&1; do sleep 1; done
+```
+
+No Docker? Any Postgres 16 on those coordinates does — `brew install postgresql@16`,
+then create the `it` role and `itdb` on port 5433. The image is what CI uses, not a
+requirement of the suite.
+
+Then:
+
+```bash
 cd backend
 mvn clean verify -DskipITs                       # unit + slice + Cucumber + ArchUnit
 mvn clean verify -Djacoco.skip=true              # integration, against a real postgres:16
@@ -188,8 +221,23 @@ tools/check-placeholders.sh
 actionlint .github/workflows/*.yml
 ```
 
-The integration suite expects Postgres on the same coordinates
-`full-integration-tests` uses: port `5433`, database `itdb`, user and password `it`.
+Those coordinates are not arbitrary and must not be "fixed" by editing
+`application-it.yml`: they match the `services:` block in `pr-tests.yml`'s
+`full-integration-tests` job exactly, which is the whole point — the suite you run
+locally and the suite CI runs are the same suite.
+
+Gate 10 wants a **fresh** database, and CI gets one free because each run has its own
+service container. Locally you do not: running the Flyway block twice against the same
+`validatedb` is a re-apply, not a fresh apply, and it proves less. Recreate the container
+between attempts:
+
+```bash
+docker rm -f shortlink-validate && docker run -d --name shortlink-validate -p 5432:5432 \
+  -e POSTGRES_DB=validatedb -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=validate-pw \
+  postgres:16
+```
+
+When step 4 is green, clean up: `docker rm -f shortlink-it shortlink-validate`.
 
 ### 5. Write `ADOPTION-LOG.md`
 
