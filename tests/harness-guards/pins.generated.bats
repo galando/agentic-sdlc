@@ -1434,6 +1434,128 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   fi
 }
 
+# WHY: The second brain (docs/knowledge/) only pays for itself if every agent actually reads the 
+# WHY: index at session start, cheaply, before doing its own work. Losing this checklist step 
+# WHY: silently turns every card the fleet writes into dead weight nobody ever reads, while the 
+# WHY: write path (the chief of staff's retrospective) keeps right on producing cards.
+@test "pin[second-brain-read-path-checklist-step]: AGENTS.md" {
+  run grep -F -q -- 4.\ Read\ \`docs/knowledge/INDEX.md\`.\ If\ a\ line\'s\ symptoms\ match\ your\ task\,\ read\ those "$REPO_ROOT/AGENTS.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: second-brain-read-path-checklist-step"
+    echo "  source: AGENTS.md:136"
+    echo "  why:    The second brain (docs/knowledge/) only pays for itself if every agent actually reads the index at session start, cheaply, before doing its own work. Losing this checklist step silently turns every card the fleet writes into dead weight nobody ever reads, while the write path (the chief of staff's retrospective) keeps right on producing cards."
+    echo "  Restore the string in AGENTS.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The chief of staff is the ONLY agent that writes knowledge cards, in its self-gated 
+# WHY: retrospective. Losing this line from its prompt silently removes the fleet's only write 
+# WHY: path to docs/knowledge/ — the index and read path would keep working, but nothing would 
+# WHY: ever add to them, and a system nobody feeds looks identical to one nobody built, from the 
+# WHY: outside.
+@test "pin[second-brain-distiller-two-questions]: .agents/prompts/chief-of-staff.md" {
+  run grep -F -q -- $'- **You are also the second brain\'s distiller \342\200\224 two added questions, same evidence' "$REPO_ROOT/.agents/prompts/chief-of-staff.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: second-brain-distiller-two-questions"
+    echo "  source: .agents/prompts/chief-of-staff.md:63"
+    echo "  why:    The chief of staff is the ONLY agent that writes knowledge cards, in its self-gated retrospective. Losing this line from its prompt silently removes the fleet's only write path to docs/knowledge/ — the index and read path would keep working, but nothing would ever add to them, and a system nobody feeds looks identical to one nobody built, from the outside."
+    echo "  Restore the string in .agents/prompts/chief-of-staff.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The operator-facing standing decision is what makes docs/knowledge/'s write ownership 
+# WHY: (chief-of-staff only, human-merged) an instruction rather than a convention an agent 
+# WHY: could quietly drift from. This file is the only source of operator instructions 
+# WHY: (AGENTS.md), so a rule that exists only in a plan document or a runbook prose paragraph 
+# WHY: elsewhere is not binding on any agent until it is also stated here.
+@test "pin[second-brain-standing-decision-ownership]: docs/runbooks/agent-modes.md" {
+  run grep -F -q -- \ \ written\ by\ exactly\ one.\*\*\ Every\ agent\ reads\ \`docs/knowledge/INDEX.md\`\ after\ its\ ledger "$REPO_ROOT/docs/runbooks/agent-modes.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: second-brain-standing-decision-ownership"
+    echo "  source: docs/runbooks/agent-modes.md:347"
+    echo "  why:    The operator-facing standing decision is what makes docs/knowledge/'s write ownership (chief-of-staff only, human-merged) an instruction rather than a convention an agent could quietly drift from. This file is the only source of operator instructions (AGENTS.md), so a rule that exists only in a plan document or a runbook prose paragraph elsewhere is not binding on any agent until it is also stated here."
+    echo "  Restore the string in docs/runbooks/agent-modes.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Docs freshness only gets full coverage by sweeping every file every run and fixing in 
+# WHY: small batches, never by scoping to a sample. Losing the sweep-all requirement turns this 
+# WHY: into an agent that only ever notices the files it happened to look at last time, which is 
+# WHY: indistinguishable from no coverage guarantee at all.
+@test "pin[docs-freshness-sweep-all-fix-batched]: .agents/prompts/docs-freshness.md" {
+  run grep -F -q -- $'1. **Sweep ALL tracked markdown**, every run \342\200\224 never a sample and never a subset chosen' "$REPO_ROOT/.agents/prompts/docs-freshness.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: docs-freshness-sweep-all-fix-batched"
+    echo "  source: .agents/prompts/docs-freshness.md:16"
+    echo "  why:    Docs freshness only gets full coverage by sweeping every file every run and fixing in small batches, never by scoping to a sample. Losing the sweep-all requirement turns this into an agent that only ever notices the files it happened to look at last time, which is indistinguishable from no coverage guarantee at all."
+    echo "  Restore the string in .agents/prompts/docs-freshness.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Closing on a merge alone re-creates the exact failure agent-modes.md's standing decision 
+# WHY: exists to prevent: an issue marked done while production has not moved. Losing this line 
+# WHY: from the groomer's own prompt would let its per-run close cap keep working while the 
+# WHY: closes themselves stopped meaning anything.
+@test "pin[backlog-groomer-evidence-only-closes]: .agents/prompts/backlog-groomer.md" {
+  run grep -F -q -- 2.\ \*\*Evidence-only\ closes.\*\*\ Close\ an\ issue\ only\ on\ a\ recorded\ \`fix_verified\`\ entry\ from "$REPO_ROOT/.agents/prompts/backlog-groomer.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: backlog-groomer-evidence-only-closes"
+    echo "  source: .agents/prompts/backlog-groomer.md:20"
+    echo "  why:    Closing on a merge alone re-creates the exact failure agent-modes.md's standing decision exists to prevent: an issue marked done while production has not moved. Losing this line from the groomer's own prompt would let its per-run close cap keep working while the closes themselves stopped meaning anything."
+    echo "  Restore the string in .agents/prompts/backlog-groomer.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: This is the one agent with standing write access to floors.yml's neighbourhood, so the 
+# WHY: one-directional constraint has to live in its own prompt and not only in 
+# WHY: docs/QUALITY-GATES.md's policy — an agent that can propose both directions is an agent 
+# WHY: that can eventually make the ratchet mean nothing.
+@test "pin[test-gap-ratchet-only-tightens]: .agents/prompts/test-gap.md" {
+  run grep -F -q -- 1.\ \*\*The\ ratchet\ only\ tightens.\*\*\ Every\ floor\ in\ \`floors.yml\`\ may\ only\ ever\ move\ up "$REPO_ROOT/.agents/prompts/test-gap.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: test-gap-ratchet-only-tightens"
+    echo "  source: .agents/prompts/test-gap.md:16"
+    echo "  why:    This is the one agent with standing write access to floors.yml's neighbourhood, so the one-directional constraint has to live in its own prompt and not only in docs/QUALITY-GATES.md's policy — an agent that can propose both directions is an agent that can eventually make the ratchet mean nothing."
+    echo "  Restore the string in .agents/prompts/test-gap.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A batched dependency-upgrade pull request is unreviewable and untraceable when something 
+# WHY: breaks — nobody can tell which of ten bumps caused the regression. Losing the 
+# WHY: one-per-run cap would let this agent silently regress into exactly the kind of change 
+# WHY: nothing else in the gauntlet is built to review well.
+@test "pin[dependency-steward-one-upgrade-per-run]: .agents/prompts/dependency-steward.md" {
+  run grep -F -q -- 2.\ \*\*One\ bounded\ upgrade\ pull\ request\ per\ run\*\*\,\ never\ a\ batch.\ Pick\ the\ single\ upgrade "$REPO_ROOT/.agents/prompts/dependency-steward.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: dependency-steward-one-upgrade-per-run"
+    echo "  source: .agents/prompts/dependency-steward.md:20"
+    echo "  why:    A batched dependency-upgrade pull request is unreviewable and untraceable when something breaks — nobody can tell which of ten bumps caused the regression. Losing the one-per-run cap would let this agent silently regress into exactly the kind of change nothing else in the gauntlet is built to review well."
+    echo "  Restore the string in .agents/prompts/dependency-steward.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Every other agent in this fleet is barred from merging its own work; the release 
+# WHY: drafter's equivalent boundary is that it drafts and a human tags. Losing this line is the 
+# WHY: one way this agent's job description could silently expand into the one irreversible 
+# WHY: action nothing else in the fleet is allowed to take either.
+@test "pin[release-drafter-never-tags-or-publishes]: .agents/prompts/release-drafter.md" {
+  run grep -F -q -- human\ can\ read\ and\ decide\ about.\ \*\*You\ never\ tag\,\ publish\,\ or\ otherwise\ perform\ a "$REPO_ROOT/.agents/prompts/release-drafter.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: release-drafter-never-tags-or-publishes"
+    echo "  source: .agents/prompts/release-drafter.md:12"
+    echo "  why:    Every other agent in this fleet is barred from merging its own work; the release drafter's equivalent boundary is that it drafts and a human tags. Losing this line is the one way this agent's job description could silently expand into the one irreversible action nothing else in the fleet is allowed to take either."
+    echo "  Restore the string in .agents/prompts/release-drafter.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
 # --- semantic-manual entries: hand-discharged, not asserted by this file ---
 # SEMANTIC-MANUAL (hand-discharged, not asserted): review-model-pinned-not-floating-alias
 #   concept: The model that performs a judgement task is selected by an exact, versioned identifier and the reason for pinning is written down next to it.

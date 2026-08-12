@@ -35,10 +35,11 @@ on:
 # The required set, named inline because a decision that depends on it is
 # worthless without it — the FAST tier is required from day one:
 #   fast-unit-tests, fast-frontend-checks, fast-harness-guards,
-#   fast-repo-hygiene, fast-actionlint, fast-secret-scan, fast-spec-artifacts
+#   fast-repo-hygiene, fast-actionlint, fast-secret-scan, fast-spec-artifacts,
+#   fast-knowledge-lint
 #
-# All seven exist in the tree (`actionlint.yml` and `spec-artifacts.yml` carry
-# the last two). Never require a context whose job does not exist: that parks
+# All eight exist in the tree (`actionlint.yml` and `spec-artifacts.yml` carry
+# two of them). Never require a context whose job does not exist: that parks
 # every pull request on "waiting for status to be reported" forever — the same
 # wedge as the paths filter this file exists to warn about, reached by a shorter
 # route. docs/runbooks/branch-protection.md carries the check-before-you-paste

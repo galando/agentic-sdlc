@@ -1,6 +1,11 @@
 # Lesson inventory
 
-_Captured 2026-08-05 against source head `9589c5c65a0baca02a9436b3f472929531e91a88`. 120 entries: 97 `regex`, 0 `literal`, 23 `semantic-manual`._
+_Captured 2026-08-05 against source head `9589c5c65a0baca02a9436b3f472929531e91a88`. 128 entries: 97 `regex`, 8 `literal`, 23 `semantic-manual`._
+
+_Addendum 2026-08-12: eight `literal` entries were added — three for the second brain
+(`docs/plans/second-brain-and-sdlc-extension.md` Part A) and five for the SDLC-extension
+agents (Part B). These are forward-looking pins on live tree content, not extractions
+from the original vendor-specific source head above._
 
 > This count is asserted against `pins.json` by
 > `tests/harness-guards/pins-discharge.bats`, and so is the presence of a section here for
@@ -966,3 +971,91 @@ _10 entries: 9 mechanical, 1 semantic-manual._
 - **Replacement must preserve:** A dedicated notifier job for this gate alone, calling the shared reusable notifier with its own gate name, severity and runbook, gated on the watch job's result being 'failure' rather than on failure().
 
 - **Discharged in:** .github/workflows/ci-health-watch.yml — job `notify-ci-health` calls ./.github/workflows/nightly-alert.yml with gate 'CI health — runner liveness and hosted minutes' at S2, gated on needs.watch-ci-health.result == 'failure', and passes runner: 'ubuntu-latest' explicitly. The explicit runner is part of the discharge, not decoration: a called workflow's runs-on cannot be overridden by its caller, so without it the alarm for a dead self-hosted runner queued on the dead runner. See tests/harness-guards/semantic-discharges.md row 23.
+
+
+## `AGENTS.md` → `AGENTS.md`
+
+### `second-brain-read-path-checklist-step`
+
+- **Source:** `AGENTS.md:136`
+
+- **Pin kind:** `literal` — `4. Read \`docs/knowledge/INDEX.md\`. If a line's symptoms match your task, read those`
+
+- **Lesson:** The second brain (docs/knowledge/) only pays for itself if every agent actually reads the index at session start, cheaply, before doing its own work. Losing this checklist step silently turns every card the fleet writes into dead weight nobody ever reads, while the write path (the chief of staff's retrospective) keeps right on producing cards.
+
+
+## `.agents/prompts/chief-of-staff.md` → `.agents/prompts/chief-of-staff.md`
+
+### `second-brain-distiller-two-questions`
+
+- **Source:** `.agents/prompts/chief-of-staff.md:63`
+
+- **Pin kind:** `literal` — `- **You are also the second brain's distiller — two added questions, same evidence`
+
+- **Lesson:** The chief of staff is the ONLY agent that writes knowledge cards, in its self-gated retrospective. Losing this line from its prompt silently removes the fleet's only write path to docs/knowledge/ — the index and read path would keep working, but nothing would ever add to them, and a system nobody feeds looks identical to one nobody built, from the outside.
+
+
+## `docs/runbooks/agent-modes.md` → `docs/runbooks/agent-modes.md`
+
+### `second-brain-standing-decision-ownership`
+
+- **Source:** `docs/runbooks/agent-modes.md:347`
+
+- **Pin kind:** `literal` — `  written by exactly one.** Every agent reads \`docs/knowledge/INDEX.md\` after its ledger`
+
+- **Lesson:** The operator-facing standing decision is what makes docs/knowledge/'s write ownership (chief-of-staff only, human-merged) an instruction rather than a convention an agent could quietly drift from. This file is the only source of operator instructions (AGENTS.md), so a rule that exists only in a plan document or a runbook prose paragraph elsewhere is not binding on any agent until it is also stated here.
+
+
+## `.agents/prompts/docs-freshness.md` → `.agents/prompts/docs-freshness.md`
+
+### `docs-freshness-sweep-all-fix-batched`
+
+- **Source:** `.agents/prompts/docs-freshness.md:16`
+
+- **Pin kind:** `literal` — `1. **Sweep ALL tracked markdown**, every run — never a sample and never a subset chosen`
+
+- **Lesson:** Docs freshness only gets full coverage by sweeping every file every run and fixing in small batches, never by scoping to a sample. Losing the sweep-all requirement turns this into an agent that only ever notices the files it happened to look at last time, which is indistinguishable from no coverage guarantee at all.
+
+
+## `.agents/prompts/backlog-groomer.md` → `.agents/prompts/backlog-groomer.md`
+
+### `backlog-groomer-evidence-only-closes`
+
+- **Source:** `.agents/prompts/backlog-groomer.md:20`
+
+- **Pin kind:** `literal` — `2. **Evidence-only closes.** Close an issue only on a recorded \`fix_verified\` entry from`
+
+- **Lesson:** Closing on a merge alone re-creates the exact failure agent-modes.md's standing decision exists to prevent: an issue marked done while production has not moved. Losing this line from the groomer's own prompt would let its per-run close cap keep working while the closes themselves stopped meaning anything.
+
+
+## `.agents/prompts/test-gap.md` → `.agents/prompts/test-gap.md`
+
+### `test-gap-ratchet-only-tightens`
+
+- **Source:** `.agents/prompts/test-gap.md:16`
+
+- **Pin kind:** `literal` — `1. **The ratchet only tightens.** Every floor in \`floors.yml\` may only ever move up`
+
+- **Lesson:** This is the one agent with standing write access to floors.yml's neighbourhood, so the one-directional constraint has to live in its own prompt and not only in docs/QUALITY-GATES.md's policy — an agent that can propose both directions is an agent that can eventually make the ratchet mean nothing.
+
+
+## `.agents/prompts/dependency-steward.md` → `.agents/prompts/dependency-steward.md`
+
+### `dependency-steward-one-upgrade-per-run`
+
+- **Source:** `.agents/prompts/dependency-steward.md:20`
+
+- **Pin kind:** `literal` — `2. **One bounded upgrade pull request per run**, never a batch. Pick the single upgrade`
+
+- **Lesson:** A batched dependency-upgrade pull request is unreviewable and untraceable when something breaks — nobody can tell which of ten bumps caused the regression. Losing the one-per-run cap would let this agent silently regress into exactly the kind of change nothing else in the gauntlet is built to review well.
+
+
+## `.agents/prompts/release-drafter.md` → `.agents/prompts/release-drafter.md`
+
+### `release-drafter-never-tags-or-publishes`
+
+- **Source:** `.agents/prompts/release-drafter.md:12`
+
+- **Pin kind:** `literal` — `human can read and decide about. **You never tag, publish, or otherwise perform a`
+
+- **Lesson:** Every other agent in this fleet is barred from merging its own work; the release drafter's equivalent boundary is that it drafts and a human tags. Losing this line is the one way this agent's job description could silently expand into the one irreversible action nothing else in the fleet is allowed to take either.

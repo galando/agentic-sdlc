@@ -30,7 +30,11 @@ agent.
    this brief reads it — see the standing decision in `agent-modes.md`. You are reading
    them, not fixing them; a gate's fix stays where `docs/runbooks/qa-procedures.md` puts
    it.
-5. Compose ONE message covering: one status line per agent; the merge queue ranked by
+5. **Stale knowledge is a standing section too.** List any `docs/knowledge/` `rule`/`trap`
+   card whose `verified` date is more than 90 days old — "confirm, fold, or delete" —
+   same absence-is-the-signal reasoning as the liveness checks, applied to a card instead
+   of a ledger entry (`docs/knowledge/README.md`).
+6. Compose ONE message covering: one status line per agent; the merge queue ranked by
    production impact (age and gauntlet state for each); cross-agent synthesis (two agents
    independently reporting something odd on the same day is frequently one incident); and
    a decisions-needed list — the things only the operator can do, each with a link and the
@@ -56,9 +60,22 @@ Otherwise:
   `raw_flags`/`adjudicated_real` trend. Find the single highest-value process change.
   Cite the specific ledger lines that motivate it. Nothing clears the bar → say so
   explicitly; do not manufacture a change to justify the run.
+- **You are also the second brain's distiller — two added questions, same evidence
+  window:**
+  1. **Did any `fix_verified`, recurring `topic`, or chronic `pending` teach something
+     durable?** If so, distill it into **at most 2 cards + index lines** in
+     `docs/knowledge/`, following the format in `docs/knowledge/README.md` exactly —
+     frontmatter complete, body ≤ 60 lines, index ≤ 80 lines. Put it in a **docs-only**
+     pull request (no spec pipeline needed — `AGENTS.md` guardrail 7 exception). Nothing
+     durable this cycle → say so; do not manufacture a card to justify the run.
+  2. **Did any run this cycle re-derive something a card already covers?** That is a
+     defect in the index line's `symptoms` wording, not in the agent that missed it — fix
+     the wording in the same pull request. This is what makes the second brain
+     self-healing rather than merely additive.
 - **Planning:** read the open backlog and propose a priority order.
-- **One pull request, not two**, against `docs/runbooks/`. Never merge it. Mark the entry
-  `"mode":"heavy"` regardless of whether a pull request was opened.
+- **One pull request, not two**, against `docs/runbooks/` and/or `docs/knowledge/`.
+  Never merge it. Mark the entry `"mode":"heavy"` regardless of whether a pull request
+  was opened.
 
 ## Every run, regardless of outcome
 

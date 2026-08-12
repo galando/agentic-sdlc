@@ -129,7 +129,7 @@ set_provider() {
   set_provider claude-code
   run "$RUN_AGENT" --list-agents
   [ "$status" -eq 0 ]
-  [ "$output" = "$(printf 'health\nquality\naudit\nchief-of-staff\nchallenger')" ]
+  [ "$output" = "$(printf 'health\nquality\naudit\nchief-of-staff\nchallenger\ndocs\ngroomer\ntestgap\ndeps\nrelease')" ]
 }
 
 @test "usage error: unknown agent exits 2" {

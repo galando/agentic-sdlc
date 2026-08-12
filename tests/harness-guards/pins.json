@@ -1256,6 +1256,78 @@
       "concept": "An operational watchdog's finding reaches a human through the repository's own notifier, not only through a red square in the Actions tab.",
       "replacement_must_preserve": "A dedicated notifier job for this gate alone, calling the shared reusable notifier with its own gate name, severity and runbook, gated on the watch job's result being 'failure' rather than on failure().",
       "discharged_in": ".github/workflows/ci-health-watch.yml — job `notify-ci-health` calls ./.github/workflows/nightly-alert.yml with gate 'CI health — runner liveness and hosted minutes' at S2, gated on needs.watch-ci-health.result == 'failure', and passes runner: 'ubuntu-latest' explicitly. The explicit runner is part of the discharge, not decoration: a called workflow's runs-on cannot be overridden by its caller, so without it the alarm for a dead self-hosted runner queued on the dead runner. See tests/harness-guards/semantic-discharges.md row 23."
+    },
+    {
+      "id": "second-brain-read-path-checklist-step",
+      "source_file": "AGENTS.md",
+      "source_line": 136,
+      "quoted_source_string": "4. Read `docs/knowledge/INDEX.md`. If a line's symptoms match your task, read those",
+      "why": "The second brain (docs/knowledge/) only pays for itself if every agent actually reads the index at session start, cheaply, before doing its own work. Losing this checklist step silently turns every card the fleet writes into dead weight nobody ever reads, while the write path (the chief of staff's retrospective) keeps right on producing cards.",
+      "expected_in": "AGENTS.md",
+      "pin_kind": "literal"
+    },
+    {
+      "id": "second-brain-distiller-two-questions",
+      "source_file": ".agents/prompts/chief-of-staff.md",
+      "source_line": 63,
+      "quoted_source_string": "- **You are also the second brain's distiller — two added questions, same evidence",
+      "why": "The chief of staff is the ONLY agent that writes knowledge cards, in its self-gated retrospective. Losing this line from its prompt silently removes the fleet's only write path to docs/knowledge/ — the index and read path would keep working, but nothing would ever add to them, and a system nobody feeds looks identical to one nobody built, from the outside.",
+      "expected_in": ".agents/prompts/chief-of-staff.md",
+      "pin_kind": "literal"
+    },
+    {
+      "id": "second-brain-standing-decision-ownership",
+      "source_file": "docs/runbooks/agent-modes.md",
+      "source_line": 347,
+      "quoted_source_string": "  written by exactly one.** Every agent reads `docs/knowledge/INDEX.md` after its ledger",
+      "why": "The operator-facing standing decision is what makes docs/knowledge/'s write ownership (chief-of-staff only, human-merged) an instruction rather than a convention an agent could quietly drift from. This file is the only source of operator instructions (AGENTS.md), so a rule that exists only in a plan document or a runbook prose paragraph elsewhere is not binding on any agent until it is also stated here.",
+      "expected_in": "docs/runbooks/agent-modes.md",
+      "pin_kind": "literal"
+    },
+    {
+      "id": "docs-freshness-sweep-all-fix-batched",
+      "source_file": ".agents/prompts/docs-freshness.md",
+      "source_line": 16,
+      "quoted_source_string": "1. **Sweep ALL tracked markdown**, every run — never a sample and never a subset chosen",
+      "why": "Docs freshness only gets full coverage by sweeping every file every run and fixing in small batches, never by scoping to a sample. Losing the sweep-all requirement turns this into an agent that only ever notices the files it happened to look at last time, which is indistinguishable from no coverage guarantee at all.",
+      "expected_in": ".agents/prompts/docs-freshness.md",
+      "pin_kind": "literal"
+    },
+    {
+      "id": "backlog-groomer-evidence-only-closes",
+      "source_file": ".agents/prompts/backlog-groomer.md",
+      "source_line": 20,
+      "quoted_source_string": "2. **Evidence-only closes.** Close an issue only on a recorded `fix_verified` entry from",
+      "why": "Closing on a merge alone re-creates the exact failure agent-modes.md's standing decision exists to prevent: an issue marked done while production has not moved. Losing this line from the groomer's own prompt would let its per-run close cap keep working while the closes themselves stopped meaning anything.",
+      "expected_in": ".agents/prompts/backlog-groomer.md",
+      "pin_kind": "literal"
+    },
+    {
+      "id": "test-gap-ratchet-only-tightens",
+      "source_file": ".agents/prompts/test-gap.md",
+      "source_line": 16,
+      "quoted_source_string": "1. **The ratchet only tightens.** Every floor in `floors.yml` may only ever move up",
+      "why": "This is the one agent with standing write access to floors.yml's neighbourhood, so the one-directional constraint has to live in its own prompt and not only in docs/QUALITY-GATES.md's policy — an agent that can propose both directions is an agent that can eventually make the ratchet mean nothing.",
+      "expected_in": ".agents/prompts/test-gap.md",
+      "pin_kind": "literal"
+    },
+    {
+      "id": "dependency-steward-one-upgrade-per-run",
+      "source_file": ".agents/prompts/dependency-steward.md",
+      "source_line": 20,
+      "quoted_source_string": "2. **One bounded upgrade pull request per run**, never a batch. Pick the single upgrade",
+      "why": "A batched dependency-upgrade pull request is unreviewable and untraceable when something breaks — nobody can tell which of ten bumps caused the regression. Losing the one-per-run cap would let this agent silently regress into exactly the kind of change nothing else in the gauntlet is built to review well.",
+      "expected_in": ".agents/prompts/dependency-steward.md",
+      "pin_kind": "literal"
+    },
+    {
+      "id": "release-drafter-never-tags-or-publishes",
+      "source_file": ".agents/prompts/release-drafter.md",
+      "source_line": 12,
+      "quoted_source_string": "human can read and decide about. **You never tag, publish, or otherwise perform a",
+      "why": "Every other agent in this fleet is barred from merging its own work; the release drafter's equivalent boundary is that it drafts and a human tags. Losing this line is the one way this agent's job description could silently expand into the one irreversible action nothing else in the fleet is allowed to take either.",
+      "expected_in": ".agents/prompts/release-drafter.md",
+      "pin_kind": "literal"
     }
   ]
 }

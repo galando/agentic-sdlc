@@ -79,6 +79,32 @@ independent re-derivation actually disagrees with the original conclusion; a hea
 re-derivation runs on the `challenge` role's model, a different model family from the
 `judge` role that formed the conclusion (`multi-model-review.md`).
 
+## Mode: docs freshness
+
+**Current setting: ACTIVE**, weekly. Sweeps all tracked markdown; fixes the top 5
+findings in one docs-only pull request, per `agent-routines.md`. Never merges.
+
+## Mode: backlog groomer
+
+**Current setting: ACTIVE**, weekly. Evidence-only closes, capped at 3 closes / 15
+issues touched per run. Never merges, never closes on a merge alone.
+
+## Mode: test gap
+
+**Current setting: ACTIVE**, weekly. Proposes floor raises against measured headroom,
+or builds one missing test for the single worst load-bearing gap. Never lowers a floor,
+never widens an exclude, never merges.
+
+## Mode: dependency steward
+
+**Current setting: ACTIVE**, weekly. One bounded upgrade pull request per run, through
+the fix pipeline. Never merges, never edits the CVE allowlist.
+
+## Mode: release drafter
+
+**Current setting: ACTIVE**, monthly (also runnable on demand). Drafts release notes
+and proposes a version; never tags, never publishes, never merges.
+
 ## Quarantine threshold (data/output auditor)
 
 Propose quarantine (an S1 issue) iff a source has flagged `PERSISTENT` on the
@@ -343,6 +369,20 @@ person to meet the same symptom reads it instead of re-deriving it.
   This does not weaken the rule above — it is the checklist that rule assumed. Whoever
   contests a series still owes a band rather than a rebuttal; it now has to be a band that
   can lose.
+- **The second brain (`docs/knowledge/`) is read by every agent at session start and
+  written by exactly one.** Every agent reads `docs/knowledge/INDEX.md` after its ledger
+  state (`AGENTS.md` session-start checklist) — cheap, index-first, grep as the
+  fallback, never a directory scan. Only the **chief of staff** writes cards, in its
+  existing self-gated retrospective: at most 2 cards + index lines per pull request, and
+  never merged by the agent that opened it — the operator's click is the same defense
+  every other instruction has. A card is history until that merge and instruction after,
+  exactly like `agent-modes.md` itself. Every other agent that finds a durable lesson
+  hands the evidence to the chief of staff via a `handoff`, rather than writing a card
+  mid-run. The card format lives in ONE place, `docs/knowledge/README.md`, and is not
+  restated here. **Staleness:** the daily brief lists any `rule`/`trap` card whose
+  `verified` date is more than 90 days old ("confirm, fold, or delete") — the same
+  absence-is-the-signal logic the liveness checks already use, applied to a card instead
+  of a ledger entry.
 - **The nightly gates have a reader: the chief of staff's daily brief.** A scheduled nightly
   gate fails for days at a time with nobody reporting it, because a red gate is not a
   production signal, not an accuracy signal and not a pipeline signal — so it belongs to no

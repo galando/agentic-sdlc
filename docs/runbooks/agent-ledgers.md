@@ -25,7 +25,8 @@ format, on a branch nobody has to render.
 list `agents-scheduled.yml` builds its matrix from, and the order the watcher ring walks.
 One list. A second list of agent names anywhere else is a second source of truth and will
 drift. The shipped default is `health`, `quality`, `audit`, `chief-of-staff`,
-`challenger`.
+`challenger` (daily), plus `docs`, `groomer`, `testgap`, `deps`, `release`
+(weekly/monthly — `docs/plans/second-brain-and-sdlc-extension.md` Part B).
 
 ## Creating the branch
 

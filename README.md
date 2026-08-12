@@ -118,6 +118,10 @@ change.
 That is the whole loop, once, before any of your own code exists. If you are past 30
 minutes, section 9 (troubleshooting) is written for exactly this moment.
 
+Want to see every capability of the system, not just the one loop above? `DEMO.md`
+is a fixed, 13-stop scripted tour — steward triage through the second brain and the
+five SDLC-extension agents — reproducible from a clean instantiation.
+
 ## 4. The operating loop you now live in
 
 ```

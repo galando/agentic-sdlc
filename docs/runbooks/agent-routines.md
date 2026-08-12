@@ -143,6 +143,11 @@ are the shipped defaults.
 | `audit` | `execute` | `41 8 * * *` | data/output auditor — samples what the product actually produces and checks it against reality |
 | `chief-of-staff` | `judge` | `13 17 * * *` | reads everyone's ledgers and posts one brief; every second run, a retrospective |
 | `challenger` | `challenge` | `37 18 * * *` | re-derives another agent's conclusion from scratch to see whether it survives |
+| `docs` | `execute` | `7 9 * * 1` | docs freshness — sweeps every tracked markdown file weekly, fixes the top 5 findings |
+| `groomer` | `execute` | `19 9 * * 2` | backlog groomer — relabels, comments, and closes only on recorded verification |
+| `testgap` | `judge` | `29 9 * * 3` | test gap — proposes the next floor raise with evidence, or fills the worst coverage gap |
+| `deps` | `execute` | `43 9 * * 4` | dependency steward — one bounded upgrade pull request per run, CVE deltas as metrics |
+| `release` | `judge` | `53 9 1 * *` | release drafter — drafts notes from merged pull requests and verified fixes; a human tags |
 
 **Odd minutes on purpose.** The top of the hour is the most contended slot on a shared
 scheduler, so a `0 6 * * *` cron is the one most likely to be delayed or dropped. Minutes
@@ -524,9 +529,10 @@ is. Fires first in the ring.
   the honest report: it says it checked nothing, rather than that nothing was wrong.
 - **Watch the watchers** (re-based; see the liveness section): its predecessor in the ring
   is the agent **before it in `ledger.agents`, wrapping** — so for `health` that is
-  `challenger`. Run `tools/ledger.sh latest` and compare the predecessor's newest entry
-  against `liveness.max-age-hours`. Older ⇒ note the gap and escalate per the ladder. **Not
-  "did it run today".**
+  `release`, the last entry in the list. `release` runs monthly rather than daily, so this
+  check reads **`release`'s own `max-age-hours` override**, never the daily default. Run
+  `tools/ledger.sh latest` and compare the predecessor's newest entry against that window.
+  Older ⇒ note the gap and escalate per the ladder. **Not "did it run today".**
 - **Also run the external staleness check:** the newest entry across ALL agents against
   `liveness.staleness-hours`. This is the one check a ring structurally cannot perform on
   itself.
@@ -763,6 +769,87 @@ visible, a wrong one is not.
   model is actually reachable from a scheduled run.
 
 ---
+
+### `docs` — the docs freshness sweep · `7 9 * * 1`
+
+Keeps the tracked markdown honest. Fires weekly rather than daily — documentation drifts
+on the timescale of pull requests merged, not hours, and a daily sweep would mostly
+re-confirm what last night's sweep already found.
+
+- **Sweep ALL tracked markdown, every run.** Coverage comes from sweeping everything and
+  fixing in bounded batches, never from a sample. **Full coverage is the sweep plus the
+  `pending` carry, never one unreviewable diff** touching every file it found wrong.
+- **Fix the top 5 findings in one docs-only pull request**, ranked by how likely a wrong
+  command or a dead link is to actually mislead a reader. Everything else carries forward
+  in `pending` with enough detail that next week does not re-derive it.
+- **A contradiction between two documents is a report, never an auto-resolve.** Neither
+  document tells you on its own which one is stale; silently picking one teaches the
+  wrong fact to whoever reads the "corrected" file next.
+- Docs-only changes need no spec pipeline (`AGENTS.md` guardrail 7 exception) — a genuine
+  behaviour change discovered along the way is filed as an issue for the owning agent,
+  never built here.
+
+### `groomer` — the backlog groomer · `19 9 * * 2`
+
+Keeps the open-issue backlog legible without getting ahead of verification.
+
+- **Evidence-only closes**, on a recorded `fix_verified` entry from the filing agent —
+  never on "its pull request merged" alone (`agent-modes.md`, "a merged pull request
+  does not close an issue"). Capped at **3 closes and 15 issues touched per run**;
+  hitting the cap is normal, not a failure.
+- **Body updates are appended, dated sections.** The original report is evidence and is
+  never rewritten in place — the same append-only discipline the ledger itself uses.
+- **Duplicates are linked, never silently closed** on the groomer's own judgement about
+  which is more original.
+- **SLA breaches are `handoff`ed to `chief-of-staff`**, not closed and not left to age
+  silently behind a label filter nobody reads.
+
+### `testgap` — the test gap agent · `29 9 * * 3`
+
+Owns the legitimate side of the ratchet: raising a floor with evidence is exactly as
+disciplined an act as never lowering one.
+
+- **The ratchet only tightens.** Proposes floor raises against measured headroom, or
+  fills the single worst load-bearing coverage gap the spec pipeline can build a test
+  for — **one gap per run**, never a sweep, because an unjustified batch of new tests is
+  the "assertion-free test still counts" failure the coverage ratchet cannot see.
+- **Never lowers a floor, never widens an exclude.** A floor that is genuinely too tight
+  is escalated per `agent-escalation.md`, not edited — the same asymmetry that keeps
+  `quality`'s fix pull requests out of ratchet-guard files, `docs/QUALITY-GATES.md`'s
+  "ratchet policy".
+- Every floor change goes through the fix pipeline like any other change to a guarded
+  file, and is never merged by this agent.
+
+### `deps` — the dependency steward · `43 9 * * 4`
+
+Keeps dependencies current in small, verifiable steps instead of a periodic scramble.
+
+- **One bounded upgrade pull request per run**, picked by strongest justification (a
+  fixed CVE outranks a routine bump). Built through the fix pipeline with the changelog
+  excerpt and failing-without/passing-with test evidence in the body.
+- **CVE deltas are the run's headline metric, every run** — a flat count over several
+  weeks is itself informative, so this is reported whether or not a pull request opened.
+- **A missing audit tool degrades to a report, never a silent skip** — the same
+  degrade-never-fail shape the challenger's missing second model and the review
+  pipeline's missing optional credential already follow.
+- Never touches the CVE allowlist itself; an allowlist entry needs a human decision
+  with a written exposure analysis.
+
+### `release` — the release drafter · `53 9 1 * *`
+
+Turns a cycle's merged work into a release a human can decide about. Monthly by
+default, and runnable on demand via `workflow_dispatch` for an out-of-cycle release.
+
+- **Drafts from evidence, not from titles** — each merged pull request's own body is the
+  source, grouped by kind (fixes, features, upgrades, docs).
+- **Cites verification, not just merges.** A fix with a recorded `fix_verified` entry is
+  marked verified; a merged-but-unverified fix is marked as such, the same distinction
+  the chief of staff's "closed-but-unverified" brief section makes, applied to a release.
+- **Proposes a version, never chooses one.** The recommendation is stated in the pull
+  request body with the evidence that drove it; nothing here creates a tag or calls a
+  release API.
+- **A human presses release**, exactly like every other merge in this fleet — this
+  agent's entire deliverable is the draft that makes that click informed.
 
 ## The steward — event-driven, not a routine
 
