@@ -51,6 +51,32 @@ Agents cannot touch production — their only access is read-only HTTPS (an obse
 
 Each clause of the safety model is enforced somewhere you can inspect: the access pattern in [`agent-access-setup.md`](agent-access-setup.md), "cannot push to the default branch, cannot merge its own work" in [`branch-protection.md`](branch-protection.md), and "behind CI" in [`docs/QUALITY-GATES.md`](../QUALITY-GATES.md) and [`qa-procedures.md`](qa-procedures.md). A safety model nobody has checked is a wish.
 
+## First-time setup order
+
+Some of this cannot be committed to a repository at all — a vendor scheduler and an
+admin setting are not files. Do these **in this order**, last item last. Lost at any
+point? `tools/status.sh` prints this whole map with your position on it and the one
+next command — read-only, seconds. `tools/adopt.sh` walks the same map with you,
+verifying each item where it can and offering to do the automatable ones.
+
+1. Create the ledger orphan branch — the agents' run diary — with one idempotent
+   command: `tools/create-ledger-branch.sh` (`tools/init.sh` offers to run it for
+   you at the end of the interview; `agent-ledgers.md` explains it).
+2. Add the secrets your setup needs (`credentials-and-cost.md`).
+3. Grant read-only observability access if you have a health-signal source
+   (`agent-access-setup.md`), then fill in `.agents/health-signals.yml`.
+4. Install the agent's GitHub App / CLI integration for this repository.
+5. Dry-run each agent prompt interactively before scheduling it.
+6. Calibrate the ratchet against **your** product: `tools/measure-floors.sh`.
+7. Enable the scheduled routines one at a time (see "How to pause or stop" above, in
+   reverse).
+8. **Enable branch protection last**, once the FAST tier has been seen green at least
+   once — `branch-protection.md` has the exact context strings.
+
+`tools/init.sh` prints this same list at the end of the interview. Nothing above it
+touches your repository's settings, secrets, or any external service — it is local text
+substitution only.
+
 ## Glossary
 
 | Term | Meaning |
