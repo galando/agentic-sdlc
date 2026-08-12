@@ -1455,7 +1455,7 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 # WHY: ever add to them, and a system nobody feeds looks identical to one nobody built, from the 
 # WHY: outside.
 @test "pin[second-brain-distiller-two-questions]: .agents/prompts/chief-of-staff.md" {
-  run grep -F -q -- $'- **You are also the second brain\'s distiller \342\200\224 two added questions, same evidence' "$REPO_ROOT/.agents/prompts/chief-of-staff.md"
+  run grep -F -q -- -\ \*\*You\ are\ also\ the\ second\ brain\'s\ distiller\ —\ two\ added\ questions\,\ same\ evidence "$REPO_ROOT/.agents/prompts/chief-of-staff.md"
   if [ "$status" -ne 0 ]; then
     echo "PIN LOST: second-brain-distiller-two-questions"
     echo "  source: .agents/prompts/chief-of-staff.md:63"
@@ -1486,7 +1486,7 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 # WHY: into an agent that only ever notices the files it happened to look at last time, which is 
 # WHY: indistinguishable from no coverage guarantee at all.
 @test "pin[docs-freshness-sweep-all-fix-batched]: .agents/prompts/docs-freshness.md" {
-  run grep -F -q -- $'1. **Sweep ALL tracked markdown**, every run \342\200\224 never a sample and never a subset chosen' "$REPO_ROOT/.agents/prompts/docs-freshness.md"
+  run grep -F -q -- 1.\ \*\*Sweep\ ALL\ tracked\ markdown\*\*\,\ every\ run\ —\ never\ a\ sample\ and\ never\ a\ subset\ chosen "$REPO_ROOT/.agents/prompts/docs-freshness.md"
   if [ "$status" -ne 0 ]; then
     echo "PIN LOST: docs-freshness-sweep-all-fix-batched"
     echo "  source: .agents/prompts/docs-freshness.md:16"
