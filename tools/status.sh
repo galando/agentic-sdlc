@@ -107,9 +107,20 @@ if [ -n "$next" ]; then
   echo "Next command:  $next"
 else
   cat <<'EOF'
-All four tool steps are done. What remains lives in GitHub's UI, in order:
-  - add the AGENT_CLI_TOKEN secret
-    (run: tools/run-agent.sh --check-credentials steward --role judge)
+All four tool steps are done. What remains lives in GitHub's UI, in order —
+tools/adopt.sh checks each one and offers to do the settable ones for you:
+  - add the AGENT_CLI_TOKEN secret. Without it EVERY agent job fails at the
+    credential check: the steward runs and leaves nothing behind, reviews post
+    no comment — the loop looks broken when it is only unauthenticated.
+    (what belongs in it: tools/run-agent.sh --check-credentials steward --role judge)
+  - optional secrets with named consequences: the challenge key (without it
+    reviews are one opinion, the referee is skipped, and every agent PR wakes
+    the steward — docs/runbooks/multi-model-review.md) and STEWARD_HANDOFF_PAT
+    (without it agent-filed issues cannot wake the steward).
+  - Settings → Actions → General → Workflow permissions: Read and write, and
+    tick 'Allow GitHub Actions to create and approve pull requests' — fresh
+    repositories ship with it OFF, and the steward then does all its work and
+    fails at the moment it opens the pull request.
   - install your agent CLI's GitHub App for this repository
   - see the FAST checks green once in the Actions tab
   - enable branch protection (docs/runbooks/branch-protection.md has the exact strings)

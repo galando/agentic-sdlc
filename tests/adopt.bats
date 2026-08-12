@@ -67,6 +67,45 @@ run_adopt() {
   ( cd "$FIXTURE" && PATH="$RESTRICTED_PATH" bash tools/adopt.sh "$@" )
 }
 
+# A gh stub plus a GitHub-shaped origin that never reaches the network. The
+# fetch URL must stay the https form — the slug is parsed from `git remote
+# get-url`, and get-url expands url.*.insteadOf rewrites, so an insteadOf
+# redirect would hand the slug parse a local path. Instead: pushes go to a
+# local bare repository via pushurl (which get-url does not return), and
+# fetches are strangled fast by run_adopt_gh's dead proxy below.
+setup_gh_fixture() {
+  git -C "$FIXTURE" init -q --bare origin.git
+  git -C "$FIXTURE" remote add origin "https://github.com/acme/widget.git"
+  git -C "$FIXTURE" config remote.origin.pushurl "$FIXTURE/origin.git"
+
+  mkdir -p "$FIXTURE/stubbin"
+  cat > "$FIXTURE/stubbin/gh" <<'GH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${GH_LOG:?}"
+case "$*" in
+  "auth status"*)               exit 0 ;;
+  "secret list"*)               exit 0 ;;   # empty output: no secret is set
+  "secret set"*)                exit 0 ;;
+  "pr create"*)                 exit 0 ;;
+  *"-X PUT"*)                   exit 0 ;;
+  *actions/permissions/workflow*) echo "false"; exit 0 ;;  # the checkbox is OFF
+  *branches/*/protection*)      exit 1 ;;   # not protected
+esac
+exit 0
+GH
+  chmod +x "$FIXTURE/stubbin/gh"
+}
+
+run_adopt_gh() {
+  # The dead proxy makes any accidental network fetch (step 3's ls-remote
+  # against the https origin) fail in milliseconds instead of hanging an
+  # offline run — the degrade path is the expected result, not a hazard.
+  ( cd "$FIXTURE" && GH_LOG="$FIXTURE/gh.log" \
+      HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 \
+      https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 NO_PROXY= no_proxy= \
+      PATH="$FIXTURE/stubbin:$RESTRICTED_PATH" bash tools/adopt.sh "$@" )
+}
+
 @test "runs end to end non-interactively, exits 0, touches nothing by default" {
   run run_adopt
   [ "$status" -eq 0 ]
@@ -151,9 +190,68 @@ run_adopt() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Cannot check repository secrets"* ]]
   [[ "$output" == *"branch-protection.md"* ]]
+  # The Actions setting the steward dies on gets its manual path too.
+  [[ "$output" == *"create and approve pull requests"* ]]
   # And never a false completion for those steps:
   [[ "$output" != *"AGENT_CLI_TOKEN is set"* ]]
   [[ "$output" != *"protection applied"* ]]
+  [[ "$output" != *"workflow permissions updated"* ]]
+}
+
+@test "a missing credential is an offer; the default No changes nothing and prints the manual command" {
+  setup_gh_fixture
+  run run_adopt_gh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AGENT_CLI_TOKEN is not set"* ]]
+  [[ "$output" == *"gh secret set AGENT_CLI_TOKEN"* ]]
+  [[ "$output" == *"'Allow GitHub Actions to create and approve pull requests' is OFF"* ]]
+  # Default-No: gh was only ever asked questions, never told to change anything.
+  ! grep -qE '^(secret set|api -X PUT)' "$FIXTURE/gh.log"
+}
+
+@test "ADOPT_SET_TOKEN=y and ADOPT_WORKFLOW_PERMS=y drive gh, and only what was accepted" {
+  setup_gh_fixture
+  ADOPT_SET_TOKEN=y ADOPT_WORKFLOW_PERMS=y run run_adopt_gh
+  [ "$status" -eq 0 ]
+  grep -q "secret set AGENT_CLI_TOKEN --repo acme/widget" "$FIXTURE/gh.log"
+  grep -q "api -X PUT repos/acme/widget/actions/permissions/workflow" "$FIXTURE/gh.log"
+  # The handoff PAT was NOT accepted, so it was not set.
+  ! grep -q "secret set STEWARD_HANDOFF_PAT" "$FIXTURE/gh.log"
+}
+
+@test "an unset challenge credential names its consequence (one opinion, steward woken)" {
+  setup_gh_fixture
+  cat >> "$FIXTURE/.agents/config.yml" <<'CFG'
+role_provider:
+  challenge: chal-prov
+auth:
+  chal-prov:
+    token_secret: CHALLENGE_API_KEY
+CFG
+  git -C "$FIXTURE" commit -aqm challenge-config
+  run run_adopt_gh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CHALLENGE_API_KEY is not set"* ]]
+  [[ "$output" == *"wakes the steward"* ]]
+  [[ "$output" == *"STEWARD_HANDOFF_PAT is not set"* ]]
+}
+
+@test "ADOPT_FLOORS_PR=y branches, commits, pushes and opens the calibration PR" {
+  setup_gh_fixture
+  # A calibrator stub: arms the one floor so there is a real diff to commit.
+  cat > "$FIXTURE/tools/measure-floors.sh" <<'STUB'
+#!/usr/bin/env bash
+sed -i.bak 's/value: unset/value: 0.9/' floors.yml && rm -f floors.yml.bak
+STUB
+  chmod +x "$FIXTURE/tools/measure-floors.sh"
+  ADOPT_MEASURE=y ADOPT_FLOORS_PR=y run run_adopt_gh
+  [ "$status" -eq 0 ]
+  # The branch exists on the (local, rewritten) origin with the calibration commit.
+  git -C "$FIXTURE/origin.git" show-ref --verify -q refs/heads/calibrate-floors
+  git -C "$FIXTURE" log calibrate-floors --oneline -1 | grep -q "calibrate the quality floors"
+  grep -q "pr create" "$FIXTURE/gh.log"
+  # And the one thing the tool must NOT do is claimed nowhere: the merge is human.
+  [[ "$output" == *"MERGE it once green"* ]]
 }
 
 @test "uncalibrated floors are announced with the sentinel count, calibration not run by default" {

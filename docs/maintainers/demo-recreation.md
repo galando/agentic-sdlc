@@ -74,6 +74,10 @@ You will also need, on the demo repository:
   verdict as blocking — so without this key, *every* agent pull request wakes the steward.
   The demo would then show the exact behaviour the verdict machinery was written to end.
   `docs/runbooks/multi-model-review.md` records this as a known consequence.
+- `STEWARD_HANDOFF_PAT` — a fine-grained PAT so agent-filed issues can start
+  workflow runs. Optional in general; for the demo it is the difference between
+  a handoff that wakes the steward on camera and one that sits inert until a
+  human mentions the agent by hand.
 
 ---
 
@@ -142,11 +146,13 @@ The adoption edits are still uncommitted at that point, and that is fine: step 6
 commits them together with the product build. Nothing between here and there reads
 them from a commit.
 
-> The demo currently in production was adopted *before* `tools/adopt.sh` existed and
-> used the individual tools (`init.sh`, `adopt-layout.sh`, `create-ledger-branch.sh`)
-> by hand. Its `tools/` directory is missing `adopt.sh` and `status.sh` as a result.
-> Rebuilding it with `adopt.sh` is the point of rebuilding it — the demo should show
-> the path an adopter is actually told to take.
+> The 2026-08 rebuild went through `adopt.sh`, as this step says. What it then
+> demonstrated is *why the offers must not be skipped*: the walk continued past
+> step 5 with `AGENT_CLI_TOKEN` still unset, and every agent job on the demo —
+> steward, judge review — ran, exited 5 at the credential check, and left
+> nothing behind. The loop looked broken; it was only unauthenticated. Step 5
+> now offers to set each secret and the Actions permission on the spot — take
+> the offers, or at least do not push past a `[YOURS]` line unresolved.
 
 ### 3. Build the product
 
@@ -293,29 +299,35 @@ git commit -m "calibrate the ratchet against Shortlink" && git push -u origin ca
 Open that as the demo's **first pull request**. It is the proof shot: a PR that
 carries both reviews, the referee comment, and the whole gauntlet.
 
-> **Known gap in the live demo, do not repeat it.** `floors.yml` in production is
-> still nine `unset` sentinels, while the generated `README.md` states the floors
-> "was calibrated against this code by `tools/measure-floors.sh`". The README is
-> generated optimistically; the calibration was deferred and never done. Either run
-> step 6 or edit that sentence — a demo whose front page contradicts its own
-> `floors.yml` is worse than one that admits the floors are uncalibrated.
+> **Known gap, now with two data points — do not repeat it.** The first demo
+> deferred calibration entirely; the 2026-08 rebuild measured the floors and
+> opened the pull request, then left it unmerged while `main`'s `floors.yml`
+> still read nine `unset` sentinels under a README claiming calibration. The
+> README generator now writes the honest "not yet calibrated" line when the
+> sentinels are present, and `adopt.sh` offers to open the calibration PR
+> itself — but the MERGE is yours, and until it lands nothing is armed. The
+> step is finished when the PR is merged, not when it exists.
 
 ### 7. Secrets, variables, and the App
 
 On the demo repository:
 
-- Secrets → `AGENT_CLI_TOKEN`, `CHALLENGE_API_KEY` (both, for the demo).
+- Secrets → `AGENT_CLI_TOKEN`, `CHALLENGE_API_KEY` (both, for the demo), and
+  `STEWARD_HANDOFF_PAT` — without the PAT, issues the harness files (lost-review
+  reports, steward handoffs) are created with `GITHUB_TOKEN`, which never starts
+  a workflow, so every handoff waits for a human mention.
 - Variables → `AGENT_MENTION` if you want anything other than the `@agent` default.
 - Install the agent CLI's GitHub App for the repository.
 - **Settings → Actions → General → Workflow permissions**: set **Read and write
   permissions**, and tick **Allow GitHub Actions to create and approve pull
   requests**.
 
-That last checkbox is the one that bites, and no script in this repository can set
-it. A fresh repository ships with it off; the steward declares `pull-requests: write`
-and still fails at the moment it opens the PR — *"GitHub Actions is not permitted to
-create or approve pull requests"* — after doing all the work. It looks like a broken
-agent, and it is a repository setting.
+That last checkbox is the one that bites. A fresh repository ships with it off; the
+steward declares `pull-requests: write` and still fails at the moment it opens the
+PR — *"GitHub Actions is not permitted to create or approve pull requests"* — after
+doing all the work. It looks like a broken agent, and it is a repository setting.
+`tools/adopt.sh` step 5 checks it and offers to set it (the workflow-permissions
+API covers exactly that checkbox); the walk above lands you there anyway.
 
 Note the second half of that checkbox's name is a promise the harness does not use:
 an agent can open a pull request here, and never approve or merge one. That is
@@ -482,3 +494,17 @@ rediscover them:
 - **BSD `sed` vs GNU `sed`.** On macOS, `sed -i 's/.../'` without a backup suffix is a
   syntax error. If a `tools/` test fails only on your Mac, check this before believing
   you broke something.
+- **An unset `AGENT_CLI_TOKEN` does not look like a missing secret — it looks like a
+  broken agent.** Every agent job still runs: the steward "produces no reply and no
+  branch", the review "posted nothing", a `[review-lost]` issue appears — and the one
+  honest line (`run-agent.sh: required credential $AGENT_CLI_TOKEN is not set`, exit
+  5) is buried in the job log. The 2026-08 rebuild shipped this way. Check the log
+  before diagnosing anything else, and take `adopt.sh` step 5's offer.
+- **A demo created from a template commit that predates a harness fix inherits the
+  broken state with no sync path** — the adoption deletes the upstream-drift tooling
+  by design. The 2026-08 rebuild carried a stale `pins.generated.bats`, so
+  `fast-repo-hygiene` and `fast-harness-guards` were red on the very first pull
+  request for a template bug fixed upstream days earlier. Before step 1, make sure
+  the template's own `main` is green and current; after any such inheritance, the
+  fix is the same as upstream's: `tests/harness-guards/gen-pin-tests.sh`, commit the
+  regenerated file.
