@@ -19,6 +19,8 @@
 # Non-interactive acceptance (for tests and scripting) mirrors init.sh's pattern:
 #   ADOPT_COMMIT=y  ADOPT_MEASURE=y  ADOPT_PROTECT=y  ADOPT_ISSUE=y
 #   ADOPT_CONTINUE_WITHOUT_PRODUCT=y  (walk past step 2 with no backend//frontend/)
+#   ADOPT_SET_TOKEN=y ADOPT_SET_CHALLENGE=y ADOPT_SET_HANDOFF=y  (step 5 secrets)
+#   ADOPT_WORKFLOW_PERMS=y  (step 5 Actions setting)  ADOPT_FLOORS_PR=y  (step 6 PR)
 # plus init.sh's own DELETE_EXAMPLE / WRITE_README / CREATE_LEDGER_BRANCH.
 set -uo pipefail
 
@@ -160,18 +162,39 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. The credential.
+# 5. Credentials and the Actions settings — everything GitHub-side the agents
+#    are dead without. A live adoption walked past this step with the token
+#    unset: every agent job then ran, exited 5 at the credential check, and
+#    the loop LOOKED broken (a steward that "produced nothing", a review that
+#    posted no comment) when it was only unauthenticated. So each miss here is
+#    an OFFER, not homework — same contract as every other step.
 # ---------------------------------------------------------------------------
-hdr "5/8  The agent credential (AGENT_CLI_TOKEN repository secret)"
+hdr "5/8  The agent credentials and Actions settings (GitHub side)"
+
+# Exact-name match: `gh secret list` is name-first columns, and a prefix grep
+# would call AGENT_CLI_TOKEN present because AGENT_CLI_TOKEN_OLD is.
+secret_present() {
+  gh secret list --repo "$SLUG" 2>/dev/null | awk '{print $1}' | grep -qx "$1"
+}
+
 if $GH_OK && [ -n "$SLUG" ]; then
-  if gh secret list --repo "$SLUG" 2>/dev/null | grep -q '^AGENT_CLI_TOKEN'; then
+  if secret_present AGENT_CLI_TOKEN; then
     note "[done] AGENT_CLI_TOKEN is set on $SLUG."
     note "(Presence only — CI proves validity. If a review job says 'not logged in',"
     note " re-mint the token; the command below prints how.)"
   else
-    note "[YOURS] Not set. Mint it, then either:"
-    note "  gh secret set AGENT_CLI_TOKEN --repo $SLUG        (paste when prompted)"
-    note "  or GitHub → Settings → Secrets and variables → Actions."
+    note "[YOURS] AGENT_CLI_TOKEN is not set. Every agent invocation fails without it:"
+    note "the steward runs and leaves nothing behind, the review posts no comment."
+    if offer ADOPT_SET_TOKEN "Set it now via gh (paste the token when prompted)?"; then
+      if gh secret set AGENT_CLI_TOKEN --repo "$SLUG"; then
+        note "[done] AGENT_CLI_TOKEN set."
+      else
+        note "[FAIL] gh could not set it — see the message above."
+      fi
+    else
+      note "Skipped. Manual: gh secret set AGENT_CLI_TOKEN --repo $SLUG"
+      note "  or GitHub → Settings → Secrets and variables → Actions."
+    fi
   fi
 else
   note "[????] Cannot check repository secrets without an authenticated gh."
@@ -181,6 +204,92 @@ note "What belongs in it (subscription token vs API key), for YOUR provider:"
 # absent from ledger.agents and nothing about it can be looked up. It runs as
 # `judge` in steward.yml, so that is the role whose provider we ask about.
 "$ROOT/tools/run-agent.sh" --check-credentials steward --role judge 2>&1 | sed 's/^/    /' || true
+
+# The challenge credential — optional by design, but its absence is not free:
+# reviews degrade to one opinion, the referee is skipped (fewer than two
+# reviews, nothing to compare), and the missing-verdict fail-safe wakes the
+# steward on every agent pull request. docs/runbooks/multi-model-review.md
+# records that consequence; this check makes it visible BEFORE the first PR.
+CHAL_PROVIDER="$(cfg_get role_provider.challenge '' 2>/dev/null || true)"
+CHAL_SECRET="$(cfg_get "auth.$CHAL_PROVIDER.token_secret" '' 2>/dev/null || true)"
+if $GH_OK && [ -n "$SLUG" ] && [ -n "$CHAL_SECRET" ] && [ "$CHAL_SECRET" != "AGENT_CLI_TOKEN" ]; then
+  if secret_present "$CHAL_SECRET"; then
+    note "[done] $CHAL_SECRET is set — the adversarial second review can run."
+  else
+    note "[optional] $CHAL_SECRET is not set. Reviews degrade to one opinion, the"
+    note "referee is skipped, and its missing verdict wakes the steward on every"
+    note "agent pull request (docs/runbooks/multi-model-review.md)."
+    if offer ADOPT_SET_CHALLENGE "Set $CHAL_SECRET now via gh (paste the key when prompted)?"; then
+      if gh secret set "$CHAL_SECRET" --repo "$SLUG"; then
+        note "[done] $CHAL_SECRET set."
+      else
+        note "[FAIL] gh could not set it — see the message above."
+      fi
+    else
+      note "Skipped. Manual: gh secret set $CHAL_SECRET --repo $SLUG"
+    fi
+  fi
+fi
+
+# The handoff PAT — events created with GITHUB_TOKEN never start workflows, so
+# an agent-filed [steward-handoff] issue wakes nobody until a human mentions
+# the agent by hand. Optional, and the harness says so on every such issue;
+# this check surfaces it once, up front, instead of one warning per handoff.
+if $GH_OK && [ -n "$SLUG" ]; then
+  if secret_present STEWARD_HANDOFF_PAT; then
+    note "[done] STEWARD_HANDOFF_PAT is set — agent-filed issues can wake the steward."
+  else
+    note "[optional] STEWARD_HANDOFF_PAT is not set. Issues the harness files use"
+    note "GITHUB_TOKEN, and GitHub starts no workflow from those — every handoff"
+    note "waits for a human mention (docs/runbooks/agent-access-setup.md)."
+    if offer ADOPT_SET_HANDOFF "Set STEWARD_HANDOFF_PAT now via gh (paste the PAT when prompted)?"; then
+      if gh secret set STEWARD_HANDOFF_PAT --repo "$SLUG"; then
+        note "[done] STEWARD_HANDOFF_PAT set."
+      else
+        note "[FAIL] gh could not set it — see the message above."
+      fi
+    else
+      note "Skipped. Manual: gh secret set STEWARD_HANDOFF_PAT --repo $SLUG"
+    fi
+  fi
+fi
+
+# The repository setting that bites: "Allow GitHub Actions to create and
+# approve pull requests" ships OFF on every fresh repository, and the steward
+# then does all of its work and fails at the moment it opens the pull request.
+# It IS settable from here — the workflow-permissions API covers exactly that
+# checkbox. (The "approve" half is a promise the harness never uses: no agent
+# approves or merges anything — AGENTS.md guardrail 2, enforced in step 7.)
+if $GH_OK && [ -n "$SLUG" ]; then
+  CAN_APPROVE="$(gh api "repos/$SLUG/actions/permissions/workflow" -q .can_approve_pull_request_reviews 2>/dev/null || true)"
+  if [ "$CAN_APPROVE" = "true" ]; then
+    note "[done] Actions may create pull requests (workflow permissions)."
+  elif [ -z "$CAN_APPROVE" ]; then
+    note "[????] Could not read the Actions workflow permissions (admin rights?). Manual:"
+    note "  Settings → Actions → General → Workflow permissions → Read and write,"
+    note "  and tick 'Allow GitHub Actions to create and approve pull requests'."
+  else
+    note "[YOURS] 'Allow GitHub Actions to create and approve pull requests' is OFF —"
+    note "the steward will do all its work and then fail opening the pull request."
+    if offer ADOPT_WORKFLOW_PERMS "Turn it on now via gh (also sets workflow permissions to read-write)?"; then
+      if gh api -X PUT "repos/$SLUG/actions/permissions/workflow" \
+           -f default_workflow_permissions=write \
+           -F can_approve_pull_request_reviews=true >/dev/null; then
+        note "[done] workflow permissions updated."
+      else
+        note "[FAIL] gh could not update them (admin rights?). Manual: Settings →"
+        note "  Actions → General → Workflow permissions."
+      fi
+    else
+      note "Skipped. Manual: Settings → Actions → General → Workflow permissions →"
+      note "  Read and write, tick 'Allow GitHub Actions to create and approve pull requests'."
+    fi
+  fi
+else
+  note "[????] Cannot check the Actions workflow permissions without an authenticated gh."
+  note "  Manual: Settings → Actions → General → Workflow permissions → Read and write,"
+  note "  and tick 'Allow GitHub Actions to create and approve pull requests'."
+fi
 
 # ---------------------------------------------------------------------------
 # 6. Calibrate the floors — through a pull request, the first real one.
@@ -193,11 +302,40 @@ elif grep -qE '^[^#]*value:[[:space:]]*unset' "$ROOT/floors.yml"; then
   note "$n_unset of 9 floors still carry the unset sentinel. Calibration builds and"
   note "mutation-tests everything — slow on purpose, online, needs a clean tree."
   if offer ADOPT_MEASURE "Run tools/measure-floors.sh now?"; then
-    "$ROOT/tools/measure-floors.sh" || note "[FAIL] see the calibrator's message above."
-    note "Now put the result up as your FIRST pull request (the review pipeline and"
-    note "the whole gauntlet run on it — that PR is the proof the process works):"
-    note "  git checkout -b calibrate-floors && git add -A && git commit && git push -u origin calibrate-floors"
-    note "  then open the pull request on GitHub and merge it once green."
+    if "$ROOT/tools/measure-floors.sh"; then
+      note "Now put the result up as your FIRST pull request (the review pipeline and"
+      note "the whole gauntlet run on it — that PR is the proof the process works)."
+      # A live adoption measured the floors, opened the branch — and the pull
+      # request then sat unmerged while the generated README already claimed
+      # calibration. The offer closes the loop to the PR; the MERGE stays a
+      # human act (guardrail 2), so the reminder below is as far as this goes.
+      if offer ADOPT_FLOORS_PR "Create branch 'calibrate-floors', commit, push, and open the pull request?"; then
+        if git -C "$ROOT" checkout -b calibrate-floors \
+            && git -C "$ROOT" add -A \
+            && git -C "$ROOT" commit -m "calibrate the quality floors from this code" \
+            && git -C "$ROOT" push -u origin calibrate-floors; then
+          if $GH_OK && [ -n "$SLUG" ]; then
+            gh pr create --repo "$SLUG" \
+              --title "calibrate the quality floors from this code" \
+              --body "Measured by tools/measure-floors.sh against this repository's own baseline. Merging arms the ratchet: gate 9 then fails any pull request that lowers a floor." \
+              || note "[FAIL] gh could not open the pull request — open it on GitHub from 'calibrate-floors'."
+          else
+            note "Pushed. Open the pull request on GitHub from branch 'calibrate-floors'."
+          fi
+          note "MERGE it once green — an open calibration PR arms nothing; the floors"
+          note "bind only when they land on $DEFAULT_BRANCH."
+        else
+          note "[FAIL] branch/commit/push failed — see git's message above. Manual:"
+          note "  git checkout -b calibrate-floors && git add -A && git commit && git push -u origin calibrate-floors"
+        fi
+      else
+        note "Skipped. Manual:"
+        note "  git checkout -b calibrate-floors && git add -A && git commit && git push -u origin calibrate-floors"
+        note "  then open the pull request on GitHub and merge it once green."
+      fi
+    else
+      note "[FAIL] see the calibrator's message above."
+    fi
   else
     note "Skipped. Manual: tools/measure-floors.sh, then commit on a branch and open a PR."
   fi

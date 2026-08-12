@@ -126,6 +126,44 @@ teardown() {
   ! grep -qE '\{\{[A-Z_]+\}\}' "$FIXTURE/README.md"
 }
 
+@test "uncalibrated floors are described as uncalibrated, never as calibrated" {
+  # A live adoption shipped a front page saying floors.yml "was calibrated
+  # against this code" while every value in it still read `unset` — the
+  # calibration had been deferred and never done. The README must state what
+  # floors.yml holds, not what the adoption hoped would happen next.
+  cat > "$FIXTURE/floors.yml" <<'FLR'
+schema: 1
+floors:
+  backend.coverage.line: { value: unset, direction: up, tool: jacoco }
+FLR
+  run bash "$FIXTURE/tools/write-product-readme.sh"
+  [ "$status" -eq 0 ]
+  grep -qF 'not yet calibrated' "$FIXTURE/README.md"
+  grep -qF 'measure-floors.sh' "$FIXTURE/README.md"
+  ! grep -qF 'was calibrated against this' "$FIXTURE/README.md"
+}
+
+@test "calibrated floors are described as calibrated" {
+  cat > "$FIXTURE/floors.yml" <<'FLR'
+schema: 1
+floors:
+  backend.coverage.line: { value: 0.90, direction: up, tool: jacoco }
+FLR
+  run bash "$FIXTURE/tools/write-product-readme.sh"
+  [ "$status" -eq 0 ]
+  grep -qF 'was calibrated against this' "$FIXTURE/README.md"
+  ! grep -qF 'not yet calibrated' "$FIXTURE/README.md"
+}
+
+@test "a missing floors.yml reads as uncalibrated, not as calibrated" {
+  # No floors.yml at all (a heavily customised tree) must not produce the
+  # calibration claim either — the honest default is the uncalibrated line.
+  rm -f "$FIXTURE/floors.yml"
+  run bash "$FIXTURE/tools/write-product-readme.sh"
+  [ "$status" -eq 0 ]
+  ! grep -qF 'was calibrated against this' "$FIXTURE/README.md"
+}
+
 @test "mentions ADOPTION-LOG.md only when the file exists" {
   run bash "$FIXTURE/tools/write-product-readme.sh"
   [ "$status" -eq 0 ]

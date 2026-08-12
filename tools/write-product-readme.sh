@@ -104,6 +104,25 @@ if [ -f "$ROOT/ADOPTION-LOG.md" ]; then
 "
 fi
 
+# The floors bullet states what floors.yml actually holds, not what the adoption
+# hopes will happen. A live adoption shipped a front page claiming the floors
+# "was calibrated against this code" while every value in floors.yml still
+# carried the `unset` sentinel — calibration had been deferred and never done,
+# and the generated README was the only place that said otherwise. Same
+# sentinel test as tools/adopt.sh step 6 and tools/status.sh step 4.
+if [ -f "$ROOT/floors.yml" ] && ! grep -qE '^[^#]*value:[[:space:]]*unset' "$ROOT/floors.yml"; then
+  FLOORS_BULLET="- **The quality floors are this repository's own measured baseline**, not anyone
+  else's finish line: [\`floors.yml\`](floors.yml) was calibrated against this
+  code by \`tools/measure-floors.sh\`, and the ratchet only lets those numbers
+  move up."
+else
+  FLOORS_BULLET="- **The quality floors are not yet calibrated.** [\`floors.yml\`](floors.yml) still
+  carries \`unset\` sentinels — the gates run but cannot ratchet until
+  \`tools/measure-floors.sh\` measures this repository's own baseline. (This
+  line rewrites itself to say so once you re-run \`tools/write-product-readme.sh
+  --force\` after calibrating.)"
+fi
+
 # ---------------------------------------------------------------------------
 # 4. Write it.
 # ---------------------------------------------------------------------------
@@ -143,10 +162,7 @@ Concretely, in this repository:
 - **A gauntlet of quality gates runs on every PR** — tests, coverage, mutation
   testing, architecture rules, lint, migrations, secret scanning and more. The
   full inventory and the ratchet policy: [\`docs/QUALITY-GATES.md\`](docs/QUALITY-GATES.md).
-- **The quality floors are this repository's own measured baseline**, not anyone
-  else's finish line: [\`floors.yml\`](floors.yml) was calibrated against this
-  code by \`tools/measure-floors.sh\`, and the ratchet only lets those numbers
-  move up.
+$FLOORS_BULLET
 - **Every agent run is on the record.** Scheduled agents append one line per run
   to the \`agent-ledger\` branch — history, never instruction.
 - **No agent merges. Ever.** The merge button is the human's; the guardrails

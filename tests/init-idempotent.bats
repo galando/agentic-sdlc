@@ -328,11 +328,16 @@ $line" ;;
   #
   # Verified by hand once during the change that added the upstream tooling; a hand
   # verification that leaves no test behind is a verification that expires.
+  # Stub files at the template-only PATHS, never copies from $REPO_ROOT: init.sh
+  # deletes by path, so the contents are irrelevant — and on an ADOPTED tree,
+  # where this suite also runs, the originals are already gone and a cp from
+  # $REPO_ROOT fails the test for a deletion that worked. A live adoption hit
+  # exactly that: five `bats tests/` failures on day one, all fixture bugs.
   mkdir -p "$FIXTURE/site" "$FIXTURE/.github/workflows" "$FIXTURE/tests"
   echo x > "$FIXTURE/site/index.html"
   echo x > "$FIXTURE/.github/workflows/pages.yml"
-  cp "$REPO_ROOT/tools/check-upstream-drift.sh" "$FIXTURE/tools/check-upstream-drift.sh"
-  cp "$REPO_ROOT/.agents/upstream-sync.json"    "$FIXTURE/.agents/upstream-sync.json"
+  echo x > "$FIXTURE/tools/check-upstream-drift.sh"
+  echo x > "$FIXTURE/.agents/upstream-sync.json"
   echo x > "$FIXTURE/tests/upstream-drift.bats"
   mkdir -p "$FIXTURE/docs/maintainers"
   echo x > "$FIXTURE/docs/maintainers/demo-recreation.md"
