@@ -347,7 +347,7 @@ fi
 # 7. Branch protection — LAST of the repository settings, once FAST is green.
 # ---------------------------------------------------------------------------
 hdr "7/8  Branch protection (makes the gauntlet binding)"
-FAST_CONTEXTS='fast-unit-tests fast-frontend-checks fast-harness-guards fast-repo-hygiene fast-secret-scan fast-actionlint fast-spec-artifacts'
+FAST_CONTEXTS='fast-unit-tests fast-frontend-checks fast-harness-guards fast-repo-hygiene fast-secret-scan fast-actionlint fast-spec-artifacts fast-knowledge-lint'
 if $GH_OK && [ -n "$SLUG" ]; then
   if gh api "repos/$SLUG/branches/$DEFAULT_BRANCH/protection" >/dev/null 2>&1; then
     note "[done] $DEFAULT_BRANCH is protected."
@@ -355,8 +355,8 @@ if $GH_OK && [ -n "$SLUG" ]; then
     note "[YOURS] Not protected yet — until it is, every gate is advisory."
     note "Precondition: the FAST tier has reported green on at least one pull request"
     note "(otherwise a required check that has never run wedges every PR)."
-    if offer ADOPT_PROTECT "Apply it now via gh (require a PR + the 7 FAST checks, no bypass)?"; then
-      if printf '{"required_status_checks":{"strict":false,"contexts":["fast-unit-tests","fast-frontend-checks","fast-harness-guards","fast-repo-hygiene","fast-secret-scan","fast-actionlint","fast-spec-artifacts"]},"enforce_admins":true,"required_pull_request_reviews":{"required_approving_review_count":0},"restrictions":null}' \
+    if offer ADOPT_PROTECT "Apply it now via gh (require a PR + the 8 FAST checks, no bypass)?"; then
+      if printf '{"required_status_checks":{"strict":false,"contexts":["fast-unit-tests","fast-frontend-checks","fast-harness-guards","fast-repo-hygiene","fast-secret-scan","fast-actionlint","fast-spec-artifacts","fast-knowledge-lint"]},"enforce_admins":true,"required_pull_request_reviews":{"required_approving_review_count":0},"restrictions":null}' \
           | gh api -X PUT "repos/$SLUG/branches/$DEFAULT_BRANCH/protection" --input - >/dev/null; then
         note "[done] protection applied. Promote the full-* contexts within the first week"
         note "       (docs/runbooks/branch-protection.md, 'Full tier')."

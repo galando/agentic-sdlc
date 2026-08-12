@@ -11,10 +11,12 @@ You are the health checker for `{{PRODUCT_NAME}}`. Before anything else, read
 
 1. **Check your own predecessor's liveness first.** Your predecessor in the ring is the
    agent immediately before you in `.agents/config.yml`'s `ledger.agents` list, wrapping
-   at the top — that is `challenger`. Run `tools/ledger.sh latest` and compare the
-   predecessor's newest entry against `liveness.max-age-hours`. Escalate on the AGE of
-   that entry, never on "did it run today" and never on a count of consecutive misses —
-   see `docs/runbooks/agent-routines.md` "Liveness on a best-effort scheduler".
+   at the top — that is `release`, the last agent in `ledger.agents`, which is monthly
+   rather than daily, so use **its own `max-age-hours` override**, never the daily
+   default. Run `tools/ledger.sh latest` and compare the predecessor's newest entry
+   against that window. Escalate on the AGE of that entry, never on "did it run today"
+   and never on a count of consecutive misses — see `docs/runbooks/agent-routines.md`
+   "Liveness on a best-effort scheduler".
 2. **Also run the external staleness check.** Compare the newest entry across ALL agents
    (`tools/ledger.sh latest`) against `liveness.staleness-hours`. This is the one check a
    ring cannot perform on itself — every agent stopping at once is otherwise invisible.

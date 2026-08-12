@@ -131,14 +131,14 @@ both_readers_agree() {
   yq_val="$(AGENTS_CONFIG_READER=yq bash -c ". '$LIB'; cfg_agents" | tr '\n' ' ')"
   awk_val="$(AGENTS_CONFIG_READER=awk bash -c ". '$LIB'; cfg_agents" | tr '\n' ' ')"
   [ "$yq_val" = "$awk_val" ]
-  [ "$yq_val" = "health quality audit chief-of-staff challenger " ]
+  [ "$yq_val" = "health quality audit chief-of-staff challenger docs groomer testgap deps release " ]
 }
 
 @test "config reader: cfg_predecessor wraps at the top under both readers" {
   yq_val="$(AGENTS_CONFIG_READER=yq bash -c ". '$LIB'; cfg_predecessor health")"
   awk_val="$(AGENTS_CONFIG_READER=awk bash -c ". '$LIB'; cfg_predecessor health")"
-  [ "$yq_val" = "challenger" ]
-  [ "$awk_val" = "challenger" ]
+  [ "$yq_val" = "release" ]
+  [ "$awk_val" = "release" ]
 }
 
 @test "cfg_assert_schema passes on the shipped config" {

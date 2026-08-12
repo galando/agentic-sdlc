@@ -343,7 +343,7 @@ Only after the FAST tier has reported green on the calibration PR:
 tools/adopt.sh     # step 7/8 offers to apply it via gh
 ```
 
-It requires a PR plus the seven FAST contexts with no bypass. Promote the `full-*`
+It requires a PR plus the eight FAST contexts with no bypass. Promote the `full-*`
 contexts within the first week — `docs/runbooks/branch-protection.md` has the exact
 strings.
 

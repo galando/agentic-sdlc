@@ -144,6 +144,36 @@ ledger:
       role: challenge
       schedule: "37 18 * * *"
       enabled: false
+    - id: docs
+      prompt: .agents/prompts/docs-freshness.md
+      role: execute
+      schedule: "7 9 * * 1"           # weekly, Mondays
+      enabled: false
+      max-age-hours: 200              # weekly cadence: 7 days plus scheduler drift margin
+    - id: groomer
+      prompt: .agents/prompts/backlog-groomer.md
+      role: execute
+      schedule: "19 9 * * 2"          # weekly, Tuesdays
+      enabled: false
+      max-age-hours: 200
+    - id: testgap
+      prompt: .agents/prompts/test-gap.md
+      role: judge
+      schedule: "29 9 * * 3"          # weekly, Wednesdays
+      enabled: false
+      max-age-hours: 200
+    - id: deps
+      prompt: .agents/prompts/dependency-steward.md
+      role: execute
+      schedule: "43 9 * * 4"          # weekly, Thursdays
+      enabled: false
+      max-age-hours: 200
+    - id: release
+      prompt: .agents/prompts/release-drafter.md
+      role: judge
+      schedule: "53 9 1 * *"          # monthly, the 1st; also runnable via workflow_dispatch
+      enabled: false
+      max-age-hours: 760              # ~31 days plus scheduler drift margin
 
 # The spec-artifact contract version that tools/spec-pipeline/validate.sh enforces.
 spec_contract: 1

@@ -67,7 +67,8 @@ rather than trusting this page, which is a document and can drift:
 ```bash
 # Every context you are about to require must already exist as a job id.
 for c in fast-unit-tests fast-frontend-checks fast-harness-guards \
-         fast-repo-hygiene fast-secret-scan fast-actionlint fast-spec-artifacts; do
+         fast-repo-hygiene fast-secret-scan fast-actionlint fast-spec-artifacts \
+         fast-knowledge-lint; do
   grep -rqE "^  ${c}:[[:space:]]*$" .github/workflows/*.yml \
     || echo "NOT PRESENT: $c"
 done
@@ -94,6 +95,7 @@ place; there is no reason to wait and no PR they can wedge.
 | `fast-secret-scan` | `secret-scan.yml` | present | a credential about to be committed |
 | `fast-actionlint` | `actionlint.yml` | present | every workflow file parses and its expressions are valid |
 | `fast-spec-artifacts` | `spec-artifacts.yml` | present | the plan and spec artifacts a change is required to carry |
+| `fast-knowledge-lint` | `pr-tests.yml` | present | the second brain's index/card agreement, frontmatter completeness, and line caps (`docs/knowledge/`) |
 
 ### Full tier — required in one documented step, within the first week
 
@@ -190,7 +192,8 @@ curl -X PUT \
         "fast-repo-hygiene",
         "fast-secret-scan",
         "fast-actionlint",
-        "fast-spec-artifacts"
+        "fast-spec-artifacts",
+        "fast-knowledge-lint"
       ]
     },
     "enforce_admins": true,
@@ -201,7 +204,7 @@ curl -X PUT \
   }'
 ```
 
-**This array holds all seven fast-tier contexts, every one marked `present`
+**This array holds all eight fast-tier contexts, every one marked `present`
 above** — that is what makes it safe to paste unread. A row this page ever
 marks `NOT YET IN THE TREE` must stay out of it until the loop above confirms
 otherwise; a ruleset an admin has to hand-edit before using is a ruleset they

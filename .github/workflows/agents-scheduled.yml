@@ -1,4 +1,6 @@
-# The five scheduled agents — health, quality, audit, chief-of-staff, challenger.
+# The ten scheduled agents — health, quality, audit, chief-of-staff, challenger (daily),
+# and docs, groomer, testgap, deps, release (weekly/monthly — the SDLC-extension agents
+# from docs/plans/second-brain-and-sdlc-extension.md Part B).
 #
 # Ships DISABLED BY DEFAULT: the cron schedule below is present and fires on time (the
 # schedule is not inert in the sense of "absent"), but every agent's own
@@ -37,12 +39,18 @@ on:
     - cron: "41 8 * * *"   # audit
     - cron: "13 17 * * *"  # chief-of-staff
     - cron: "37 18 * * *"  # challenger
+    - cron: "7 9 * * 1"    # docs (weekly, Mondays)
+    - cron: "19 9 * * 2"   # groomer (weekly, Tuesdays)
+    - cron: "29 9 * * 3"   # testgap (weekly, Wednesdays)
+    - cron: "43 9 * * 4"   # deps (weekly, Thursdays)
+    - cron: "53 9 1 * *"   # release (monthly, the 1st)
   workflow_dispatch:
     inputs:
       agent:
         description: >-
           Agent id to run right now (health, quality, audit, chief-of-staff,
-          challenger), or "all" to dry-run every enabled agent.
+          challenger, docs, groomer, testgap, deps, release), or "all" to
+          dry-run every enabled agent.
         required: true
         default: all
         type: string

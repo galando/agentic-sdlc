@@ -1,0 +1,69 @@
+{
+  "spec_contract": 1,
+  "stages": {
+    "plan": {
+      "verdict": "PASS",
+      "ts": "2026-08-12T21:14:36Z",
+      "requirements": [
+        {
+          "name": "artifacts exist",
+          "pass": true,
+          "detail": "intent.md, plan.md, tasks.md filled in against the actual change"
+        }
+      ]
+    },
+    "build": {
+      "verdict": "PASS",
+      "ts": "2026-08-12T21:14:36Z",
+      "requirements": [
+        {
+          "name": "tests written before/alongside code",
+          "pass": true,
+          "detail": "tools/knowledge-lint.sh + tests/knowledge-lint.bats built and run together, 14/14 green"
+        },
+        {
+          "name": "full suite green",
+          "pass": true,
+          "detail": "bats tests/ tests/harness-guards/ 626/626"
+        }
+      ]
+    },
+    "review": {
+      "verdict": "PASS",
+      "ts": "2026-08-12T21:22:44Z",
+      "requirements": [
+        {
+          "name": "self code-review, medium effort",
+          "pass": true,
+          "detail": "zero correctness/cleanup findings across the 33-file diff (config wiring, ring/predecessor logic, 8 pin strings, FAST-tier count propagation, guardrail numbering all traced)"
+        }
+      ]
+    },
+    "check": {
+      "verdict": "PASS",
+      "ts": "2026-08-12T21:22:44Z",
+      "requirements": [
+        {
+          "name": "harness suite",
+          "pass": true,
+          "detail": "bats tests/ tests/harness-guards/ 626/626"
+        },
+        {
+          "name": "workflow lint",
+          "pass": true,
+          "detail": "actionlint .github/workflows/*.yml exit 0"
+        },
+        {
+          "name": "shellcheck",
+          "pass": true,
+          "detail": "tools/knowledge-lint.sh clean, tools/adopt.sh clean (one pre-existing unrelated SC1091 info note)"
+        },
+        {
+          "name": "gate 21 self-check",
+          "pass": true,
+          "detail": "tools/spec-pipeline/validate.sh run against this spec directory"
+        }
+      ]
+    }
+  }
+}
