@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agentic SDLC — agents propose, a human merges</title>
-<meta name="description" content="A GitHub template for running your delivery lifecycle with autonomous agents: two independent reviews, 22 quality gates, and a human on the merge button.">
+<meta name="description" content="A GitHub template for running your delivery lifecycle with autonomous agents: two independent reviews, 23 quality gates, and a human on the merge button.">
 <style>
   :root {
     --bg: #f7f8fa;
@@ -111,7 +111,7 @@
     <h1>Agents propose.<br><span class="dim">You merge.</span></h1>
     <p class="lede">
       Getting an agent to write code is the easy part. This is the hard part, already built:
-      two independent reviews, a referee that settles them, 22 quality gates, and a human
+      two independent reviews, a referee that settles them, 23 quality gates, and a human
       on the merge button — running on your repo in under 30 minutes.
     </p>
     <div class="cta-row">
@@ -123,7 +123,7 @@
      wider than one cell in most monospace fonts — so the return arrow lined up by
      character index and rendered several columns adrift of "YOU MERGE". -->
 <pre>
-issue --> <span class="hl">agent triages</span> --> PR --> <span class="hl">2 reviews</span> --> <span class="hl">referee rules</span> --> <span class="hl">22 gates</span> --> <span class="you">YOU MERGE</span>
+issue --> <span class="hl">agent triages</span> --> PR --> <span class="hl">2 reviews</span> --> <span class="hl">referee rules</span> --> <span class="hl">23 gates</span> --> <span class="you">YOU MERGE</span>
                                                                                     |
           the agent that filed the issue checks the fix landed &lt;--------------------+
 </pre>
@@ -135,7 +135,7 @@ issue --> <span class="hl">agent triages</span> --> PR --> <span class="hl">2 re
   <div class="wrap">
     <h2>Why this one</h2>
     <p class="sub">
-      Four things here that you would otherwise spend months learning the hard way.
+      Five things here that you would otherwise spend months learning the hard way.
     </p>
     <div class="reasons">
       <div class="reason">
@@ -147,7 +147,7 @@ issue --> <span class="hl">agent triages</span> --> PR --> <span class="hl">2 re
       </div>
       <div class="reason">
         <h3>Every bug it has ever had is now a test</h3>
-        <p>120 hard-won operational lessons are pinned in place, inside a suite of 574 tests
+        <p>128 hard-won operational lessons are pinned in place, inside a suite of 626 tests
            that runs on every pull request. When something breaks once, the reason it broke is
            welded into the suite — so the system cannot quietly slide back into a mistake it
            has already made. Most agent setups forget. This one cannot.</p>
@@ -165,6 +165,15 @@ issue --> <span class="hl">agent triages</span> --> PR --> <span class="hl">2 re
            never by name. One small adapter file per provider holds the vendor-specific bits,
            and the build fails if a vendor name leaks anywhere else. Switching providers is a
            config edit, not a migration.</p>
+      </div>
+      <div class="reason">
+        <h3>It remembers what it learns</h3>
+        <p>A "second brain" lets the agents distill their own operational lessons into
+           short, indexed cards — read cheaply at the start of every run, written only by
+           one agent in a self-gated retrospective, and never live until a human merges
+           the card. Five more scheduled agents build on it: dependency upgrades, docs
+           freshness, backlog grooming, floor raises, release drafts — each opt-in, each
+           reviewed the same way as everything else.</p>
       </div>
     </div>
   </div>
@@ -207,7 +216,7 @@ issue --> <span class="hl">agent triages</span> --> PR --> <span class="hl">2 re
     <div class="reasons">
       <div class="reason">
         <h3>Nothing surprises you on day one</h3>
-        <p>All five scheduled agents ship <strong>disabled</strong>, and every quality floor
+        <p>All ten scheduled agents ship <strong>disabled</strong>, and every quality floor
            ships uncalibrated — measured against <em>your</em> code, never someone else's
            finish line. You dry-run each agent, then switch them on one at a time. No cron
            firehose, no surprise bill.</p>
