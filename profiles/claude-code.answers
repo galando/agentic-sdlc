@@ -1,0 +1,30 @@
+# profiles/claude-code.answers — tools/init.sh --answers profile for a
+# claude-code subscription, with the challenge role optional.
+#
+# The ONE answer only you can give (uncomment and set it, or leave it and the
+# interview will ask):
+#PRODUCT_NAME="my-product"
+
+PROVIDER=claude-code
+
+# Model ids churn faster than any committed file. These are the adapter hint's
+# examples as of 2026-08; the hint printed during the interview (or by
+# `tools/run-agent.sh --adapter-status claude-code`) names the URL that stays
+# authoritative — trust it over this file.
+MODEL_JUDGE=claude-opus-5
+MODEL_EXECUTE=claude-sonnet-5
+
+# The challenge role MUST be a different model family, served over an
+# Anthropic-wire-compatible endpoint (one that speaks /v1/messages — z.ai's
+# /api/anthropic path, or an internal gateway exposing an Anthropic-format
+# route). CHALLENGE_BASE_URL=none is valid and documented: reviews degrade to
+# one opinion, announced, never a red PR. A model id is still required so the
+# config stays complete.
+MODEL_CHALLENGE=glm-4.7
+CHALLENGE_BASE_URL=none
+
+ALERT_CHANNEL=none
+RUNNER_LABEL=ubuntu-latest
+LEDGER_COMMIT_NAME=sdlc-agent
+LEDGER_COMMIT_EMAIL=agent@example.invalid
+BUILD_PIPELINE="the built-in fallback (tools/spec-pipeline/)"

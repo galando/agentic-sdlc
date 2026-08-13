@@ -43,4 +43,8 @@ examples/backend/archunit_store/*.tmp
 
 # Local Claude Code state. Personal to each contributor: session statistics,
 # machine-specific settings. Never template content, and never public.
-.claude/
+# `.claude/*` (children), not `.claude/` (the directory): git cannot re-include
+# anything under an excluded DIRECTORY, and .claude/skills/ IS template content
+# — the /adopt-agentic-sdlc skill ships with the repo (see ONBOARDING.md).
+.claude/*
+!.claude/skills/
