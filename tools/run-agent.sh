@@ -177,6 +177,25 @@ fi
 SYSTEM_PROMPT_FILE="$ROOT/.github/agent-temper-headless.md"
 [ -f "$SYSTEM_PROMPT_FILE" ] || die_config "system prompt file missing: $SYSTEM_PROMPT_FILE"
 
+# Fleet mode (config.yml `mode:`). In observe, the report-only sheet is APPENDED
+# to the system prompt here — one implementation for every provider, so no
+# adapter can forget it. The prompt is the instruction; the workflow permission
+# split in agents-scheduled.yml / steward.yml is the enforcement. Composed into
+# a temp file because the shipped system prompt must never be edited in place.
+FLEET_MODE="$(cfg_get mode active)"
+case "$FLEET_MODE" in
+  active) : ;;
+  observe)
+    OBSERVE_FILE="$ROOT/.agents/observe.md"
+    [ -f "$OBSERVE_FILE" ] || die_config "mode: observe is set but $OBSERVE_FILE is missing"
+    COMPOSED_PROMPT="$(mktemp)"
+    cat "$SYSTEM_PROMPT_FILE" "$OBSERVE_FILE" > "$COMPOSED_PROMPT"
+    SYSTEM_PROMPT_FILE="$COMPOSED_PROMPT"
+    ;;
+  *) die_config "mode must be 'active' or 'observe', not '$FLEET_MODE'" ;;
+esac
+export AGENT_FLEET_MODE="$FLEET_MODE"
+
 TIMEOUT="${TIMEOUT_OVERRIDE:-600}"
 
 ADAPTER_FILE="$ROOT/tools/providers/${PROVIDER}.sh"
@@ -237,6 +256,11 @@ print_dry_run_header() {
   echo "model: $MODEL"
   echo "prompt: $PROMPT_FILE"
   echo "system-prompt: $SYSTEM_PROMPT_FILE"
+  # Only in observe: the six-line header is a stable contract (run-agent-dryrun.bats),
+  # and active mode is the state every existing consumer knows.
+  if [ "$FLEET_MODE" = "observe" ]; then
+    echo "fleet-mode: observe (report-only sheet .agents/observe.md appended to the system prompt)"
+  fi
 }
 
 print_unverified_banner() {

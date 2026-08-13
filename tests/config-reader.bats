@@ -53,6 +53,11 @@ both_readers_agree() {
   [ "$status" -eq 0 ]
 }
 
+@test "config reader: both readers agree on mode (the fleet switch)" {
+  run both_readers_agree "mode"
+  [ "$status" -eq 0 ]
+}
+
 @test "config reader: both readers agree on models.judge / execute / challenge" {
   run both_readers_agree "models.judge"
   [ "$status" -eq 0 ]

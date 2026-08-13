@@ -17,6 +17,19 @@ provider: "{{PROVIDER}}"      # placeholder: claude-code | codex | gemini-cli.
                                # challenge role below — tools/init.sh refuses it here.)
 
 # ---------------------------------------------------------------------------
+# Fleet mode. `observe` is the trial week: every agent reads and REPORTS —
+# review comments still post, scheduled agents file issues — but nothing
+# writes: no branch, no push, no pull request. The prompt suffix
+# (.agents/observe.md) is the instruction; the WORKFLOW PERMISSIONS are the
+# enforcement (agents-scheduled.yml routes observe runs through a job whose
+# token has contents: read, and steward.yml's acting job does not run at all —
+# a notice job answers instead). The same idea that separates the memory
+# tiers: write permission, not trust. Flip to `active` when a week of reports
+# looks right.
+# ---------------------------------------------------------------------------
+mode: active                  # active | observe
+
+# ---------------------------------------------------------------------------
 # Models are addressed by ROLE, never by task and never by vendor name.
 # Pin EXACT ids. A floating alias ("opus", "sonnet", "latest") silently resolves to
 # whatever the platform default is that week, which defeats knowing which model reasoned.

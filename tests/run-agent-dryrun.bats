@@ -58,6 +58,30 @@ set_provider() {
   [[ "$output" == *"system-prompt:"* ]]
 }
 
+@test "dry-run: observe mode announces itself and appends the report-only sheet, active stays six lines" {
+  # Fleet mode's prompt half, executed: in observe the system prompt handed to
+  # the adapter must be the base sheet PLUS .agents/observe.md, composed by
+  # run-agent.sh itself so no adapter can forget it — and the dry-run header
+  # must say so, because an operator reading a dry-run during a trial week
+  # needs to see the mode without opening the config.
+  set_provider claude-code
+  sed -i.bak -E 's|^mode: active|mode: observe|' "$AGENTS_CONFIG"
+  rm -f "$AGENTS_CONFIG.bak"
+  run env PATH="$BIN_ONLY" "$RUN_AGENT" health --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"fleet-mode: observe"* ]]
+  composed="$(printf '%s\n' "$output" | sed -n 's/^system-prompt: //p')"
+  [ -f "$composed" ]
+  grep -qi 'no branch, no commit, no push' "$composed"    # the observe sheet is in
+  grep -q 'agent-report' "$composed"
+  # And an unknown mode dies loudly as a config error, never a silent default.
+  sed -i.bak -E 's|^mode: observe|mode: sideways|' "$AGENTS_CONFIG"
+  rm -f "$AGENTS_CONFIG.bak"
+  run env PATH="$BIN_ONLY" "$RUN_AGENT" health --dry-run
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"mode must be"* ]]
+}
+
 @test "dry-run: claude-code is verified and prints no UNVERIFIED STUB banner" {
   set_provider claude-code
   run env PATH="$BIN_ONLY" "$RUN_AGENT" health --dry-run

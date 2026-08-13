@@ -76,7 +76,14 @@ permissions:
   actions: read
 
 jobs:
-  steward:
+  # The event filter and the fleet-mode read, ahead of the acting job. A
+  # workflow `if:` cannot read a file (the same constraint that puts the
+  # mention phrase in a variable), so `mode: observe` has to become a job
+  # output before any job can gate on it — and the event filter lives HERE,
+  # once, because the acting job and the observe notice both depend on it
+  # transitively through `needs:` (a skipped dependency skips its dependents,
+  # so neither runs on an event this filter rejects).
+  mode:
     # GitHub's `on:` layer cannot filter by comment author or content, so every
     # comment — including the agent's own replies — technically fires this
     # workflow. This gate runs on GitHub's side BEFORE the job reaches a runner,
@@ -88,6 +95,8 @@ jobs:
     # triggers a review, forever. The consequence to design around is in
     # review.yml: a review from this repository's own bot can NEVER reach the
     # steward by commenting, which is why the handoff FILES AN ISSUE instead.
+    # (The observe notice below posts as a bot too, so its comments are
+    # filtered here for the same reason — no loop.)
     #
     # `issues.opened` is the one unconditional case — that is the auto-triage
     # path and by design it needs no tag. It is also, for the same reason, the
@@ -106,8 +115,33 @@ jobs:
       (github.event_name == 'issue_comment' && github.event.sender.type != 'Bot' && contains(github.event.comment.body, vars.AGENT_MENTION || '@agent')) ||
       (github.event_name == 'pull_request_review_comment' && github.event.sender.type != 'Bot' && contains(github.event.comment.body, vars.AGENT_MENTION || '@agent')) ||
       (github.event_name == 'pull_request_review' && github.event.sender.type != 'Bot' && contains(github.event.review.body, vars.AGENT_MENTION || '@agent'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      fleet: ${{ steps.read.outputs.fleet }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - name: Read fleet mode from .agents/config.yml
+        id: read
+        run: |
+          . tools/lib/config.sh
+          echo "fleet=$(cfg_get mode active)" >> "$GITHUB_OUTPUT"
 
-    # Per issue or pull request, and at JOB level so the `if:` above is
+  # Fleet mode's enforcement half for the steward: in observe, this job — the
+  # only one holding contents/pull-requests write — NEVER RUNS. Its write
+  # permissions are simply absent from the run; the notice job below (which
+  # can only comment) answers instead. Permissions are the mode; prompt text
+  # is just manners.
+  steward:
+    needs: mode
+    if: needs.mode.outputs.fleet != 'observe'
+
+    # Per issue or pull request, and at JOB level so the event filter is
     # evaluated first — a skipped job never enters the group and so can never
     # displace a pending request. See the block above `on:` for why workflow
     # level was wrong.
@@ -559,3 +593,32 @@ jobs:
             } catch (err) {
               core.warning(`Eviction reporting failed (non-fatal): ${err.message}`);
             }
+
+  # The observe-mode answer. When the fleet is observing, the acting job above
+  # is skipped and this one — which can only comment — tells the human who
+  # mentioned the agent (or whose issue auto-triage would have picked up) why
+  # nothing else is happening. Degrade visibly: a steward that silently
+  # ignores a mention is indistinguishable from a broken one. Its own comments
+  # post as a bot, so the mode job's sender filter keeps them from re-waking
+  # this workflow — same no-loop mechanism the review workflow relies on.
+  observe-notice:
+    needs: mode
+    if: needs.mode.outputs.fleet == 'observe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Explain observe mode on the triggering thread
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          [ -n "$NUMBER" ] || { echo "no issue/PR number on this event — nothing to reply to"; exit 0; }
+          body="$(printf '%s\n\n%s\n' \
+            "The fleet is in **observe mode** (\`mode: observe\` in \`.agents/config.yml\`): the steward reads and reports but does not act — no branch, no commit, no pull request. This run's credentials mechanically lack write access; that is the mode working, not a failure. An operator ends the trial by flipping \`mode: active\`." \
+            "_Posted automatically by the steward workflow's observe notice._")"
+          gh api "repos/$REPO/issues/$NUMBER/comments" -f body="$body" \
+            || echo "::warning::could not post the observe-mode notice on #$NUMBER — the mention above received no answer"
