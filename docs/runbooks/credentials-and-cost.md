@@ -16,6 +16,7 @@ run — the honest version, not the sales version.
 | `DEIDENT_TERMS` | The de-identification sweep in `fast-repo-hygiene`, for your own fork's naming hygiene | Optional, adopter-supplied. The sweep announces it is unarmed and skips — never a false "clean" |
 | `VALIDATE_DB_PASSWORD` | `full-migration-validation`'s scratch Postgres service | Optional — defaults to a fixed password scoped to that ephemeral CI container |
 | `IT_DB_PASSWORD` | `full-integration-tests`'s scratch Postgres service | Optional — same default-password pattern as above |
+| `NVD_API_KEY` | Gate 16's backend CVE scan (`nightly-dependency-scan`), a free key from [nvd.nist.gov](https://nvd.nist.gov/developers/request-an-api-key) | Optional. The backend half of the scan SKIPS with a `::notice::` — the frontend advisory audit is unaffected, and the gate is never failed for the absence. Without a key, dependency-check's NVD client currently errors out updating its database rather than degrading to slower unauthenticated access, so running it anyway would report a false gate failure |
 
 ## Subscription token or API key? The two are not interchangeable
 

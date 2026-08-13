@@ -243,10 +243,31 @@ jobs:
       # Fails at a high CVSS score. An allowlist entry needs a written exposure
       # analysis, and the gate fails when an allowlisted advisory disappears —
       # the same one-way ratchet as every other floor here.
+      #
+      # Pinned to an explicit plugin version rather than the unversioned goal
+      # invocation this used to be: unpinned, Maven resolves the newest release at
+      # run time, so an upstream plugin release can flip this gate red with no
+      # change on our side — which is exactly what happened when 13.0.0 shipped.
+      #
+      # NVD_API_KEY is an OPTIONAL credential (docs/runbooks/credentials-and-cost.md),
+      # checked INSIDE the body rather than a step-level `if:` so a missing key still
+      # logs why, same as gate 18's pattern. Without a key, dependency-check's NVD API
+      # client currently throws instead of falling back to slower unauthenticated
+      # access (upstream defect, not a finding about our dependencies) — running it
+      # anyway would report a false gate failure rather than an absent credential, so
+      # this SKIPS instead. Get a free key at
+      # https://nvd.nist.gov/developers/request-an-api-key.
       - name: Backend dependency scan
         if: needs.stacks.outputs.backend == 'true'
         working-directory: ./examples/backend
-        run: mvn -B org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=8
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          if [ -z "${NVD_API_KEY:-}" ]; then
+            echo "::notice title=Gate 16 backend not armed::No NVD_API_KEY secret, so the backend CVE scan SKIPPED, not passed. Get a free key at https://nvd.nist.gov/developers/request-an-api-key and add it as the NVD_API_KEY repository secret."
+            exit 0
+          fi
+          mvn -B org.owasp:dependency-check-maven:13.0.0:check -DfailBuildOnCVSS=8 -DnvdApiKeyEnvironmentVariable=NVD_API_KEY
 
   # =========================================================================
   # Gate 18 — live external API contract tests. INFORMATIVE, NON-BLOCKING.
