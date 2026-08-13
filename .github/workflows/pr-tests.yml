@@ -356,7 +356,7 @@ jobs:
             tools/check-deidentified.sh
           fi
 
-  # The second brain's own gate (docs/plans/second-brain-and-sdlc-extension.md Part A).
+  # The second brain's own gate (Part A of .temper/specs/second-brain-and-sdlc-extension/).
   # Deliberately carries no `needs: changes`, same reasoning as fast-harness-guards: a
   # docs-only pull request is exactly the class of change most likely to touch
   # docs/knowledge/, and a required check that skips on that class reports "passing" for

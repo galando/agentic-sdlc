@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
-# Scenario: the second brain (docs/knowledge/, docs/plans/second-brain-and-sdlc-extension.md
-# Part A) stays small and internally consistent. tools/knowledge-lint.sh is the FAST gate
+# Scenario: the second brain (docs/knowledge/; Part A of the spec at
+# .temper/specs/second-brain-and-sdlc-extension/) stays small and internally consistent. tools/knowledge-lint.sh is the FAST gate
 # that enforces the card contract in docs/knowledge/README.md mechanically; these tests
 # exercise the real script against synthetic fixtures, never a copy of its logic.
 

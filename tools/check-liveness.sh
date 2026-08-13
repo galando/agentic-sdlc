@@ -43,9 +43,21 @@ _entry_age_hours() {
 }
 
 cmd_predecessor() {
-  local agent="${1:-}" pred max_age age
+  local agent="${1:-}" pred max_age age rc
   [ -n "$agent" ] || die "usage: check-liveness.sh predecessor <agent>"
-  pred="$(cfg_predecessor "$agent")" || die "cannot resolve $agent's predecessor"
+  pred="$(cfg_predecessor "$agent")" || {
+    rc=$?
+    if [ "$rc" -eq 4 ]; then
+      # Exactly one agent is enabled: the ring has a single live member and no
+      # predecessor whose silence would mean anything. Say so and stay green —
+      # the honest report is "checked nothing to check", never a manufactured
+      # escalation against an agent that is switched off by design. Total
+      # silence is still covered: that is cmd_staleness's job, not this one's.
+      echo "ok: no other enabled agent in the ring — nothing to watch (the staleness check still covers total silence)"
+      return 0
+    fi
+    die "cannot resolve $agent's predecessor"
+  }
   max_age="$(cfg_agent_field "$pred" max-age-hours 2>/dev/null || true)"
   if [ -z "$max_age" ]; then
     # `|| die`, not a bare assignment: this file runs without -e, so a missing

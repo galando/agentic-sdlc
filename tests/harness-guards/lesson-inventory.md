@@ -3,7 +3,7 @@
 _Captured 2026-08-05 against source head `9589c5c65a0baca02a9436b3f472929531e91a88`. 128 entries: 97 `regex`, 8 `literal`, 23 `semantic-manual`._
 
 _Addendum 2026-08-12: eight `literal` entries were added — three for the second brain
-(`docs/plans/second-brain-and-sdlc-extension.md` Part A) and five for the SDLC-extension
+(Part A of `.temper/specs/second-brain-and-sdlc-extension/`) and five for the SDLC-extension
 agents (Part B). These are forward-looking pins on live tree content, not extractions
 from the original vendor-specific source head above._
 

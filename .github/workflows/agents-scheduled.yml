@@ -1,12 +1,12 @@
 # The ten scheduled agents — health, quality, audit, chief-of-staff, challenger (daily),
 # and docs, groomer, testgap, deps, release (weekly/monthly — the SDLC-extension agents
-# from docs/plans/second-brain-and-sdlc-extension.md Part B).
+# from Part B of the spec at .temper/specs/second-brain-and-sdlc-extension/).
 #
 # Ships DISABLED BY DEFAULT: the cron schedule below is present and fires on time (the
 # schedule is not inert in the sense of "absent"), but every agent's own
 # `ledger.agents[].enabled` in .agents/config.yml starts `false`, so every scheduled run
 # resolves to a no-op that logs why and exits green. Nobody should meet this system as
-# five crons and an alert firehose on day one (docs/runbooks/agent-modes.md). The
+# ten crons and an alert firehose on day one (docs/runbooks/agent-modes.md). The
 # one-line enable is flipping `enabled: false` to `true` for one agent in
 # .agents/config.yml — no workflow edit needed. README.md's "turning on the routines"
 # section documents the order (dry-run via workflow_dispatch first, then enable).

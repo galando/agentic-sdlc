@@ -139,7 +139,7 @@ else
   cat <<EOF
 Provider '$PROVIDER' is an UNVERIFIED STUB — its flags have never been run.
 The steward and PR review are disabled so your first pull request is green.
-The 22 gates are live now and do not depend on any agent CLI.
+The 23 gates are live now and do not depend on any agent CLI.
 To finish: tools/providers/$PROVIDER.sh  (docs: $DOCS_URL)  -> set ADAPTER_STATUS=verified
            then re-run tools/init.sh to enable the steward and review.
 (Both workflows read this same ADAPTER_STATUS line at run time, so once you flip it

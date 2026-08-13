@@ -8,7 +8,7 @@
 ADAPTER_STATUS=verified                                        # verified | unverified — THE source of truth (design.md 3.4)
 ADAPTER_DOCS_URL=https://code.claude.com/docs/en/headless       # confirm flags here before changing this file
 ADAPTER_AUTH_HINT='API-KEY MODE (always): an API key issued by whichever backend auth.compatible-endpoint.base_url points at. This is the one place a per-token key is genuinely required, because no subscription covers a second model family. OPTIONAL BY DESIGN: without it the adversarial second opinion degrades to a single reviewer and says so — it never fails a pull request.'
-ADAPTER_MODEL_HINT='whatever model ids the endpoint at base_url serves — its own GET /v1/models is the authoritative list, not any document. Works with any OpenAI-compatible backend: z.ai (GLM series, e.g. glm-4.7), DeepSeek, Moonshot/Kimi, Mistral, a local vLLM or Ollama, and most other hosted model APIs. Pick a DIFFERENT family than your primary provider — a second draw from the same distribution shares the same blind spots.'
+ADAPTER_MODEL_HINT='whatever model ids the endpoint at base_url serves — its own GET /v1/models is the authoritative list, not any document. The endpoint must be ANTHROPIC-WIRE-COMPATIBLE: this adapter repoints the same CLI binary via ANTHROPIC_BASE_URL, so the backend has to speak the Anthropic Messages protocol (/v1/messages), NOT the OpenAI chat-completions one. z.ai serves one at its /api/anthropic path; a LiteLLM or similar internal gateway can expose an Anthropic-format route in front of other model families (DeepSeek, Moonshot/Kimi, Mistral, a local vLLM); an OpenAI-format-only endpoint will not work here. Pick a DIFFERENT family than your primary provider — a second draw from the same distribution shares the same blind spots.'
 #
 # tools/providers/compatible-endpoint.sh — the "different model family" adapter.
 #
@@ -46,7 +46,9 @@ print_argv() {
     "--permission-mode" \
     "acceptEdits"
   echo "(base URL and auth overridden via ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY," \
-    "in a fresh HOME so the subprocess cannot touch the parent session's own config)"
+    "in a fresh HOME so the subprocess cannot touch the parent session's own config;" \
+    "proxy/CA variables — HTTP(S)_PROXY, NO_PROXY, SSL_CERT_*, NODE_EXTRA_CA_CERTS," \
+    "AWS_CA_BUNDLE — pass through by name so the call can cross a corporate egress proxy)"
   # No argv position ever carries $AGENT_AUTH_TOKEN's value — see claude-code.sh's
   # print_argv for why (env-var auth, not a flag). Nothing to redact here.
   echo "(auth: \$AGENT_AUTH_TOKEN -> \$ANTHROPIC_API_KEY env var, never a flag)"
@@ -87,9 +89,25 @@ case "$verb" in
     # lesson 1 — by wiping the environment entirely and re-adding only what this
     # subprocess needs. `env -i` is the strongest form of that: nothing survives that
     # was not just named on the line below.
+    #
+    # Network-path and trust-anchor variables are re-added BY NAME, never by glob, so
+    # the invariant stays literally true. They are credential-inert: a proxy or a CA
+    # bundle selects HOW the request travels and which TLS interception to trust — it
+    # cannot re-select the backend or the credential, because ANTHROPIC_BASE_URL and
+    # ANTHROPIC_API_KEY are still set explicitly after the wipe. Without this, a
+    # corporate egress proxy kills ONLY the challenge role (claude-code.sh inherits
+    # the full environment), and because this credential is optional the failure
+    # degrades to "one opinion" on every run — the adversarial half of the review
+    # silently off in exactly the environment that most needs it.
+    passthrough=()
+    for v in HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy \
+             SSL_CERT_FILE SSL_CERT_DIR NODE_EXTRA_CA_CERTS AWS_CA_BUNDLE; do
+      if [ -n "${!v:-}" ]; then passthrough+=("$v=${!v}"); fi
+    done
     exec env -i \
       HOME="$alt_home" \
       PATH="$PATH" \
+      ${passthrough[@]+"${passthrough[@]}"} \
       ANTHROPIC_BASE_URL="$AGENT_BASE_URL" \
       ANTHROPIC_API_KEY="${AGENT_AUTH_TOKEN:-}" \
       timeout "${AGENT_TIMEOUT_SECONDS:-600}" "$CLI_BIN" \

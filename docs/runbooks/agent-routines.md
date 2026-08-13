@@ -4,7 +4,7 @@
 <!-- placeholder: {{ALERT_CHANNEL}} — how a run summary reaches a human: none | webhook | command. -->
 <!-- placeholder: {{BUILD_PIPELINE}} — the spec pipeline agents build changes through. -->
 
-The five scheduled agents run from `.github/workflows/agents-scheduled.yml` — a cron matrix
+The ten scheduled agents run from `.github/workflows/agents-scheduled.yml` — a cron matrix
 over the agent ids in `.agents/config.yml`, each entry calling `tools/run-agent.sh`. One
 fresh session per firing, no memory, one bounded task.
 
@@ -157,9 +157,11 @@ Two consequences, both deliberate:
 
 1. **Relative firing order never changes** — and the watcher ring below depends on that
    order and on nothing else. **The ring order IS the order of `ledger.agents` in
-   `.agents/config.yml`**, wrapping at the top. There is no separate ring table, because a
-   second list is a second source of truth: reordering the agents reorders the ring by
-   construction.
+   `.agents/config.yml`**, wrapping at the top, **skipping agents marked
+   `enabled: false`** — a disabled agent writes no entries, so watching it would escalate
+   forever during the enable-one-at-a-time rollout. There is no separate ring table,
+   because a second list is a second source of truth: reordering the agents reorders the
+   ring by construction.
 2. **Anything an agent compares against a *local* wall-clock event must not assume a fixed
    UTC offset.** A daily report generated at 07:00 local time is sent at 05:00 UTC in summer
    and 06:00 UTC in winter — i.e. on one side of the year it lands *after* the agent that
@@ -511,7 +513,7 @@ wrong.
 
 ---
 
-## The five scheduled agents
+## The ten scheduled agents
 
 Each entry names the agent's job, the things only *it* can see, and the rules above that
 bite hardest for it. **The executable prompt is `.agents/prompts/<agent>.md`.**
@@ -528,9 +530,13 @@ is. Fires first in the ring.
 - **Empty signal list** → report `no health signals configured` and finish green. That is
   the honest report: it says it checked nothing, rather than that nothing was wrong.
 - **Watch the watchers** (re-based; see the liveness section): its predecessor in the ring
-  is the agent **before it in `ledger.agents`, wrapping** — so for `health` that is
-  `release`, the last entry in the list. `release` runs monthly rather than daily, so this
-  check reads **`release`'s own `max-age-hours` override**, never the daily default. Run
+  is the **enabled** agent **before it in `ledger.agents`, wrapping** — disabled agents
+  are skipped (they write no entries; watching one escalates forever), so with the whole
+  fleet enabled that is `release`, the last entry in the list. `release` runs monthly
+  rather than daily, so this check reads **`release`'s own `max-age-hours` override**,
+  never the daily default. `tools/check-liveness.sh predecessor health` resolves both the
+  predecessor and the window; when it reports no other agent is enabled, that is a green
+  "nothing to watch", never an alarm. Run
   `tools/ledger.sh latest` and compare the predecessor's newest entry against that window.
   Older ⇒ note the gap and escalate per the ladder. **Not "did it run today".**
 - **Also run the external staleness check:** the newest entry across ALL agents against

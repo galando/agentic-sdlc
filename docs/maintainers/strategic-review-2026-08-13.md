@@ -145,8 +145,8 @@ contradiction** (resolved: checksummed, gh-native flows only), and **doctrine-be
   select the network path and cannot re-select the backend, so the credential-isolation
   lesson survives. Bats guard: proxy vars survive, a planted OPENAI_API_KEY does not.
 - Un-block adapter promotion: split `adapter-hygiene.bats` into per-adapter open-world
-  contract checks (keep always) and the template-only census (skip when `{{PROVIDER}}`
-  is resolved — the `day-one-green.bats` idiom).
+  contract checks (keep always) and the template-only census (skip once the provider
+  placeholder token is resolved — the `day-one-green.bats` idiom).
 - Sweep the six drift bugs; document GITLEAKS_LICENSE; `api.github.com` →
   `${{ github.api_url }}` (unlocks GHES for an S); parameterize hard-coded slugs in
   `write-product-readme.sh`.
