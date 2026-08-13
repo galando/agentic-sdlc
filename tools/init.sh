@@ -132,7 +132,7 @@ DOCS_URL="$(adapter_docs_url "$PROVIDER")"
 if [ "$STATUS" = "verified" ]; then
   cat <<EOF
 Provider '$PROVIDER' is VERIFIED. Minimal mode: the steward and PR review ship LIVE,
-the five scheduled routines ship DISABLED (enable them one at a time after an
+the ten scheduled routines ship DISABLED (enable them one at a time after an
 interactive dry-run — see README.md "turning on the routines").
 EOF
 else

@@ -137,6 +137,10 @@ adopted_tree() {
   # credential-inert (they select the network path, not the backend), so they
   # pass through BY NAME. Executed, not grepped: run the adapter against a stub
   # CLI that dumps its environment, then assert both halves of the contract.
+  # The adapter's exec line runs the CLI under timeout(1) — GNU coreutils, absent
+  # on stock macOS. That is the adapter's runtime dependency, not the passthrough
+  # contract under test; skip rather than fail the suite on a maintainer's laptop.
+  command -v timeout >/dev/null 2>&1 || skip "timeout(1) not on PATH (stock macOS)"
   adapter="$REPO_ROOT/tools/providers/compatible-endpoint.sh"
   workdir="$(mktemp -d)"
   dump="$workdir/env-dump"
@@ -166,8 +170,11 @@ adopted_tree() {
   grep -qxF 'HTTPS_PROXY=http://proxy.corp.example:3128' "$dump"
   grep -qxF 'NO_PROXY=localhost' "$dump"
   grep -qxF 'NODE_EXTRA_CA_CERTS=/etc/corp/ca.pem' "$dump"
-  # ...the credential isolation does not weaken...
-  ! grep -q 'must-not-survive' "$dump"
+  # ...the credential isolation does not weaken... (run + status, never a bare
+  # `! grep`: bash exempts !-negated pipelines from errexit, so a bare negation
+  # mid-test can never fail — verified by sabotaging the passthrough loop.)
+  run grep -q 'must-not-survive' "$dump"
+  [ "$status" -ne 0 ]
   # ...and the challenge backend + key are still the explicitly-set ones.
   grep -qxF 'ANTHROPIC_BASE_URL=https://challenge.example/api' "$dump"
   grep -qxF 'ANTHROPIC_API_KEY=challenge-key-value' "$dump"

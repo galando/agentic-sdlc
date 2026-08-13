@@ -690,8 +690,9 @@ cheap while still getting a retrospective cadence far tighter than weekly, witho
 always-on agent reading the same data a second time.
 
 - **Every run — the daily brief (cheap, always).** `tools/ledger.sh latest` for team status,
-  flagging any agent whose newest entry is older than its window. This **absorbs the watcher
-  ring's "absence is the signal" job into one place**. Then today's structured entries from
+  flagging any **enabled** agent whose newest entry is older than its window (disabled
+  agents write no entries by design — flagging them is the false-alarm class the ring
+  skips). This **absorbs the watcher ring's "absence is the signal" job into one place**. Then today's structured entries from
   the other agents, plus open agent-authored pull requests and S1+ issues. Compose ONE message
   covering:
   1. one status line per agent;

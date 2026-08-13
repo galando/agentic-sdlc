@@ -1,6 +1,6 @@
 # The ten scheduled agents — health, quality, audit, chief-of-staff, challenger (daily),
 # and docs, groomer, testgap, deps, release (weekly/monthly — the SDLC-extension agents
-# from Part B of the spec at .temper/specs/second-brain-and-sdlc-extension/).
+# from Part B of PR #18's design; spec at .temper/specs/second-brain-and-sdlc-extension/).
 #
 # Ships DISABLED BY DEFAULT: the cron schedule below is present and fires on time (the
 # schedule is not inert in the sense of "absent"), but every agent's own

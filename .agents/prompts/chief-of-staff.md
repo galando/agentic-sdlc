@@ -16,10 +16,11 @@ agent.
 
 ## Every run — the daily brief (cheap, always)
 
-1. `tools/ledger.sh latest` for team status; flag any agent whose newest entry is older
-   than its liveness window (`.agents/config.yml` `liveness.max-age-hours`, or its
-   per-agent override). This absorbs the watcher ring's "absence is the signal" job into
-   one place.
+1. `tools/ledger.sh latest` for team status; flag any **enabled** agent whose newest
+   entry is older than its liveness window (`.agents/config.yml` `liveness.max-age-hours`,
+   or its per-agent override) — a disabled agent writes no entries by design, and flagging
+   it every day is the same false-alarm class the watcher ring skips. This absorbs the
+   watcher ring's "absence is the signal" job into one place.
 2. Today's structured entries from the other agents, plus open agent-authored pull
    requests and S1+ issues.
 3. **Closed-but-unverified is a standing section.** List every agent-filed issue closed
