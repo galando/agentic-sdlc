@@ -130,15 +130,33 @@ jobs:
       # tool ignores a `-D` override of a value hard-coded in a plugin's own
       # configuration block, so the wrong spelling is silently a no-op — for as
       # long as nobody checks.
+      # A comment-only or annotation-only .java change puts its class in scope
+      # (the scope is per file, not per hunk) yet produces ZERO mutants — and
+      # PIT hard-fails the whole build on "No mutations found" before the
+      # sampling step below can rule. Zero mutants is below the 20-mutant
+      # sample floor by definition, so the gate's own contract says skip,
+      # announced — never a red X for a Javadoc edit, and never a silent pass:
+      # only PIT's specific no-mutations error is converted; every other
+      # failure stays a failure.
       - name: Run mutation testing on the changed classes
+        id: mutrun
         if: steps.mutscope.outputs.scope != ''
         working-directory: ./examples/backend
         env:
           SCOPE: ${{ steps.mutscope.outputs.scope }}
         run: |
-          mvn -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage \
+          set -o pipefail
+          if mvn -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage \
             -DtargetClasses="$SCOPE" \
-            -Dpit.mutationThreshold=0
+            -Dpit.mutationThreshold=0 2>&1 | tee mutation-run.log; then
+            exit 0
+          fi
+          if grep -qF 'No mutations found' mutation-run.log; then
+            echo "zero_mutants=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Mutation gate skipped, not passed::The changed classes produced zero mutants (a comment-only or annotation-only Java change lands here). Zero is below the ${MIN_MUTANTS:-20}-mutant sample floor by definition — the diff-scoped score is SKIPPED for this pull request; the nightly whole-codebase run still measures everything."
+            exit 0
+          fi
+          exit 1
 
       # Pure shell and awk on purpose. This check was once written in another
       # scripting language and exited 127 with "command not found", because only
@@ -148,7 +166,7 @@ jobs:
       # interpreter. Depending on a toolchain the job does not install is how a
       # gate goes quietly missing, so this needs nothing beyond the shell.
       - name: Enforce the mutation score on the diff
-        if: steps.mutscope.outputs.scope != ''
+        if: steps.mutscope.outputs.scope != '' && steps.mutrun.outputs.zero_mutants != 'true'
         working-directory: ./examples/backend
         run: |
           set -euo pipefail

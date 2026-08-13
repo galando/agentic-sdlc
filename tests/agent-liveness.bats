@@ -95,6 +95,57 @@ append_backdated() {
     "{\"date\":\"${datefield}\",\"verdict\":\"green\",\"summary\":\"scheduled run\"}"
 }
 
+@test "a disabled predecessor is skipped, never watched into a false alarm" {
+  cd "$WORK/checkout"
+  # The enable-one-at-a-time rollout in miniature: audit's list-predecessor
+  # quality is switched off and has (correctly) never written. Before the ring
+  # learned to skip disabled agents, this escalated forever. The ring must walk
+  # past quality to ops, whose fresh entry answers the actual question.
+  export LEDGER_AGENTS="ops quality audit"
+  cat > "$WORK/config.yml" <<'EOF'
+schema: 1
+liveness:
+  max-age-hours: 12
+  staleness-hours: 36
+ledger:
+  branch: agent-ledger
+  agents:
+    - id: ops
+      enabled: true
+    - id: quality
+      enabled: false
+    - id: audit
+      enabled: true
+EOF
+  append_backdated ops 1 "2026-08-06"
+
+  run "$CHECK_LIVENESS" predecessor audit
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok:"* ]]
+  [[ "$output" == *"ops"* ]]
+}
+
+@test "a single enabled agent reports nothing-to-watch, green — never a manufactured escalation" {
+  cd "$WORK/checkout"
+  cat > "$WORK/config.yml" <<'EOF'
+schema: 1
+liveness:
+  max-age-hours: 12
+  staleness-hours: 36
+ledger:
+  branch: agent-ledger
+  agents:
+    - id: ops
+      enabled: true
+    - id: quality
+      enabled: false
+EOF
+  run "$CHECK_LIVENESS" predecessor ops
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no other enabled agent"* ]]
+  [[ "$output" == *"staleness check"* ]]
+}
+
 @test "a late-but-present predecessor (~3h old) does NOT escalate" {
   cd "$WORK/checkout"
   append_backdated quality 3 "2026-08-06"

@@ -109,8 +109,10 @@ liveness:
 # ---------------------------------------------------------------------------
 # The ledger. `agents:` is THE list — ledger.sh validates against it, latest/trend iterate
 # it, agents-scheduled.yml builds its matrix from it, and the watcher ring's predecessor is
-# simply the PREVIOUS ENTRY IN THIS LIST, wrapping at the top. One list. A separate ring
-# table would be a second source of truth.
+# simply the PREVIOUS ENABLED ENTRY IN THIS LIST, wrapping at the top. One list. A separate
+# ring table would be a second source of truth. Disabled agents are skipped by the ring —
+# an agent that is switched off writes no entries, and a ring that watched it anyway would
+# escalate forever during the enable-one-at-a-time rollout this file recommends.
 # ---------------------------------------------------------------------------
 ledger:
   branch: agent-ledger

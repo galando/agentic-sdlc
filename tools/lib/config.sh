@@ -309,8 +309,16 @@ cfg_list() {
 }
 
 # ---------------------------------------------------------------------------
-# cfg_predecessor <agent> — the previous agent in ledger.agents, wrapping at the top.
-# The watcher ring's whole definition (Decision D3): reorder the agents, reorder the ring.
+# cfg_predecessor <agent> — the previous ENABLED agent in ledger.agents, wrapping at the
+# top. The watcher ring's whole definition (Decision D3): reorder the agents, reorder the
+# ring. An agent explicitly marked `enabled: false` is SKIPPED: it never writes ledger
+# entries, so a ring that watches it escalates forever on an agent that is switched off
+# by design — which is exactly the state the recommended enable-one-at-a-time rollout
+# spends its first weeks in. An absent `enabled` field counts as in the ring (the shipped
+# config always writes the field; a hand-rolled config without it has no notion of
+# disabling). Exit 4, distinct from every config error, means "no OTHER enabled agent
+# exists" — the caller announces there is nothing to watch rather than inventing a
+# predecessor; the external staleness check still covers total silence.
 # ---------------------------------------------------------------------------
 cfg_predecessor() {
   local target="$1" id
@@ -326,9 +334,17 @@ cfg_predecessor() {
   fi
   for (( i = 0; i < n; i++ )); do
     if [ "${ids[$i]}" = "$target" ]; then
-      local pi=$(( (i - 1 + n) % n ))
-      printf '%s\n' "${ids[$pi]}"
-      return 0
+      local j pi enabled
+      for (( j = 1; j < n; j++ )); do
+        pi=$(( (i - j + n) % n ))
+        enabled="$(cfg_agent_field "${ids[$pi]}" enabled 2>/dev/null || true)"
+        if [ "$enabled" != "false" ]; then
+          printf '%s\n' "${ids[$pi]}"
+          return 0
+        fi
+      done
+      echo "cfg_predecessor: no other enabled agent in the ring — '$target' has nobody to watch" >&2
+      return 4
     fi
   done
   echo "cfg_predecessor: unknown agent '$target'" >&2

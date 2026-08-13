@@ -134,11 +134,48 @@ both_readers_agree() {
   [ "$yq_val" = "health quality audit chief-of-staff challenger docs groomer testgap deps release " ]
 }
 
-@test "config reader: cfg_predecessor wraps at the top under both readers" {
-  yq_val="$(AGENTS_CONFIG_READER=yq bash -c ". '$LIB'; cfg_predecessor health")"
-  awk_val="$(AGENTS_CONFIG_READER=awk bash -c ". '$LIB'; cfg_predecessor health")"
-  [ "$yq_val" = "release" ]
-  [ "$awk_val" = "release" ]
+@test "config reader: cfg_predecessor skips disabled agents and wraps, under both readers" {
+  # A disabled agent writes no ledger entries, so a ring that watches one
+  # escalates forever — exactly the state the enable-one-at-a-time rollout
+  # spends its first weeks in. The ring is therefore "previous ENABLED agent,
+  # wrapping"; an absent enabled field counts as in the ring.
+  fixture="$BATS_TEST_TMPDIR/ring.yml"
+  cat > "$fixture" <<'EOF'
+schema: 1
+ledger:
+  branch: agent-ledger
+  agents:
+    - id: alpha
+      enabled: true
+    - id: beta
+      enabled: false
+    - id: gamma
+      enabled: true
+    - id: delta
+      enabled: false
+EOF
+  # gamma's list-predecessor beta is disabled -> skip to alpha.
+  for reader in yq awk; do
+    val="$(AGENTS_CONFIG="$fixture" AGENTS_CONFIG_READER=$reader bash -c ". '$LIB'; cfg_predecessor gamma")"
+    [ "$val" = "alpha" ]
+  done
+  # alpha wraps at the top, past disabled delta and beta, to gamma.
+  for reader in yq awk; do
+    val="$(AGENTS_CONFIG="$fixture" AGENTS_CONFIG_READER=$reader bash -c ". '$LIB'; cfg_predecessor alpha")"
+    [ "$val" = "gamma" ]
+  done
+}
+
+@test "config reader: cfg_predecessor with no other enabled agent exits 4, never invents one" {
+  # The shipped config is exactly this state: every agent starts enabled: false.
+  # A manufactured predecessor here would be a liveness check green against an
+  # agent that is switched off by design — exit 4 is the distinct "nothing to
+  # watch" answer the caller turns into an honest green.
+  for reader in yq awk; do
+    run env AGENTS_CONFIG_READER=$reader bash -c ". '$LIB'; cfg_predecessor health"
+    [ "$status" -eq 4 ]
+    [[ "$output" == *"no other enabled agent"* ]]
+  done
 }
 
 @test "cfg_assert_schema passes on the shipped config" {

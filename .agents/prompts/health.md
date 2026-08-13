@@ -10,11 +10,15 @@ You are the health checker for `{{PRODUCT_NAME}}`. Before anything else, read
 ## What this run does
 
 1. **Check your own predecessor's liveness first.** Your predecessor in the ring is the
-   agent immediately before you in `.agents/config.yml`'s `ledger.agents` list, wrapping
-   at the top — that is `release`, the last agent in `ledger.agents`, which is monthly
+   **enabled** agent immediately before you in `.agents/config.yml`'s `ledger.agents`
+   list, wrapping at the top — disabled agents are skipped, because an agent that is
+   switched off writes no entries and watching it would escalate forever. With the whole
+   fleet enabled that is `release`, the last agent in `ledger.agents`, which is monthly
    rather than daily, so use **its own `max-age-hours` override**, never the daily
-   default. Run `tools/ledger.sh latest` and compare the predecessor's newest entry
-   against that window. Escalate on the AGE of that entry, never on "did it run today"
+   default. Resolve it mechanically — `tools/check-liveness.sh predecessor health` does
+   the lookup and the arithmetic; if it reports that no other agent is enabled, record
+   that and move on. Run `tools/ledger.sh latest` and compare the predecessor's newest
+   entry against that window. Escalate on the AGE of that entry, never on "did it run today"
    and never on a count of consecutive misses — see `docs/runbooks/agent-routines.md`
    "Liveness on a best-effort scheduler".
 2. **Also run the external staleness check.** Compare the newest entry across ALL agents

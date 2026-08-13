@@ -2,11 +2,13 @@
 
 <!-- placeholder: {{PRODUCT_NAME}} — the system your agents watch. tools/init.sh fills it in. -->
 
-This is the script for `docs/plans/second-brain-and-sdlc-extension.md` Part C: a
+This is the script for Part C of the second-brain/SDLC-extension design (PR #18's
+plan document; the implementation spec — intent, plan, gate ledger — lives at
+`.temper/specs/second-brain-and-sdlc-extension/`): a
 reproducible walk-through that triggers **every** capability of this harness on
 demand, in a fixed order, from a clean template instantiation — the existing agent
 loop, the second brain (`docs/knowledge/`), and the five SDLC-extension agents
-(`docs/plans/second-brain-and-sdlc-extension.md` Part B). It exists so an adopter or a
+(Part B of the same design). It exists so an adopter or a
 viewer does not have to wait on organic activity to see the whole system work; every
 stop below is something you deliberately trigger, and every stop leaves an artifact —
 a comment, a pull request, a ledger line, a card — that stays in the repository
@@ -39,7 +41,6 @@ system itself.
    bats tests/ tests/harness-guards/
    actionlint .github/workflows/*.yml
    tools/run-agent.sh --list-agents
-   for role in judge execute challenge; do :; done   # see step 7
    ```
 7. **Check credentials per role**, and dry-run every agent — this prints the exact
    argv each agent would run and invokes nothing, which is the safest thing to put on

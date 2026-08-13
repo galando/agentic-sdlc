@@ -3,7 +3,7 @@
 # adopter layout (backend/ and frontend/ at the repo root), in one idempotent step.
 #
 # Why this exists: the workflows, the mutation-scope tool and .gitignore ship
-# targeting the example's paths (examples/backend, examples/frontend) so the 22
+# targeting the example's paths (examples/backend, examples/frontend) so the 23
 # gates have something real to run against on day one. The adopter's own product
 # lives at the ROOT layout — the one tools/measure-floors.sh calibrates against —
 # and the first real adoption measured what the move costs by hand: ~50 path
@@ -30,26 +30,29 @@ note() { echo "  $*"; changed=1; }
 
 echo "=== tools/adopt-layout.sh — adopt the root layout (backend/, frontend/) ==="
 
-# --- 1. Retire the bundled example ------------------------------------------
+# --- 1. Guard the destructive step before doing anything --------------------
+# Refuse while examples/ carries UNCOMMITTED work. The example is the working
+# reference implementation, which makes it the tempting place to start
+# building — and the retirement below is an rm -rf. Committed work survives in
+# git history; uncommitted work would be simply gone. Product code belongs at
+# backend// frontend/ (the layout this very script adopts); anything a user
+# was editing in here must be moved or committed before the retirement runs.
+# Degrades silently outside a git repo (the test fixtures), where there is no
+# notion of uncommitted to protect.
+#
+# The DELETION ITSELF happens LAST, after the sweep and the leftover scan.
+# It used to run first, which broke this script's own idempotency claim in the
+# exact case the scan exists to catch: a stale substitution list made the scan
+# die AFTER the example was already gone, stranding the tree half-converted
+# with nothing left to re-run against. Order is: guard, sweep, verify, delete —
+# a failed verification now costs nothing.
 if [ -d "$ROOT/examples" ]; then
-  # Refuse while examples/ carries UNCOMMITTED work. The example is the working
-  # reference implementation, which makes it the tempting place to start
-  # building — and this step is an rm -rf. Committed work survives in git
-  # history; uncommitted work would be simply gone. Product code belongs at
-  # backend// frontend/ (the layout this very script adopts); anything a user
-  # was editing in here must be moved or committed before the retirement runs.
-  # Degrades silently outside a git repo (the test fixtures), where there is no
-  # notion of uncommitted to protect.
   dirty="$(git -C "$ROOT" status --porcelain -- examples 2>/dev/null || true)"
   if [ -n "$dirty" ]; then
-    die "examples/ has UNCOMMITTED changes and this step DELETES the directory.
+    die "examples/ has UNCOMMITTED changes and this run DELETES the directory.
 If that is your own work, move it to backend// frontend/ (or commit it) first:
 $dirty"
   fi
-  rm -rf "$ROOT/examples"
-  note "deleted examples/"
-else
-  echo "  examples/ already absent."
 fi
 
 # --- 2. Re-point the workflows and the mutation-scope tool ------------------
@@ -86,6 +89,8 @@ if [ -f "$ROOT/.github/workflows/pr-mutation.yml" ] \
 fi
 
 # --- 4. Sanity: nothing in the harness still points at the example ----------
+# Runs BEFORE the deletion, so an incomplete substitution list fails while the
+# tree is still whole and the run is still safely repeatable.
 # Two exclusions, both legitimate references rather than live targets: this
 # script's own source names the example paths because they ARE its substitution
 # patterns (the same self-mutation reasoning as init.sh excluding its own
@@ -96,6 +101,14 @@ leftovers="$(grep -rlE 'examples/(backend|frontend)' "$ROOT/.github/workflows" "
 if [ -n "$leftovers" ]; then
   die "these files still reference the example paths after the sweep — the substitution list above is incomplete:
 $leftovers"
+fi
+
+# --- 5. Retire the bundled example, now that everything else held -----------
+if [ -d "$ROOT/examples" ]; then
+  rm -rf "$ROOT/examples"
+  note "deleted examples/"
+else
+  echo "  examples/ already absent."
 fi
 
 echo

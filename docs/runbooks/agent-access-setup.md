@@ -132,7 +132,7 @@ something wrong is the failure mode this whole system is built to make visible, 
 dry-run is the cheapest place to catch it.
 
 Only then enable that agent's schedule, **one at a time**
-(`docs/runbooks/agent-routines.md`). Nobody should meet this system as five crons and an
+(`docs/runbooks/agent-routines.md`). Nobody should meet this system as ten crons and an
 alert firehose on day one.
 
 Branch protection goes on **last** (`docs/runbooks/branch-protection.md`). Until it is on,

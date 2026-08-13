@@ -5,7 +5,10 @@ themselves **distill**, sitting between episodic memory (`ledger/*.jsonl` — hi
 never instruction) and operator-written instruction (`docs/runbooks/agent-modes.md`). A
 card is history **until a human merges it**, and instruction **after** — the same
 branch-protection line that already separates a ledger entry from a standing decision.
-See `docs/plans/second-brain-and-sdlc-extension.md` Part A for the full design.
+The design arrived as Part A of PR #18's plan document; what survives in-tree is the
+implementation spec (success criteria, scenarios, gate ledger) at
+`.temper/specs/second-brain-and-sdlc-extension/` — and this README, which is the
+operative contract.
 
 ## Layout
 

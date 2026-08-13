@@ -132,14 +132,14 @@ DOCS_URL="$(adapter_docs_url "$PROVIDER")"
 if [ "$STATUS" = "verified" ]; then
   cat <<EOF
 Provider '$PROVIDER' is VERIFIED. Minimal mode: the steward and PR review ship LIVE,
-the five scheduled routines ship DISABLED (enable them one at a time after an
+the ten scheduled routines ship DISABLED (enable them one at a time after an
 interactive dry-run — see README.md "turning on the routines").
 EOF
 else
   cat <<EOF
 Provider '$PROVIDER' is an UNVERIFIED STUB — its flags have never been run.
 The steward and PR review are disabled so your first pull request is green.
-The 22 gates are live now and do not depend on any agent CLI.
+The 23 gates are live now and do not depend on any agent CLI.
 To finish: tools/providers/$PROVIDER.sh  (docs: $DOCS_URL)  -> set ADAPTER_STATUS=verified
            then re-run tools/init.sh to enable the steward and review.
 (Both workflows read this same ADAPTER_STATUS line at run time, so once you flip it

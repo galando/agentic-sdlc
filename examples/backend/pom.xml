@@ -36,7 +36,7 @@
   <name>agentsdlc-example-backend</name>
   <description>
     The bundled example product's backend — a minimal item-tracker API that exists so the
-    22-gate gauntlet has something real to run against on day one. Delete this whole
+    23-gate gauntlet has something real to run against on day one. Delete this whole
     directory (tools/init.sh offers to) once your own product is wired in.
   </description>
 

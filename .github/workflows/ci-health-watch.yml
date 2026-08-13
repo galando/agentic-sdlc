@@ -131,6 +131,12 @@ jobs:
           # -f makes curl fail (exit 22) on an HTTP error like 403 or 404 instead of
           # exiting 0 and handing the JSON error body to jq. Without it an expired token
           # is indistinguishable from a real finding below.
+          #
+          # GITHUB_API_URL, not a hard-coded host: on GitHub Enterprise Server the API
+          # lives on the instance's own domain, and a watchdog pointed at github.com
+          # from inside GHES reports "could not check" forever. The runner sets the
+          # variable everywhere; the fallback only serves runs outside Actions.
+          API_BASE="${GITHUB_API_URL:-https://api.github.com}"
           api() {
             curl -sSf -H "Authorization: Bearer ${CI_HEALTH_PAT}" \
                       -H "Accept: application/vnd.github+json" \
@@ -154,7 +160,7 @@ jobs:
           esac
 
           # --- 1. self-hosted runner liveness --------------------------------
-          RUNNERS_JSON="$(api "https://api.github.com/repos/${REPO}/actions/runners?per_page=100")" || RUNNERS_JSON=""
+          RUNNERS_JSON="$(api "${API_BASE}/repos/${REPO}/actions/runners?per_page=100")" || RUNNERS_JSON=""
           if [ -z "${RUNNERS_JSON}" ] || ! printf '%s' "${RUNNERS_JSON}" | jq -e '.runners' >/dev/null 2>&1; then
             WARNINGS="${WARNINGS}Could not list self-hosted runners — HTTP or API error. Check CI_HEALTH_PAT is valid and carries repository Administration:read.\n"
           else
@@ -176,8 +182,8 @@ jobs:
           # a template cannot know which this is, so try both. If NEITHER answers, this
           # is a could-not-check and degrades to a warning — an allowance this job cannot
           # read is not an allowance that has run out.
-          BILLING_JSON="$(api "https://api.github.com/users/${OWNER}/settings/billing/actions")" \
-            || BILLING_JSON="$(api "https://api.github.com/orgs/${OWNER}/settings/billing/actions")" \
+          BILLING_JSON="$(api "${API_BASE}/users/${OWNER}/settings/billing/actions")" \
+            || BILLING_JSON="$(api "${API_BASE}/orgs/${OWNER}/settings/billing/actions")" \
             || BILLING_JSON=""
           USED="$(printf '%s' "${BILLING_JSON}" | jq -r '.total_minutes_used // empty' 2>/dev/null || true)"
           INCLUDED="$(printf '%s' "${BILLING_JSON}" | jq -r '.included_minutes // empty' 2>/dev/null || true)"

@@ -56,6 +56,6 @@ gate identity, tier and everything else in `docs/QUALITY-GATES.md` stays put.
 | 21 — Spec artifacts present | `tools/spec-pipeline/validate.sh` | `.github/workflows/spec-artifacts.yml` | — |
 | 22 — Harness guards | bats, text-pinning the workflows | `tests/harness-guards/pins.json` | — |
 
-Everything else in the 22-gate inventory (secret scan, actionlint, the nightly-only
+Everything else in the 23-gate inventory (secret scan, actionlint, the nightly-only
 gates, the operational watchdog, the second brain's own lint) is stack-agnostic — see
 `docs/QUALITY-GATES.md` for the full table.

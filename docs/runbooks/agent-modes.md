@@ -284,8 +284,9 @@ person to meet the same symptom reads it instead of re-deriving it.
   and say when.** If the answer is "a human runs a script over ssh", the pull request is not
   finished — the step needs folding into something that already runs (a deploy step, a
   scheduled job, an idempotent script the deploy calls), or the body must say plainly that a
-  manual step is outstanding and what it is. This is `AGENTS.md` guardrail 8's instinct
-  applied one level up: if you find yourself writing a runbook step for a human to execute,
+  manual step is outstanding and what it is. This is the instinct of `AGENTS.md`'s "Fix
+  verification — a merge is not a fix" applied one level up: if you find yourself writing
+  a runbook step for a human to execute,
   ask why the scheduler is not executing it. **The end-state signal for such a fix is never
   the merge** — it is the metric, the served rule, or the file the mechanism produces.
 - **`action_required` is a third colour on a pull request, and it means the whole gauntlet

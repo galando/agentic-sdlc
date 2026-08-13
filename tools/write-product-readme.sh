@@ -31,8 +31,10 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 die() { echo "write-product-readme.sh: $*" >&2; exit 1; }
 
-TEMPLATE_REPO_URL="https://github.com/galando/agentic-sdlc"
-TEMPLATE_SITE_URL="https://galando.github.io/agentic-sdlc/"
+# Overridable so a fork-of-the-template (an org's internal variant, a GitLab
+# mirror) can attribute adoptions to ITSELF rather than to this upstream.
+TEMPLATE_REPO_URL="${TEMPLATE_REPO_URL:-https://github.com/galando/agentic-sdlc}"
+TEMPLATE_SITE_URL="${TEMPLATE_SITE_URL:-https://galando.github.io/agentic-sdlc/}"
 
 PRODUCT_NAME=""
 FORCE="${FORCE_README:-false}"

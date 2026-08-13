@@ -1,9 +1,9 @@
 # Lesson inventory
 
-_Captured 2026-08-05 against source head `9589c5c65a0baca02a9436b3f472929531e91a88`. 128 entries: 97 `regex`, 8 `literal`, 23 `semantic-manual`._
+_Captured 2026-08-05 against source head `9589c5c65a0baca02a9436b3f472929531e91a88`. 129 entries: 98 `regex`, 8 `literal`, 23 `semantic-manual`._
 
 _Addendum 2026-08-12: eight `literal` entries were added — three for the second brain
-(`docs/plans/second-brain-and-sdlc-extension.md` Part A) and five for the SDLC-extension
+(Part A of PR #18's design; spec at `.temper/specs/second-brain-and-sdlc-extension/`) and five for the SDLC-extension
 agents (Part B). These are forward-looking pins on live tree content, not extractions
 from the original vendor-specific source head above._
 
@@ -735,7 +735,13 @@ _10 entries: 7 mechanical, 3 semantic-manual._
 
 ## `.github/workflows/pr-mutation.yml` → `.github/workflows/pr-mutation.yml`
 
-_10 entries: 10 mechanical, 0 semantic-manual._
+_11 entries: 11 mechanical, 0 semantic-manual._
+
+### `mutation-zero-mutants-skips-announced-never-fails`
+
+- **Source:** `.github/workflows/pr-mutation.yml:156`
+- **Pin kind:** `regex` — pattern `Mutation gate skipped, not passed`
+- **Lesson:** The diff scope is per file, not per hunk, so a comment-only or annotation-only Java change puts a class in scope that yields zero mutants — and PIT fails the entire build on its own No-mutations-found error before the 20-mutant sampling step can rule. A required gate then goes red for a Javadoc edit. Zero mutants is below the sample floor by definition: the run converts exactly that one PIT error into an announced skip, and every other failure stays a failure. _(Added 2026-08-13, found live on the template's own PR #22.)_
 
 ### `mutation-filter-in-job-never-in-trigger`
 
