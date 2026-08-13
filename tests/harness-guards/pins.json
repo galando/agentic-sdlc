@@ -1328,6 +1328,16 @@
       "why": "Every other agent in this fleet is barred from merging its own work; the release drafter's equivalent boundary is that it drafts and a human tags. Losing this line is the one way this agent's job description could silently expand into the one irreversible action nothing else in the fleet is allowed to take either.",
       "expected_in": ".agents/prompts/release-drafter.md",
       "pin_kind": "literal"
+    },
+    {
+      "id": "mutation-zero-mutants-skips-announced-never-fails",
+      "source_file": ".github/workflows/pr-mutation.yml",
+      "source_line": 156,
+      "quoted_source_string": "PIT hard-fails the whole build on \"No mutations found\"",
+      "why": "The diff scope is per file, not per hunk, so a comment-only or annotation-only Java change puts a class in scope that yields zero mutants — and PIT fails the entire build on its own No-mutations-found error before the 20-mutant sampling step can rule. A required gate then goes red for a Javadoc edit. Zero mutants is below the sample floor by definition: the run converts exactly that one PIT error into an announced skip, and every other failure stays a failure.",
+      "expected_in": ".github/workflows/pr-mutation.yml",
+      "pin_kind": "regex",
+      "pattern": "Mutation gate skipped, not passed"
     }
   ]
 }

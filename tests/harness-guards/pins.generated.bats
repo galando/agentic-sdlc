@@ -1556,6 +1556,23 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   fi
 }
 
+# WHY: The diff scope is per file, not per hunk, so a comment-only or annotation-only Java 
+# WHY: change puts a class in scope that yields zero mutants — and PIT fails the entire build 
+# WHY: on its own No-mutations-found error before the 20-mutant sampling step can rule. A 
+# WHY: required gate then goes red for a Javadoc edit. Zero mutants is below the sample floor by 
+# WHY: definition: the run converts exactly that one PIT error into an announced skip, and every 
+# WHY: other failure stays a failure.
+@test "pin[mutation-zero-mutants-skips-announced-never-fails]: .github/workflows/pr-mutation.yml" {
+  run grep -E -q -- Mutation\ gate\ skipped\,\ not\ passed "$REPO_ROOT/.github/workflows/pr-mutation.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: mutation-zero-mutants-skips-announced-never-fails"
+    echo "  source: .github/workflows/pr-mutation.yml:156"
+    echo "  why:    The diff scope is per file, not per hunk, so a comment-only or annotation-only Java change puts a class in scope that yields zero mutants — and PIT fails the entire build on its own No-mutations-found error before the 20-mutant sampling step can rule. A required gate then goes red for a Javadoc edit. Zero mutants is below the sample floor by definition: the run converts exactly that one PIT error into an announced skip, and every other failure stays a failure."
+    echo "  Restore the string in .github/workflows/pr-mutation.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
 # --- semantic-manual entries: hand-discharged, not asserted by this file ---
 # SEMANTIC-MANUAL (hand-discharged, not asserted): review-model-pinned-not-floating-alias
 #   concept: The model that performs a judgement task is selected by an exact, versioned identifier and the reason for pinning is written down next to it.
