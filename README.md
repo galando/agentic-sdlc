@@ -24,6 +24,17 @@ its `ADOPTION-LOG.md`.*
 > ```
 > It walks the entire adoption with you and never acts without your yes.
 > Details: section 3. Lost later? `tools/status.sh`.
+>
+> **Prefer your agent to do the adoption?** Hand it this repo and say *"read
+> `ONBOARDING.md` and adopt this"* (Claude Code users: the
+> `/adopt-agentic-sdlc` skill points there too). `profiles/` ships ready answer
+> files — and a platform team can publish one internal profile so every team in
+> the org adopts with a single command.
+>
+> **Just looking?** Open this repo in a devcontainer or Codespace: it runs
+> `tools/demo-local.sh` on create — the ~630-test harness suite, the adoption
+> map, and a dry-run agent argv, in about three minutes, offline, with zero
+> credentials.
 
 Every step an agent takes is reviewable in a diff, gated by 23 automated checks, and
 merged by a human. This repository is a **GitHub template**: the process scaffolding —

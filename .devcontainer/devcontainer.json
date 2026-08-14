@@ -1,0 +1,12 @@
+{
+  "name": "agentic-sdlc",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "postCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y -qq bats shellcheck jq && bash tools/demo-local.sh",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}
