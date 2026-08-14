@@ -164,13 +164,18 @@ path_matches_dir_glob() {
 # ---------------------------------------------------------------------------
 
 @test "agents-scheduled.yml: the run step is gated on a --check-credentials preflight" {
-  grep -q -- '--check-credentials "\${{ matrix.agent }}"' "$SCHEDULED"
-  grep -qE "if: steps\.gate\.outputs\.run == 'true' && steps\.creds\.outputs\.ok == 'true'" "$SCHEDULED"
+  # Re-homed: the run steps live in the reusable agents-scheduled-run.yml (the
+  # fleet-mode permission split — see agents-scheduled.bats), addressed by
+  # inputs.agent instead of matrix.agent. The lesson travels with the logic.
+  SCHEDULED_RUN="${SCHEDULED%/*}/agents-scheduled-run.yml"
+  grep -q -- '--check-credentials "\${{ inputs.agent }}"' "$SCHEDULED_RUN"
+  grep -qE "if: steps\.gate\.outputs\.run == 'true' && steps\.creds\.outputs\.ok == 'true'" "$SCHEDULED_RUN"
 }
 
 @test "agents-scheduled.yml: exit 6 (absent optional credential) degrades, never fails the job" {
-  grep -q '6) echo "ok=false"' "$SCHEDULED"
-  grep -q '# degrade, never cancel' "$SCHEDULED"
+  SCHEDULED_RUN="${SCHEDULED%/*}/agents-scheduled-run.yml"
+  grep -q '6) echo "ok=false"' "$SCHEDULED_RUN"
+  grep -q '# degrade, never cancel' "$SCHEDULED_RUN"
 }
 
 @test "agents-scheduled.yml preflight matches review.yml's challenge-review shape (same contract, same code shape)" {

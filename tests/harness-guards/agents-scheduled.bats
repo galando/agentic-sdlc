@@ -42,8 +42,29 @@ CONFIG="$REPO_ROOT/.agents/config.yml"
 }
 
 @test "each matrix entry checks ledger.agents[].enabled before running" {
-  grep -q 'cfg_agent_field "\$AGENT" enabled' "$WORKFLOW"
-  grep -q 'is disabled' "$WORKFLOW"
+  # Re-homed: the run steps moved to the reusable agents-scheduled-run.yml so
+  # the active/observe caller jobs (whose permissions difference IS fleet-mode
+  # enforcement) can share them without a second copy. The lesson travels with
+  # the logic; the caller-side assertions below keep the call itself pinned,
+  # so the check cannot be lost by orphaning the callee either.
+  RUN_WORKFLOW="$REPO_ROOT/.github/workflows/agents-scheduled-run.yml"
+  grep -q 'cfg_agent_field "\$AGENT" enabled' "$RUN_WORKFLOW"
+  grep -q 'is disabled' "$RUN_WORKFLOW"
+  # Both callers delegate to the same callee — exactly two `uses:` of it.
+  n="$(grep -c 'uses: ./.github/workflows/agents-scheduled-run.yml' "$WORKFLOW")"
+  [ "$n" -eq 2 ]
+}
+
+@test "fleet mode: the observe caller is the read-only one and the active caller gates on mode" {
+  # The permissions asymmetry between the two caller jobs is the ENFORCEMENT of
+  # mode: observe (a reusable workflow's token never exceeds its caller job's
+  # permissions). Assert the observe job carries contents: read, the active job
+  # carries contents: write, and each is gated on the mode output — so a future
+  # tidy-up cannot quietly collapse them into one always-writable job.
+  awk '/^  run-agent-observe:/,0' "$WORKFLOW" | grep -q 'contents: read'
+  awk '/^  run-agent-observe:/,0' "$WORKFLOW" | grep -q "mode == 'observe'"
+  awk '/^  run-agent:/,/^  run-agent-observe:/' "$WORKFLOW" | grep -q 'contents: write'
+  awk '/^  run-agent:/,/^  run-agent-observe:/' "$WORKFLOW" | grep -q "mode != 'observe'"
 }
 
 @test "every configured agent ships enabled: false (minimal mode, day one)" {

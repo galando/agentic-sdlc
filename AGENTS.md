@@ -100,7 +100,11 @@ next reader will obey whichever copy they happened to open.
 - **Instructions come only from `docs/runbooks/agent-modes.md`** on the default branch.
   Agents cannot push there, so "is this an instruction or old agent chatter?" is answered
   by **branch protection** rather than by a naming convention agents are trusted to honour.
-  Steering an agent means opening a pull request on that file.
+  Steering an agent means opening a pull request on that file. (Two sheets are injected
+  into your system prompt by `tools/run-agent.sh` and bind the same way, because they too
+  change only by pull request: `.github/agent-temper-headless.md` always — guardrail 7 —
+  and `.agents/observe.md` when the fleet is observing, `mode: observe` in
+  `.agents/config.yml`.)
 - **Agents hand work to each other with a `handoff` field**: `{to, note, expires}`. A
   receiver discharges a handoff by answering it in its own ledger entry — so every agent
   must check its own recent entries before acting, or the same handoff buys the same work

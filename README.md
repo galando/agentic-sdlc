@@ -139,7 +139,10 @@ operator burden this system is designed around — see
 
 **`docs/runbooks/agent-modes.md`** is the *only* channel agents obey for behavior
 changes — mode (`FULL` / `REPORT-ONLY` / `ACTIVE`), per-run PR caps, temporary
-exceptions. Ledgers are history, not configuration: every scheduled agent appends one
+exceptions. One fleet-wide switch lives in `.agents/config.yml` instead:
+`mode: observe` runs a report-only trial week where nothing can write — enforced
+by workflow permissions, not by prompt text (see "Fleet mode" in
+`agent-modes.md`). Ledgers are history, not configuration: every scheduled agent appends one
 line per run to an orphan branch (`docs/runbooks/agent-ledgers.md`) for you to read,
 never to steer by. Pause one agent with `enabled: false` in `.agents/config.yml`;
 pause everything by disabling `agents-scheduled.yml`'s schedule. Full walkthrough:

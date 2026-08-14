@@ -1,0 +1,138 @@
+# One scheduled-agent run, as a reusable workflow — the STEPS live here exactly
+# once, and agents-scheduled.yml calls them from two thin jobs whose only
+# difference is their `permissions:` block. That split is what makes fleet
+# mode: observe (.agents/config.yml) ENFORCED rather than requested: a
+# reusable workflow's token can never exceed its caller job's permissions, so
+# the observe caller (contents: read) makes a push mechanically impossible no
+# matter what the agent decides. Duplicating these steps into both caller jobs
+# instead would create a second copy of load-bearing logic — the exact
+# second-source-of-truth drift this repository's one-parser rule exists to
+# prevent.
+#
+# Behavior in here is identical for both callers; the observe difference the
+# agent SEES (the report-only sheet appended to its system prompt) comes from
+# tools/run-agent.sh reading the same config key — one switch, two effects,
+# zero places to forget.
+
+name: agents-scheduled-run
+
+on:
+  workflow_call:
+    inputs:
+      agent:
+        description: "The ledger.agents id this call runs"
+        required: true
+        type: string
+    secrets:
+      AGENT_CLI_TOKEN:
+        required: false
+      CHALLENGE_API_KEY:
+        required: false
+
+jobs:
+  run:
+    runs-on: ${{ vars.AGENT_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 50
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Decide whether this matrix entry runs
+        id: gate
+        env:
+          AGENT: ${{ inputs.agent }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          DISPATCH_AGENT: ${{ github.event.inputs.agent }}
+        run: |
+          . tools/lib/config.sh
+          enabled="$(cfg_agent_field "$AGENT" enabled)"
+          schedule="$(cfg_agent_field "$AGENT" schedule)"
+
+          if [ -n "$EVENT_SCHEDULE" ]; then
+            # A scheduled trigger fires exactly ONE cron string. Only the matrix entry
+            # whose OWN schedule matches it is even a candidate to run.
+            if [ "$schedule" != "$EVENT_SCHEDULE" ]; then
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "reason=cron '$EVENT_SCHEDULE' is not $AGENT's schedule ('$schedule')" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            # workflow_dispatch: "all" is the dry-run path over every enabled agent; a
+            # specific id runs only that one, ignoring its own enabled flag (that is
+            # the point of a manual dispatch — see it run before you enable its cron).
+            if [ "$DISPATCH_AGENT" != "all" ] && [ "$DISPATCH_AGENT" != "$AGENT" ]; then
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "reason=dispatch requested '$DISPATCH_AGENT', not $AGENT" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$DISPATCH_AGENT" = "$AGENT" ]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          if [ "$enabled" != "true" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$AGENT is disabled (ledger.agents[].enabled: false in .agents/config.yml) — see README.md \"turning on the routines\"" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+      - name: Report why this entry was skipped
+        if: steps.gate.outputs.run == 'false'
+        run: echo "::notice title=${{ inputs.agent }} skipped::${{ steps.gate.outputs.reason }}"
+
+      # Same contract review.yml's challenge-review job uses for the same reason: the
+      # challenger agent's role resolves to the compatible-endpoint provider, whose
+      # credential is OPTIONAL BY DESIGN (.agents/config.yml auth.compatible-endpoint.
+      # required: false). run-agent.sh genuinely exits 6 for an absent optional
+      # credential, and an Actions bash step fails on any non-zero exit — so without
+      # this preflight, an adopter who enables the challenger without setting the key
+      # gets a red scheduled run every time, including the first manual dry-run meant
+      # to validate setup. A missing OPTIONAL credential must degrade this one run,
+      # never fail it; a REQUIRED credential missing (exit 5) is a real
+      # misconfiguration and is allowed to fail loudly.
+      - name: Check this agent's credentials are configured
+        if: steps.gate.outputs.run == 'true'
+        id: creds
+        env:
+          AGENT_CLI_TOKEN: ${{ secrets.AGENT_CLI_TOKEN }}
+          CHALLENGE_API_KEY: ${{ secrets.CHALLENGE_API_KEY }}
+        run: |
+          set +e
+          tools/run-agent.sh --check-credentials "${{ inputs.agent }}"
+          rc=$?
+          set -e
+          case "$rc" in
+            0) echo "ok=true"  >> "$GITHUB_OUTPUT" ;;
+            6) echo "ok=false" >> "$GITHUB_OUTPUT" ;;   # degrade, never cancel
+            *)
+              # A fresh template's provider is still the interview placeholder, and a
+              # NAMED manual dispatch — the exact "see it run before you enable it"
+              # path — ignores `enabled:` and lands here with a config error. That
+              # state gets the same announced-skip review.yml and steward.yml give
+              # it, never a red run on a repository nobody has configured yet.
+              provider="$(bash -c '. tools/lib/config.sh; cfg_get provider' 2>/dev/null || true)"
+              case "$provider" in
+                \{\{*\}\})
+                  echo "ok=false" >> "$GITHUB_OUTPUT"
+                  echo "::warning title=${{ inputs.agent }} not configured::No provider is configured yet (provider reads '$provider'). Run tools/init.sh to choose one — this is the expected state of a fresh template, not a failure."
+                  ;;
+                *) exit "$rc" ;;
+              esac
+              ;;
+          esac
+
+      - name: Report a degraded credential skip
+        if: steps.gate.outputs.run == 'true' && steps.creds.outputs.ok == 'false'
+        run: echo "::notice title=${{ inputs.agent }} skipped::optional credential absent for this agent's provider — see the run-agent.sh warning above"
+
+      - name: Run the agent
+        if: steps.gate.outputs.run == 'true' && steps.creds.outputs.ok == 'true'
+        env:
+          AGENT_CLI_TOKEN: ${{ secrets.AGENT_CLI_TOKEN }}
+          CHALLENGE_API_KEY: ${{ secrets.CHALLENGE_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tools/run-agent.sh "${{ inputs.agent }}" --timeout 2700
