@@ -131,11 +131,22 @@ End your run by giving the human this list, filled in with their repo's names
 
 ## If this repository already has its own code (brownfield)
 
-This template currently adopts **greenfield** (instantiate, then move code in).
-If the human points you at an existing repository with its own CI and history,
-do not overlay by hand — the workflows, `tests/`, and root docs will collide.
-Say plainly that brownfield overlay is not yet a supported path, and offer the
-two honest alternatives: instantiate the template as a new repository and
-migrate the code into `backend/`/`frontend/`, or take individual pieces
-(`docs/knowledge/` + `tools/knowledge-lint.sh`, `tools/ledger.sh`, the review
-prompts) which are self-contained and forge-neutral.
+Use the installer — never overlay by hand. From a clone of the template:
+
+```bash
+tools/upgrade.sh --install /path/to/existing-repo
+```
+
+It copies the harness surface in, **never overwrites** (a collision lands
+beside the host's file as `<name>.agentic-sdlc.proposed` for a human merge),
+and stamps `.agents/template-manifest.json` — the pristine-content record that
+makes every future template release a computable `tools/upgrade.sh plan/apply`
+three-way merge instead of a changelog archaeology dig. Then continue from
+step 2 of this document inside the host repo, with two honesty notes for the
+human: keep their product **outside** `backend/`/`frontend/` until the
+measured gates are swapped to their stack
+(`docs/runbooks/porting-to-your-stack.md` — the process layer is live either
+way), and merge every `.proposed` collision themselves. For a team that only
+wants one piece, the self-contained kits still apply: `docs/knowledge/` +
+`tools/knowledge-lint.sh`, `tools/ledger.sh`, or the review prompts — all
+forge-neutral.

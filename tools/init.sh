@@ -189,6 +189,25 @@ list_target_files() {
     | grep -v '^ADOPTING\.md$'
 }
 
+# ---------------------------------------------------------------------------
+# Stamp the template manifest BEFORE any substitution: the recorded sha256s
+# must be the PRISTINE content, because that base is what lets a future
+# `tools/upgrade.sh plan/apply` tell "the interview substituted this" apart
+# from "the adopter customised this". A manifest stamped after the sweep can
+# never make that distinction again. Best-effort: an adoption without jq
+# still completes — it just cannot compute upgrades later, and says so.
+# ---------------------------------------------------------------------------
+if [ -x "$ROOT/tools/upgrade.sh" ]; then
+  echo
+  echo "--- Stamping the template manifest (pristine hashes, pre-substitution) ---"
+  stamp_version="$(grep -m1 -oE '^## \[?[0-9]+\.[0-9]+\.[0-9]+\]?' "$ROOT/CHANGELOG.md" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo unknown)"
+  export PRODUCT_NAME PROVIDER MODEL_JUDGE MODEL_EXECUTE MODEL_CHALLENGE \
+         CHALLENGE_BASE_URL ALERT_CHANNEL RUNNER_LABEL LEDGER_COMMIT_NAME \
+         LEDGER_COMMIT_EMAIL BUILD_PIPELINE
+  AGENTS_ROOT="$ROOT" "$ROOT/tools/upgrade.sh" stamp "$stamp_version" \
+    || echo "  (manifest not stamped — upgrades will need a manual re-baseline; see tools/upgrade.sh)"
+fi
+
 echo
 echo "--- Rewriting placeholders ---"
 total_files_changed=0
