@@ -188,7 +188,11 @@ case "$FLEET_MODE" in
   observe)
     OBSERVE_FILE="$ROOT/.agents/observe.md"
     [ -f "$OBSERVE_FILE" ] || die_config "mode: observe is set but $OBSERVE_FILE is missing"
-    COMPOSED_PROMPT="$(mktemp)"
+    # The leak is deliberate: adapters hand off via `exec`, so an EXIT trap
+    # here would delete the file before (or without) the CLI ever reading it.
+    # A named template keeps the leaked files attributable in $TMPDIR, and the
+    # dry-run test reads the file after this process exits.
+    COMPOSED_PROMPT="$(mktemp "${TMPDIR:-/tmp}/agent-observe-prompt.XXXXXX")"
     cat "$SYSTEM_PROMPT_FILE" "$OBSERVE_FILE" > "$COMPOSED_PROMPT"
     SYSTEM_PROMPT_FILE="$COMPOSED_PROMPT"
     ;;

@@ -170,6 +170,25 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
+@test "a DENIED push dies immediately with a credentials message, never the five-retry race path" {
+  # A 403 / permission denial — every scheduled run under fleet mode: observe —
+  # can never succeed on retry. It used to take the raced-push path: five
+  # attempts, ~30s of sleeps, then "could not append after 5 attempts", a
+  # contention diagnosis for a credentials problem. The script distinguishes by
+  # the remote's stderr, so simulate a denial the way a forge phrases one.
+  cd "$WORK/checkout"
+  hook="$WORK/remote.git/hooks/pre-receive"
+  printf '#!/bin/sh\necho "permission denied: write access blocked" >&2\nexit 1\n' > "$hook"
+  chmod +x "$hook"
+  run "$LEDGER" append ops '{"date":"2026-08-06","verdict":"green","summary":"scheduled run"}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"DENIED, not raced"* ]]
+  [[ "$output" == *"observe"* ]]
+  # One attempt only — the retry banner never printed.
+  [[ "$output" != *"push rejected (attempt"* ]]
+  rm -f "$hook"
+}
+
 @test "an unknown agent is rejected against the configured list" {
   cd "$WORK/checkout"
   run "$LEDGER" append growth '{"date":"2026-08-04","verdict":"green","summary":"x"}'

@@ -113,7 +113,10 @@ make something pass — see the ratchet policy in `docs/QUALITY-GATES.md`.
 per agent to `ledger/<agent>.jsonl` on the orphan `agent-ledger` branch, via a throwaway
 clone of the *remote* (cloning the local checkout makes the push land on a local ref and
 report success while nothing reaches the server). Instructions reach agents only through
-`docs/runbooks/agent-modes.md` on the protected branch.
+`docs/runbooks/agent-modes.md` on the protected branch, plus the two sheets
+`tools/run-agent.sh` injects into the system prompt (`.github/agent-temper-headless.md`
+always; `.agents/observe.md` when `mode: observe`) — which also live on the protected
+branch, so the same write-permission argument covers them.
 
 **Spec artifacts are the contract, not the plugin.** `tools/spec-pipeline/` is the
 provider-neutral scaffold producing the same spec directory and gate ledger a pipeline

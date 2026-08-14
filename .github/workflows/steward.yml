@@ -620,5 +620,10 @@ jobs:
           body="$(printf '%s\n\n%s\n' \
             "The fleet is in **observe mode** (\`mode: observe\` in \`.agents/config.yml\`): the steward reads and reports but does not act — no branch, no commit, no pull request. This run's credentials mechanically lack write access; that is the mode working, not a failure. An operator ends the trial by flipping \`mode: active\`." \
             "_Posted automatically by the steward workflow's observe notice._")"
+          # Red, not a warning on green: this job is the ONLY responder in
+          # observe (the acting steward and its no-outcome check are skipped),
+          # so a failed post here is an unanswered mention — and a green silent
+          # run is the one state nobody knows to look at. Same doctrine as the
+          # steward's own visible-outcome enforcement.
           gh api "repos/$REPO/issues/$NUMBER/comments" -f body="$body" \
-            || echo "::warning::could not post the observe-mode notice on #$NUMBER — the mention above received no answer"
+            || { echo "::error::could not post the observe-mode notice on #$NUMBER — the mention above received NO answer"; exit 1; }

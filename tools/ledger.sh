@@ -246,14 +246,27 @@ cmd_append() {
       git -c user.name="$commit_name" -c user.email="$commit_email" \
         commit -q -m "ledger($agent): $(printf '%s' "$entry" | jq -r '.date') $(printf '%s' "$entry" | jq -r '.verdict')" \
         || exit 29
-      # The ONLY retryable outcome.
-      git push -q origin "HEAD:${BRANCH}" || exit 30
+      # The ONLY retryable outcome is a RACED push (someone appended between
+      # our fetch and ours). A DENIED push — 403, protected ref, a read-only
+      # token, which is every scheduled run under fleet `mode: observe` — can
+      # never succeed on retry, and five retries bury a credentials problem
+      # under a contention message. Distinguish by stderr, because git's exit
+      # code alone cannot.
+      if ! git push -q origin "HEAD:${BRANCH}" 2>"../push-err"; then
+        if grep -qiE '403|permission|denied|protected|read.only|not authorized|write access' "../push-err"; then
+          cat "../push-err" >&2
+          exit 31
+        fi
+        cat "../push-err" >&2
+        exit 30
+      fi
     ) || rc=$?
 
     [ "$rc" -eq 0 ] && { echo "appended to ledger/${agent}.jsonl on $BRANCH"; return 0; }
 
     if [ "$rc" -ne 30 ]; then
       case "$rc" in
+        31) die "ledger append failed: the push was DENIED, not raced — this credential cannot write to '$BRANCH'. Under fleet 'mode: observe' this is the designed state (scheduled runs cannot write the ledger; the agent-report issue is the run's record — see .agents/observe.md). Otherwise: the token needs contents: write. NOTHING was written, and retrying cannot help." ;;
         29) die "ledger append failed: git commit refused (exit $rc) — a hook, a signing key or a full disk. NOTHING was written to $BRANCH." ;;
         21|22) die "ledger append failed: cannot fetch or reset '$BRANCH' from origin (exit $rc). NOTHING was written." ;;
         26|27) die "ledger append failed: the narrative file could not be staged (exit $rc). NOTHING was written." ;;
