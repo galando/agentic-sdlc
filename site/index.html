@@ -38,209 +38,146 @@
     line-height: 1.6;
   }
   .wrap { max-width: 860px; margin: 0 auto; padding: 0 1.25rem; }
-  a { color: var(--accent); }
-
-  header.hero { padding: 4.5rem 0 3rem; text-align: center; }
-  .kicker {
-    display: inline-block; font-size: .78rem; letter-spacing: .12em; text-transform: uppercase;
-    color: var(--accent); font-weight: 700; margin-bottom: 1rem;
-  }
-  h1 { font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.12; letter-spacing: -.025em; }
-  h1 .dim { color: var(--muted); }
-  p.lede { max-width: 620px; margin: 1.35rem auto 0; color: var(--muted); font-size: 1.12rem; }
-
-  .cta-row { margin-top: 2rem; display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap; }
+  header { padding: 4rem 0 2.5rem; text-align: center; }
+  h1 { font-size: clamp(1.9rem, 5vw, 2.8rem); line-height: 1.15; margin-bottom: .75rem; }
+  .tagline { font-size: 1.2rem; color: var(--muted); max-width: 40rem; margin: 0 auto 1.5rem; }
+  .cta-row { display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap; }
   .btn {
-    display: inline-block; padding: .72rem 1.35rem; border-radius: .55rem; font-weight: 600;
-    text-decoration: none; border: 1px solid transparent;
+    display: inline-block; padding: .6rem 1.1rem; border-radius: 8px;
+    text-decoration: none; font-weight: 600; font-size: .95rem;
+    border: 1px solid var(--line); color: var(--ink); background: var(--surface);
   }
-  .btn.primary { background: var(--accent); color: var(--accent-ink); }
-  .btn.ghost { border-color: var(--line); color: var(--ink); background: var(--surface); }
-  .btn:hover { filter: brightness(1.08); }
-
-  .loop {
-    margin: 2.75rem auto 0; background: var(--code-bg); color: var(--code-ink);
-    border-radius: .8rem; padding: 1.15rem 1rem; overflow-x: auto; text-align: left;
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  pre.loop {
+    background: var(--code-bg); color: var(--code-ink);
+    border-radius: 10px; padding: 1.1rem 1.3rem; overflow-x: auto;
+    font-size: .82rem; line-height: 1.7; margin: 2rem auto; max-width: 46rem;
+    text-align: left;
   }
-  .loop pre { font: .8rem/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
-  .loop .hl { color: #7dd3fc; }
-  .loop .you { color: #fca5a5; font-weight: 700; }
-
-  section { padding: 3.25rem 0; border-top: 1px solid var(--line); }
-  h2 { font-size: 1.55rem; letter-spacing: -.015em; margin-bottom: .45rem; }
-  p.sub { color: var(--muted); max-width: 620px; margin-bottom: 2rem; }
-
-  .reasons { display: grid; gap: 1.5rem; }
-  .reason h3 { font-size: 1.06rem; margin-bottom: .35rem; }
-  .reason p { color: var(--muted); font-size: .95rem; }
-
-  ol.steps { counter-reset: step; list-style: none; }
-  ol.steps li { counter-increment: step; position: relative; padding: 0 0 1.5rem 3.1rem; }
-  ol.steps li::before {
-    content: counter(step); position: absolute; left: 0; top: 0;
-    width: 2.05rem; height: 2.05rem; border-radius: 50%;
-    background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: .95rem;
-    display: flex; align-items: center; justify-content: center;
+  section { padding: 1.6rem 0; }
+  h2 { font-size: 1.35rem; margin-bottom: 1rem; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .9rem; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 1rem 1.1rem; font-size: .93rem;
   }
-  ol.steps li:not(:last-child)::after {
-    content: ""; position: absolute; left: 1rem; top: 2.35rem; bottom: .25rem;
-    width: 2px; background: var(--line);
-  }
-  ol.steps h3 { font-size: 1.02rem; }
-  ol.steps p { color: var(--muted); font-size: .93rem; }
-  ol.steps pre {
-    margin-top: .5rem; background: var(--code-bg); color: var(--code-ink);
-    border-radius: .5rem; padding: .55rem .8rem; overflow-x: auto;
-    font: .82rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  }
-
+  .card b { display: block; margin-bottom: .3rem; }
+  .card code { font-size: .85em; }
+  .muted { color: var(--muted); }
+  ol.ideas { margin: 0 0 0 1.2rem; font-size: .95rem; }
+  ol.ideas li { margin: .45rem 0; }
+  ol.ideas b { color: var(--ink); }
   code {
-    font: .87em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    padding: .1em .35em; border-radius: .3em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--line); border-radius: 4px; padding: .08em .35em; font-size: .88em;
   }
-
-  footer { border-top: 1px solid var(--line); padding: 2.5rem 0 3.5rem; text-align: center; color: var(--muted); font-size: .92rem; }
+  a { color: var(--accent); }
+  footer {
+    border-top: 1px solid var(--line); margin-top: 2.5rem;
+    padding: 1.5rem 0 3rem; font-size: .88rem; color: var(--muted); text-align: center;
+  }
 </style>
 </head>
 <body>
+<div class="wrap">
 
-<header class="hero">
-  <div class="wrap">
-    <span class="kicker">A GitHub template repository</span>
-    <h1>Agents propose.<br><span class="dim">You merge.</span></h1>
-    <p class="lede">
-      Getting an agent to write code is the easy part. This is the hard part, already built:
-      two independent reviews, a referee that settles them, 23 quality gates, and a human
-      on the merge button — running on your repo in under 30 minutes.
-    </p>
-    <div class="cta-row">
-      <a class="btn primary" href="https://github.com/galando/agentic-sdlc/generate">Use this template</a>
-      <a class="btn ghost" href="https://github.com/galando/agentic-sdlc">View on GitHub</a>
-    </div>
-    <div class="loop">
-<!-- Pure ASCII on purpose. The arrows were box-drawing characters, whose glyphs are
-     wider than one cell in most monospace fonts — so the return arrow lined up by
-     character index and rendered several columns adrift of "YOU MERGE". -->
-<pre>
-issue --> <span class="hl">agent triages</span> --> PR --> <span class="hl">2 reviews</span> --> <span class="hl">referee rules</span> --> <span class="hl">23 gates</span> --> <span class="you">YOU MERGE</span>
-                                                                                    |
-          the agent that filed the issue checks the fix landed &lt;--------------------+
-</pre>
-    </div>
+<header>
+  <h1>Agents propose.<br>A human merges.<br>CI decides.</h1>
+  <p class="tagline">A GitHub template that runs your software delivery lifecycle with
+  autonomous agents — every change reviewed by two model families, gated by 23 checks,
+  and merged only by you.</p>
+  <div class="cta-row">
+    <a class="btn primary" href="https://github.com/galando/agentic-sdlc/generate">Use the template</a>
+    <a class="btn" href="https://github.com/galando/agentic-sdlc/blob/main/THE-SEVEN-IDEAS.md">The seven ideas (10 min)</a>
+    <a class="btn" href="https://github.com/galando/agentic-sdlc-demo">See it live</a>
   </div>
+
+<pre class="loop">
+issue opened ──▶ steward triages ──▶ PR opened ──▶ two reviews
+                                                       │
+      ┌────────────────────────────────────────────────┘
+      ▼
+23-gate gauntlet ──▶ <b>YOU merge</b> ──▶ filing agent verifies the fix landed
+</pre>
 </header>
 
 <section>
-  <div class="wrap">
-    <h2>Why this one</h2>
-    <p class="sub">
-      Five things here that you would otherwise spend months learning the hard way.
-    </p>
-    <div class="reasons">
-      <div class="reason">
-        <h3>Two reviewers who cannot cover for each other</h3>
-        <p>Every agent pull request is reviewed twice — and the second reviewer runs on a
-           <em>different model family</em>, because a second draw from the same distribution
-           shares the same blind spots. A referee then reads both reviews and the diff and
-           rules on the disagreements, so you are handed an answer instead of an argument.</p>
-      </div>
-      <div class="reason">
-        <h3>Every bug it has ever had is now a test</h3>
-        <p>128 hard-won operational lessons are pinned in place, inside a suite of 626 tests
-           that runs on every pull request. When something breaks once, the reason it broke is
-           welded into the suite — so the system cannot quietly slide back into a mistake it
-           has already made. Most agent setups forget. This one cannot.</p>
-      </div>
-      <div class="reason">
-        <h3>It cannot fail quietly</h3>
-        <p>A dead agent and a healthy agent must never look the same. A missing optional
-           credential downgrades a check and says so out loud; it never fails your pull
-           request. A missing input never reads as "nothing to do". Silence is treated as a
-           defect, everywhere, on purpose.</p>
-      </div>
-      <div class="reason">
-        <h3>No vendor lock-in — enforced by a test</h3>
-        <p>Workflows and prompts address models by <em>role</em> — judge, execute, challenge —
-           never by name. One small adapter file per provider holds the vendor-specific bits,
-           and the build fails if a vendor name leaks anywhere else. Switching providers is a
-           config edit, not a migration.</p>
-      </div>
-      <div class="reason">
-        <h3>It remembers what it learns</h3>
-        <p>A "second brain" lets the agents distill their own operational lessons into
-           short, indexed cards — read cheaply at the start of every run, written only by
-           one agent in a self-gated retrospective, and never live until a human merges
-           the card. Five more scheduled agents build on it: dependency upgrades, docs
-           freshness, backlog grooming, floor raises, release drafts — each opt-in, each
-           reviewed the same way as everything else.</p>
-      </div>
-    </div>
+  <h2>Four ways in</h2>
+  <div class="cards">
+    <div class="card"><b>New repo</b>
+      Use this template, then <code>tools/adopt.sh</code> — one resumable command,
+      nothing happens without your yes. First merged agent loop in ~30 minutes.</div>
+    <div class="card"><b>Existing repo</b>
+      <code>tools/upgrade.sh --install</code> grafts the harness onto your repo —
+      never overwrites your files, and future template releases become a computable
+      three-way merge.</div>
+    <div class="card"><b>Your agent does it</b>
+      Tell Claude Code or Codex: <i>"read ONBOARDING.md and adopt this."</i>
+      Ready-made answer profiles included — a platform team ships one, every team
+      adopts in one command.</div>
+    <div class="card"><b>Just watching</b>
+      Open in a Codespace: a three-minute, zero-credential tour — ~650 tests, the
+      adoption map, a dry-run agent command. Or set <code>mode: observe</code>: the
+      whole fleet runs report-only, and pushing is <i>mechanically</i> impossible.</div>
   </div>
 </section>
 
 <section>
-  <div class="wrap">
-    <h2>Start in three steps</h2>
-    <p class="sub">
-      The interview is local text substitution — no network calls, finishes in seconds.
-    </p>
-    <ol class="steps">
-      <li>
-        <h3>Create your repo from the template</h3>
-        <p>Then run the adoption interview. It asks for your product name, provider, models
-           and alert channel, rewrites every placeholder, and prints exactly what is left
-           to do by hand.</p>
-        <pre>tools/init.sh</pre>
-      </li>
-      <li>
-        <h3>Add one credential</h3>
-        <p>Normally your agent CLI's <strong>subscription token, not an API key</strong> — so
-           runs cost nothing beyond the flat monthly plan you already pay for. The repo tells
-           you the exact command to mint it.</p>
-        <pre>tools/run-agent.sh --check-credentials &lt;agent&gt;</pre>
-      </li>
-      <li>
-        <h3>Watch one loop, then merge it yourself</h3>
-        <p>Open an issue against the bundled example and watch the whole loop run — triage,
-           pull request, both reviews, the gauntlet. Then click merge. That is the entire
-           system, proven before any of your own code exists.</p>
-      </li>
-    </ol>
+  <h2>What you get</h2>
+  <div class="cards">
+    <div class="card"><b>A steward on your issues</b>
+      Triages every new issue, answers mentions, writes fixes as pull requests.
+      It never merges — that button is yours, by design.</div>
+    <div class="card"><b>Reviews that argue</b>
+      Two reviews from <i>different model families</i>, plus a referee that settles
+      their disagreements against the code. Verdicts are advice; you overrule.</div>
+    <div class="card"><b>A gauntlet with your numbers</b>
+      23 gates — tests, coverage, mutation, architecture, secrets, a11y — with
+      floors calibrated to <i>your</i> codebase, then ratcheted: they only move up.</div>
+    <div class="card"><b>A fleet that remembers</b>
+      Ten scheduled agents (all shipped off, enabled one at a time) and a
+      <i>second brain</i>: agents propose distilled lessons, a human merges them,
+      every future session reads them first.</div>
+    <div class="card"><b>Guards on the machine itself</b>
+      ~650 tests cover the agents' own plumbing; 129 incident-earned lessons are
+      pinned so they can never be lost quietly.</div>
+    <div class="card"><b>No silent failures, no vendor lock</b>
+      Everything optional degrades by announcing itself. Models are addressed by
+      role, never vendor; works on a flat CLI subscription, behind corporate
+      proxies, on GitHub Enterprise.</div>
   </div>
 </section>
 
 <section>
-  <div class="wrap">
-    <h2>Two things worth knowing up front</h2>
-    <div class="reasons">
-      <div class="reason">
-        <h3>Nothing surprises you on day one</h3>
-        <p>All ten scheduled agents ship <strong>disabled</strong>, and every quality floor
-           ships uncalibrated — measured against <em>your</em> code, never someone else's
-           finish line. You dry-run each agent, then switch them on one at a time. No cron
-           firehose, no surprise bill.</p>
-      </div>
-      <div class="reason">
-        <h3>The cost is honest</h3>
-        <p>The steward, the reviews and every scheduled run sit on your existing agent-CLI
-           subscription, so one more run costs nothing. The only per-token spend is the
-           <em>optional</em> second reviewer, which needs its own key. Skip it and you lose a
-           second opinion — never the system.</p>
-      </div>
-    </div>
-  </div>
+  <h2>The seven ideas underneath</h2>
+  <ol class="ideas">
+    <li><b>Branch protection as epistemics</b> — write permission, not trust, separates instruction from history.</li>
+    <li><b>Three-tier agent memory</b> — history, distilled knowledge, and steering, each with its own write permission.</li>
+    <li><b>Degrade visibly, never silently</b> — a dead agent and a healthy one must never look the same.</li>
+    <li><b>The ratchet</b> — floors only move up, and suppression counts as lowering.</li>
+    <li><b>Test the machine that builds the software</b> — not just the software.</li>
+    <li><b>The adversary never decides</b> — different model families review; a referee rules; a human merges.</li>
+    <li><b>Your baseline, never someone else's</b> — floors ship unarmed and loud until measured against your code.</li>
+  </ol>
+  <p class="muted" style="margin-top:.8rem">Each one earned by an incident and enforced by a test or a permission —
+  <a href="https://github.com/galando/agentic-sdlc/blob/main/THE-SEVEN-IDEAS.md">the ten-minute read</a>,
+  including how to steal any one of them without adopting the rest.</p>
+</section>
+
+<section>
+  <h2>Honestly, when not to use it</h2>
+  <p class="muted">Solo prototyping doesn't need a gauntlet. If you want unattended merges,
+  this is deliberately the wrong tool. If you only want dependency bumps or spec
+  discipline, lighter tools exist. This is for teams who want agents doing real work
+  <i>and</i> a mechanical reason to trust every change that lands.</p>
 </section>
 
 <footer>
-  <div class="wrap">
-    <p>Proof, not promises: <a href="https://github.com/galando/agentic-sdlc-demo">agentic-sdlc-demo</a>
-       is a real product adopted from this template — every agent pull request browsable.</p>
-    <p style="margin-top:.75rem">MIT licensed ·
-       <a href="https://github.com/galando/agentic-sdlc">github.com/galando/agentic-sdlc</a> ·
-       the full story lives in <code>README.md</code> and <code>AGENTS.md</code></p>
-  </div>
+  <p>MIT licensed. Built and reviewed by the loop it describes —
+  <a href="https://github.com/galando/agentic-sdlc">galando/agentic-sdlc</a> ·
+  proof: <a href="https://github.com/galando/agentic-sdlc-demo">agentic-sdlc-demo</a></p>
 </footer>
 
+</div>
 </body>
 </html>
