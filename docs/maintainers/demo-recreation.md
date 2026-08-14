@@ -130,6 +130,14 @@ places.
 tools/adopt.sh
 ```
 
+Or make the adoption itself the demo's first exhibit: open the clone in your
+agent and say *"read `ONBOARDING.md` and adopt this"* — it drives
+`init.sh --answers` from a `profiles/` file (put Part A's answers in one) and
+hands you back the human-only steps. Either way the interview stamps
+`.agents/template-manifest.json` (pristine hashes, pre-substitution), which is
+what makes the demo upgradeable to future template releases via
+`tools/upgrade.sh plan/apply` — leave it committed.
+
 Answer the interview with Part A's table. When it offers, say **yes** to:
 
 - retiring the bundled example (`tools/adopt-layout.sh` — it deletes `examples/`
@@ -358,8 +366,14 @@ that mention the agent and let the whole thing run end to end, merging each your
 
 Leave them merged and browsable. Then enable **one** scheduled routine (start with
 `health`) after a `tools/run-agent.sh health --dry-run`, so the `agent-ledger`
-branch has real entries in it. Not all five — the demo should model the ramp the
+branch has real entries in it. Not all ten — the demo should model the ramp the
 README tells adopters to follow.
+
+Worth one extra exhibit while you are here: flip `mode: observe` in
+`.agents/config.yml` for a day, mention the agent on an issue, and screenshot the
+steward's observe notice ("reads and reports, does not act — this run's
+credentials mechanically lack write access"). That is the corporate trial-week
+story in one comment; flip back to `active` after.
 
 ### 10. Re-check the template's own links
 
@@ -470,7 +484,8 @@ you smooth over silently is a template bug that nobody upstream ever hears about
 - [ ] `floors.yml` calibrated **or** the README's calibration sentence corrected.
 - [ ] `agent-ledger` branch exists on origin and has at least one real entry.
 - [ ] At least one merged PR carrying two reviews, a referee comment, and a green gauntlet.
-- [ ] Branch protection on, seven FAST contexts required, `enforce_admins` true.
+- [ ] Branch protection on, the eight FAST contexts required (`tools/adopt.sh`
+      step 7/8 applies the exact list), `enforce_admins` true.
 - [ ] The template's `README.md` and `site/index.html` links resolve.
 
 ---
