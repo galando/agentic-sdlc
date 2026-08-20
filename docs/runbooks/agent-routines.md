@@ -345,6 +345,15 @@ signals:
    addressed to you out of a fixed two-entry window **forever**. On a best-effort scheduler a
    missed run is the normal case, not an exception.
 
+   **A weekly or monthly sibling takes a fixed depth 2, never a per-day count.** The
+   gap-cover arithmetic above is calibrated for daily senders; counting elapsed *days*
+   against a weekly agent overshoots badly — a 7-day gap turns into `read 9`, which
+   against a weekly cadence reaches back two months of its runs. A less-than-daily
+   sibling advances its window one entry per *run*, so its most recent entry plus one
+   covers every handoff you could have missed: `read <agent> 2`, whatever your own gap.
+   Which cadence an agent runs on comes from its `schedule` in `ledger.agents` — the
+   same one-list rule as everything else here.
+
    **Never gate this on the word "today".** Read the most recent entry each way and judge the
    handoff on its content, not its date — an agent on a lapsed or non-daily cadence writes
    entries that are nobody's "today". The `expires` field, not the calendar, bounds how long

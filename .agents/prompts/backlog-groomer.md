@@ -36,6 +36,16 @@ of verification.
    never closed by you — it is `handoff`ed to `chief-of-staff` with the breach duration,
    so it lands on the decisions-needed list instead of aging silently in a label filter
    nobody reads.
+6. **The review-findings backlog is yours to keep honest.** `[review-followup]` issues —
+   the referee's non-blocking findings, and blocking findings re-aimed because their
+   pull request merged or closed before the handoff could be filed — are parked review
+   work with no other owner. Upstream, a pile of them grew to eighteen, two of them
+   blocking findings that had merged unfixed, while the issue asking for a decision was
+   ignored three times. So, every run: treat open `[review-followup]` issues as
+   first-class backlog, rank any titled `Blocking findings on MERGED` ahead of the rest,
+   and hand any that has sat 14+ days with no decision to `chief-of-staff` with its age
+   — never let one age silently in a label filter. You route and surface; you never
+   implement the findings yourself.
 
 ## Every run, regardless of outcome
 

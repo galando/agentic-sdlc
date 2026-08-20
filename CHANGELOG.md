@@ -11,6 +11,73 @@ diff against, and keeping the surface small keeps that diff readable.
 placeholder — see `ADOPTING.md`). Every release therefore needs a heading in exactly this
 shape.
 
+## [0.4.0] - 2026-08-20
+
+An upstream-lessons release, like 0.3.0: everything here landed first in the running
+system the template was extracted from, in its week of 2026-08-14 → 2026-08-20, and is
+carried back de-identified. The theme of the week upstream was **work and signals going
+invisible**: finished branches nobody opened, a second review written and never posted,
+handoffs aimed at merged branches, and degraded runs that stayed green.
+
+### If you read nothing else
+
+| What | Was | Is now |
+|---|---|---|
+| **A run dies after pushing** | Its finished, tested work sat invisible on a branch — no pull request, and every "is anything in flight?" check missed it | Guardrail 2: open the PR **as a draft early**, while the token is young. Backstop: `parked-branch-sweep.yml` opens the PR a dead run could not, every 3 hours, with 19 behavioural guards on its three nevers |
+| **The challenge review is lost** | The job stayed green; the PR read as "reviewed twice" when it was reviewed once | The challenge job detects its own lost review, files `[review-lost]`, and **exits 1**. Both reviewer prompts: posting the review is the last action you take — partial beats lost |
+| **A PR merges while the reviews run** | The steward handoff told an agent to push to a branch that no longer existed | The handoff step reads the PR state first; MERGED/CLOSED gets a re-aimed `[review-followup]` (judge findings against the current base, land survivors as a NEW pull request), filed inert |
+| **A degraded run** | A fallback, a skip, or a cancel could still conclude success | Standing decision: green may only mean the work happened. Gate alerts on the probe's result, never the input's existence; publish skipped counts next to checked counts |
+
+### Added
+
+- **The parked-branch sweep** — `tools/sweep-parked-branches.sh` +
+  `.github/workflows/parked-branch-sweep.yml` + `docs/runbooks/parked-branch-sweep.md` +
+  `tests/sweep-parked-branches.bats`. Three nevers, each tested: never a second pull
+  request (a failed lookup is never "no pull request"), never resurrect squash-merged
+  work, never take a branch from a live run. The token doctrine rides along: probe the
+  exact GraphQL read `gh pr create` makes, only a refusal (never a 502) triggers the
+  GITHUB_TOKEN fallback, and a fallen-back run exits 1 with a `DEGRADED` line — because
+  its pull requests get no CI and no review. `STEWARD_HANDOFF_PAT` needs `Contents:
+  read` as well as `Pull requests: write` for this; the credentials table says why.
+- **The code hygiene agent** (`hygiene`, eleventh in the roster, weekly, shipped off
+  like every sibling): dead code and duplication on a two-focus rotation persisted in a
+  new ledger `focus` field that `ledger.sh` validates **at the write** — a misspelled
+  rotation value would otherwise silently restart the rotation forever. Three fences:
+  dark is not dead; frameworks reach code without a textual reference; the ratchet
+  outranks the cleanup. Rejected scope is recorded in the prompt so it is not
+  re-litigated.
+- **Four knowledge cards** seed the second brain from the upstream week, all
+  product-neutral: `parked-pr-branch`, `a-log-line-is-not-the-row`,
+  `probe-the-capability-you-need`, `a-turn-that-ends-is-the-run`.
+- **`tools/collect-review-comment.sh`** — the ONE home of the review-comment collector
+  (both comment endpoints, slurped, three filters). Both lost-review checks call it, and
+  `review-collector.bats` now executes the real script instead of awk-extracting jq out
+  of YAML — the first concrete step of the "logic out of YAML" direction.
+
+### Changed
+
+- The commit-a-band checklist grows from three checks to four: check 2 now asks its
+  question on **both sides** (name what else could produce a RETIRE reading — a false
+  retire closes an issue that is not fixed), and new check 4 asks whether the mechanism
+  can cover the whole population the band scores (deferred rows are `NOT_YET_READ`,
+  never scored).
+- Efficiency rule 7: **a weekly or monthly sibling takes a fixed read depth of 2** —
+  the per-day gap-cover arithmetic is for daily senders, and counting days against a
+  weekly agent reaches back months of its runs.
+- The backlog groomer owns the `[review-followup]` backlog: blocking-on-merged findings
+  rank first, and anything 14+ days without a decision goes to the chief of staff —
+  upstream the pile reached eighteen, two of them blocking findings that merged unfixed.
+
+### Fixed
+
+- The example frontend's nightly CVE gate: vitest 2.1.9 → 3.2.7 clears a critical
+  advisory (UI-server file read) and nanoid 3.3.16 → 3.3.18 a high one; the two
+  allowlist entries that excused the old vitest advisory were removed by the gate's own
+  stale-exception ratchet.
+- `agent-routines.md`'s kill switch said disabling `agents-scheduled.yml` stops "all
+  five" agents — a count from two roster generations ago; it now says what it means
+  (every scheduled agent at once).
+
 ## [0.3.0] - 2026-08-08
 
 An upstream-lessons release. Everything here landed first in the running system the
