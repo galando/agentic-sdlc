@@ -47,10 +47,10 @@ because observe runs simply never receive a write token.
   with **ratcheted floors calibrated to *your* codebase**, never someone
   else's. Floors ship as loud `unset` sentinels until `tools/measure-floors.sh`
   measures *your* baseline; from then on they only move up.
-- **Ten scheduled agents** (health, quality, audit, chief-of-staff,
+- **Eleven scheduled agents** (health, quality, audit, chief-of-staff,
   challenger, docs freshness, backlog groomer, test gap, dependency steward,
-  release drafter) — all shipped **off**, enabled one at a time when you're
-  ready.
+  code hygiene, release drafter) — all shipped **off**, enabled one at a time
+  when you're ready.
 - **A second brain** (`docs/knowledge/`): agents propose distilled lessons as
   cards, a human merges them, and every future session reads the 80-line
   index first. History (ledgers), knowledge (cards), and steering
@@ -81,7 +81,7 @@ because observe runs simply never receive a write token.
 
 ## Turning on the routines
 
-The ten scheduled agents ship disabled — nobody should meet this system as ten
+The eleven scheduled agents ship disabled — nobody should meet this system as eleven
 crons and an alert firehose. Dry-run each one first
 (`tools/run-agent.sh <agent> --dry-run` prints the exact command and invokes
 nothing), then flip its `enabled: true` in `.agents/config.yml`, one at a

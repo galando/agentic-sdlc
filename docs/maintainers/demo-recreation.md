@@ -366,7 +366,7 @@ that mention the agent and let the whole thing run end to end, merging each your
 
 Leave them merged and browsable. Then enable **one** scheduled routine (start with
 `health`) after a `tools/run-agent.sh health --dry-run`, so the `agent-ledger`
-branch has real entries in it. Not all ten — the demo should model the ramp the
+branch has real entries in it. Not all eleven — the demo should model the ramp the
 README tells adopters to follow.
 
 Worth one extra exhibit while you are here: flip `mode: observe` in

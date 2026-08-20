@@ -59,4 +59,4 @@ that spend tokens, roughly in ramp order, are: each steward run, two reviews per
 request (one if the challenge key is absent), and each enabled routine once per day.
 Turn routines on one at a time (`README.md` section 6) precisely so spend stays
 proportional to the value you are actually getting, rather than jumping straight to
-ten daily/weekly agents plus two reviews per PR.
+eleven daily/weekly agents plus two reviews per PR.

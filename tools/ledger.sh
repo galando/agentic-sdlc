@@ -144,6 +144,18 @@ cmd_append() {
   printf '%s' "$entry" | jq -e '.verdict | test("^(green|amber|red)$")' >/dev/null \
     || die "verdict must be green, amber or red"
 
+  # The hygiene agent's rotation state, validated at the WRITE and not the
+  # read: nothing downstream ever rejects this value — the agent's next run
+  # just finds nothing it recognises, defaults back to dead-code, and ships
+  # plausible pull requests for one half of its job forever, with no error
+  # anywhere. A state field an agent's own next run branches on gets an enum
+  # check here, where failing costs one re-run instead of a silent permanent
+  # derailment.
+  if [ "$agent" = "hygiene" ]; then
+    printf '%s' "$entry" | jq -e '(.focus // "none") | test("^(dead-code|duplication|none)$")' >/dev/null \
+      || die "hygiene entries carry focus: dead-code | duplication | none — it is the rotation state the next run branches on"
+  fi
+
   # `.date` REACHES A FILE PATH, so its shape is a safety property and not a
   # formatting preference. The narrative below lands at
   # `ledger/<agent>/<date>.md`, and `has("date")` alone lets any string through

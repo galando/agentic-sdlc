@@ -103,7 +103,7 @@ After each phase, and always before you report done:
 tools/check-placeholders.sh                 # zero unresolved placeholders
 tools/status.sh                             # every step shows [done] or names what's left
 bats tests/ tests/harness-guards/           # the harness suite — all green
-tools/run-agent.sh --list-agents            # the ten scheduled agents resolve
+tools/run-agent.sh --list-agents            # the eleven scheduled agents resolve
 tools/run-agent.sh health --dry-run         # exact argv, invokes nothing — repeat per agent
 tools/run-agent.sh --check-credentials health   # names the missing secret, if any
 ```

@@ -183,6 +183,12 @@ ledger:
       schedule: "43 9 * * 4"          # weekly, Thursdays
       enabled: false
       max-age-hours: 200
+    - id: hygiene
+      prompt: .agents/prompts/code-hygiene.md
+      role: judge
+      schedule: "31 9 * * 5"          # weekly, Fridays
+      enabled: false
+      max-age-hours: 200
     - id: release
       prompt: .agents/prompts/release-drafter.md
       role: judge

@@ -118,6 +118,13 @@ never widens an exclude, never merges.
 **Current setting: ACTIVE**, weekly. One bounded upgrade pull request per run, through
 the fix pipeline. Never merges, never edits the CVE allowlist.
 
+## Mode: code hygiene
+
+**Current setting: ACTIVE**, weekly. One focus per run (`dead-code` | `duplication`,
+rotation persisted in the ledger's `focus` field), one bounded pull request at most.
+Never deletes flagged-off code, never touches a feature flag, never adjusts a floor to
+make a deletion fit, never merges.
+
 ## Mode: release drafter
 
 **Current setting: ACTIVE**, monthly (also runnable on demand). Drafts release notes
