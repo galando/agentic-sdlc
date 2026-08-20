@@ -371,19 +371,34 @@ person to meet the same symptom reads it instead of re-deriving it.
     zero, alongside hundreds of corroborated ones, meant every single one was corroborated.
     The best possible night, and the band scored it a failure.
 
-  **So, before you commit a band, check three things about it:**
+  **So, before you commit a band, check four things about it:**
 
   1. **No gap, no overlap.** The confirm side and the refute side must together cover every
      reading that is possible, and no reading may satisfy both. Write ONE boundary (`>=X`
      confirms, `<X` refutes), not two thresholds with room in the middle — one boundary
      rules out the gap and the overlap at the same time.
-  2. **Only the mechanism under test can satisfy it.** If ordinary day-to-day churn can push
-     the number past your line, the line measures churn. Prefer a trigger the change itself
-     produces — a log line only the new code writes, a counter only the new path increments
-     — over a level in a series that many things move.
+  2. **Only the mechanism under test can satisfy it — on BOTH sides.** If ordinary
+     day-to-day churn can push the number past your line, the line measures churn. Prefer
+     a trigger the change itself produces — a log line only the new code writes, a counter
+     only the new path increments — over a level in a series that many things move. Then
+     ask the same question of the retire side: **name what else could produce a RETIRE
+     reading, not only a CONFIRM one.** Upstream, a band watched a cache-size metric; a
+     human freed the space by hand, the retire side fired the next morning, and the issue
+     would have been closed with nothing repaired. A false confirm costs a wrong
+     escalation; a false retire closes an issue that is not fixed — the costlier miss, and
+     the side this check was not being asked of. Knowing the trap by name on one side did
+     not stop it being applied to the other.
   3. **Read the wording of the thing you are testing, then say which reading confirms and
      which refutes.** The good outcome is not always the number going up. A guard that
      abstains correctly may never fire; a counter that stays at zero may be the fix working.
+  4. **If your band names a window, check the mechanism can cover the whole population
+     inside it.** Checks 1–3 ask about the *reading*; this one asks about the *sample*. A
+     nightly mechanism with a row cap, a rate limit or a batch size may reach only part of
+     what your band scores — upstream, a band waited on a re-check that capped at 400 rows
+     and had read 8 of the 22 rows the band was about, so the count was ≥1 by
+     construction. Find the cap before you write the band (it is usually one log line),
+     then split the population: rows the mechanism actually read are scoreable, rows it
+     deferred are **NOT_YET_READ** and carry to the next run — never scored as either side.
 
   This does not weaken the rule above — it is the checklist that rule assumed. Whoever
   contests a series still owes a band rather than a rebuttal; it now has to be a band that
@@ -414,3 +429,31 @@ person to meet the same symptom reads it instead of re-deriving it.
   the most recent scheduled run of each nightly gate, with its date.** This adds one read to
   one agent; it does not make the chief of staff responsible for *fixing* a gate, which
   stays where `docs/runbooks/qa-procedures.md` puts it.
+- **A run that fell back, was skipped, or was cancelled must not report success.** Three
+  parts of the upstream fleet reported success on one day while the thing each watched
+  was broken: a repair job fell back to a token whose pull requests trigger no CI and
+  stayed green about it; a nightly gate was superseded by the next day's queued run and
+  the outcome was silence ("the scan ran and found nothing" and "the scan never ran"
+  were indistinguishable); and a capped nightly check wrote nothing at all for the rows
+  it deferred, so an unchecked row looked exactly like a healthy one. Two rules bind
+  every agent and every workflow this fleet runs:
+
+  1. **A green result may only mean the work happened — never merely that nothing
+     objected.** A job that fell back to a degraded mode, was skipped, or was cancelled
+     before reaching a verdict must not conclude success. If the honest colour is
+     neither green nor red, it is red: an operator who reads a red job loses a minute;
+     an operator who reads a green one loses the outage.
+  2. **Gate an alert on the probe's RESULT, never on the existence of its input.** "The
+     secret is set", "the job exited 0", "no failure was reported" are descriptions of
+     health substituted for health — a flag can be a non-empty string and dead. Where a
+     check skips work, **publish the skipped count next to the checked count**, so the
+     gap has a number instead of a silence.
+
+  A ledger corollary: a run that could not do its job writes `verdict: red` (or at
+  minimum `amber` with the degradation named in `summary`) — never `green` because
+  nothing errored. And never derive a health signal from the newest surviving row of a
+  set that deletions can shrink — a series that can move backwards reads a healthy
+  producer as silent; use a monotonic counter. The parked-branch sweep's `DEGRADED` exit
+  and `tools/check-liveness.sh`'s absence-is-the-signal design are this decision
+  mechanised; a fallback that produces unreviewable pull requests is not the repair — it
+  is the outage, made quiet.
