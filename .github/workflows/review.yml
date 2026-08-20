@@ -332,9 +332,13 @@ jobs:
           # author-first ordering exited with "no handoff" without ever checking
           # whether anything had reached the pull request. Nobody saw it.
           #
-          # Reads BOTH comment homes — see the referee's collector below for the
-          # two lessons this encodes. Slurp before filtering, and merge the
-          # issue-comments endpoint with the pull-request review-comments one.
+          # Reads BOTH comment homes — issue comments and pull-request review
+          # comments, slurped then merged. The collector itself lives in
+          # tools/collect-review-comment.sh, in exactly ONE home: the challenge
+          # job's lost-review check needs the identical program, and two copies
+          # of a collector drift — so both steps call the script, and
+          # tests/harness-guards/review-collector.bats executes that same
+          # script against crafted fixtures.
           #
           # THREE filters, and all three are load-bearing. This reads a PUBLIC
           # thread: anyone may comment on a pull request, so "a comment in the
@@ -368,15 +372,8 @@ jobs:
           # Dropping (3) produces the same suppression on timing alone, with no
           # human involved: a superseded first attempt outranks the corrected
           # review that replaced it.
-          gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp > "$WORK/c1.json"
-          gh api "repos/$REPO/pulls/$PR/comments"  --paginate --slurp > "$WORK/c2.json"
-          BODY="$(jq -r --arg since "$SINCE" -s '
-            [ .[] | (if (.[0] | type) == "array" then add else . end) ] | add
-            | [ .[]
-                | select(.created_at >= $since)
-                | select(.body | contains("<!-- reviewer: judge -->")) ]
-            | sort_by(.created_at) | last | .body // ""
-          ' "$WORK/c1.json" "$WORK/c2.json")"
+          BODY="$(tools/collect-review-comment.sh --marker '<!-- reviewer: judge -->' \
+                    --since "$SINCE" --repo "$REPO" --pr "$PR")"
 
           if [ -z "$BODY" ]; then
             # A green run with no posted comment must never look normal — and a
@@ -523,6 +520,13 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
 
+      # Stamped BEFORE the review, same idiom as reviewer A's: the lost-review
+      # check below must not read a previous run's challenge review as this
+      # one's output.
+      - name: Record job start time
+        id: jobstart
+        run: echo "iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       # An unset secret must degrade to "one reviewer", loudly, and never to a
       # red check on every pull request in the repository. run-agent.sh exits 6
       # for an absent OPTIONAL credential and emits the warning itself, so the
@@ -598,6 +602,127 @@ jobs:
           tools/run-agent.sh reviewer --role challenge \
             --prompt-file .agents/prompts/review-challenge.md \
             --timeout 2400
+
+      # -----------------------------------------------------------------------
+      # Report a lost CHALLENGE review — and go red for it.
+      #
+      # Reviewer A's lost-review check watches only its own marker, deliberately
+      # (a lost review is a fact about THIS reviewer). So until this step
+      # existed, a challenge reviewer that ran, reasoned, and posted nothing
+      # left every check green and the pull request reading as "reviewed twice"
+      # when it was reviewed once. Upstream that happened twice in one week,
+      # both times the same way: the reviewer spawned subagents and ended its
+      # turn "waiting" for them — but a turn that ends IS the run ending, so
+      # the finished review it planned to post never existed anywhere. The
+      # prompt now forbids ending the turn with the review unposted; this step
+      # is the detector for every way the same outcome can still happen.
+      #
+      # Gated on the reviewer actually having RUN (steps.gate.outputs.run):
+      # every benign cause that silences the challenge review — a fork, an
+      # absent optional credential — sets run=false and is already explained
+      # by the gate, so firing here for those would be a false alarm on every
+      # such pull request. The supply-chain guard (a PR editing workflow
+      # files) silences BOTH reviewers and reviewer A's check already posts
+      # the both-affected notice on the pull request, so that case exits
+      # quietly here too.
+      # -----------------------------------------------------------------------
+      - name: Report a lost challenge review
+        # NOT always(): a cancelled run posts nothing on purpose, and saying
+        # "the review may have been lost" about a deliberate cancellation
+        # trains the reader to ignore the one warning that matters.
+        if: ${{ !cancelled() && steps.gate.outputs.run == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.STEWARD_HANDOFF_PAT || secrets.GITHUB_TOKEN }}
+          TOKEN_TRIGGERS: ${{ secrets.STEWARD_HANDOFF_PAT != '' }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          SINCE: ${{ steps.jobstart.outputs.iso }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Per-job temp dir, never a fixed /tmp path — see reviewer A's
+          # lost-review step for the self-hosted-runner incident behind this.
+          WORK="${RUNNER_TEMP:-}"
+          if [ -z "$WORK" ] || [ ! -w "$WORK" ]; then
+            WORK="$(mktemp -d)"
+          fi
+
+          # THE SAME collector as reviewer A's check — literally the same
+          # program, tools/collect-review-comment.sh, never a second copy:
+          # both comment homes slurped then merged, filtered by time window,
+          # THIS reviewer's marker, and explicit chronological order. The
+          # marker is the only reliable discriminator — both roles post from
+          # the same account.
+          BODY="$(tools/collect-review-comment.sh --marker '<!-- reviewer: challenge -->' \
+                    --since "$SINCE" --repo "$REPO" --pr "$PR")"
+
+          if [ -n "$BODY" ]; then
+            echo "The challenge review reached PR #$PR."
+            exit 0
+          fi
+
+          echo "::warning::The challenge reviewer ran and posted nothing - the second opinion may have been lost. See $RUN_URL"
+
+          # The supply-chain guard silences BOTH reviewers; reviewer A's check
+          # owns that notice and has already posted it on the pull request.
+          WORKFLOW_FILES="$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
+                              --jq '[.[] | select(.filename | startswith(".github/workflows/"))
+                                        | .filename] | join(", ")' 2>/dev/null || true)"
+          if [ -n "$WORKFLOW_FILES" ]; then
+            echo "Skipped by the supply-chain guard (workflow files changed) - reviewer A's check already said so on the pull request."
+            exit 0
+          fi
+
+          TITLE="[review-lost] The challenge review posted nothing on PR #$PR"
+          OPEN="$(gh issue list --repo "$REPO" --state open --limit 200 \
+                    --json title --jq '.[].title' \
+                  | grep -cFx "$TITLE" || true)"
+          if [ "$OPEN" = "0" ]; then
+            {
+              if [ "$TOKEN_TRIGGERS" != "true" ]; then
+                echo "> [!WARNING]"
+                echo "> **The steward was NOT invoked by this issue.** No elevated token was"
+                echo "> available, so it was filed with \`GITHUB_TOKEN\`, and GitHub"
+                echo "> does not start workflow runs from events created with GITHUB_TOKEN."
+                echo "> Mention the agent here to wake it, or set the \`STEWARD_HANDOFF_PAT\`"
+                echo "> secret so future handoffs are automatic."
+                echo
+              fi
+              echo "The challenge review of **PR #$PR** - _${PR_TITLE}_ (\`$PR_AUTHOR\`, \`$HEAD_REF\`) -"
+              echo "ran with its credential present and posted nothing. The pull request now shows"
+              echo "one review where the process promises two, and nothing on it says so — the"
+              echo "referee will report the missing half, but a missing SECOND opinion looks"
+              echo "exactly like a deliberately degraded run unless this issue names the"
+              echo "difference: the credential was there, the reviewer ran, the review is lost."
+              echo
+              echo "This is a review-pipeline failure, not a content finding. Re-run the review"
+              echo "workflow and confirm a \`<!-- reviewer: challenge -->\` comment lands this time."
+              echo
+              echo "- Pull request: $SERVER/$REPO/pull/$PR"
+              echo "- Review run: $RUN_URL"
+            } > "$WORK/challenge-lost-body.md"
+
+            gh label create agent-report --color BFD4F2 \
+              --description "Filed by the agent harness" 2>/dev/null || true
+            gh issue create --repo "$REPO" --title "$TITLE" \
+              --body-file "$WORK/challenge-lost-body.md" --label agent-report \
+            || gh issue create --repo "$REPO" --title "$TITLE" \
+              --body-file "$WORK/challenge-lost-body.md"
+            echo "Filed a lost-review issue for the challenge review on PR #$PR."
+          else
+            echo "A lost-review issue for the challenge review on #$PR is already open - not filing another."
+          fi
+
+          # A run that lost a review is not a success. Exiting non-zero is the
+          # point: the green check on a lost review was the whole defect — the
+          # pull request read as "reviewed twice". Last in the job, so nothing
+          # downstream of this step is skipped by the red.
+          exit 1
 
   # =========================================================================
   # Referee: sort the two reviews, do not grade them.
@@ -1239,6 +1364,64 @@ jobs:
               exit 0
               ;;
           esac
+
+          # -------------------------------------------------------------------
+          # The reviews and the referee take minutes, and a human can merge —
+          # or close — inside that window. Upstream, four open handoff issues
+          # asked an agent to apply findings and push to a branch that no
+          # longer existed; one was filed nineteen minutes after its pull
+          # request merged, another eleven. "Filed after merge" makes the
+          # INSTRUCTION stale, not the findings: a finding can still be true of
+          # the base branch after the merge. So a merged or closed pull request
+          # gets a RE-AIMED follow-up — judge each finding against the current
+          # base branch, land what still applies as a NEW pull request — filed
+          # with the INERT token, deliberately: waking the steward would only
+          # send it at a branch that is gone.
+          #
+          # An UNREADABLE state falls through to the normal handoff below —
+          # this step's standing rule is that a missing input must never read
+          # as "nothing to do".
+          # -------------------------------------------------------------------
+          PR_STATE="$(gh pr view "$PR" --repo "$REPO" --json state --jq .state 2>/dev/null || echo UNREADABLE)"
+          if [ "$PR_STATE" = "MERGED" ] || [ "$PR_STATE" = "CLOSED" ]; then
+            MERGED_TITLE="[review-followup] Blocking findings on $PR_STATE PR #$PR"
+            OPEN="$(GH_TOKEN="$GH_TOKEN_INERT" gh issue list --repo "$REPO" --state open --limit 200 \
+                      --json title --jq '.[].title' \
+                    | grep -cFx "$MERGED_TITLE" || true)"
+            if [ "$OPEN" != "0" ]; then
+              echo "A re-aimed follow-up for the $PR_STATE #$PR is already open - not filing another."
+              exit 0
+            fi
+            {
+              echo "The automatic reviews of **PR #$PR** - _${PR_TITLE}_ - raised findings the"
+              echo "referee ruled must be addressed, but the pull request is **$PR_STATE** and its"
+              echo "branch \`$HEAD_REF\` is gone — there is nothing to push to, so **this is NOT a"
+              echo "steward handoff and no agent has been woken.**"
+              echo
+              echo "A finding can still be true of the base branch after a merge. \"Filed after"
+              echo "merge\" makes the instruction stale, not the finding."
+              echo
+              echo "**Task:** read the reviews on PR #$PR, judge each finding against the CURRENT"
+              echo "base branch, land whatever still applies as a **new** pull request, and close"
+              echo "this issue saying what was dropped and why."
+              echo
+              echo "- Pull request: $SERVER/$REPO/pull/$PR"
+              echo "- Review run: $RUN_URL"
+              echo
+              echo "Filed automatically by \`review.yml\`, with \`GITHUB_TOKEN\` deliberately, so"
+              echo "opening it wakes nobody at a branch that no longer exists."
+            } > "$BODY_DIR/review-followup-merged-body.md"
+
+            GH_TOKEN="$GH_TOKEN_INERT" gh issue create --repo "$REPO" --title "$MERGED_TITLE" \
+              --body-file "$BODY_DIR/review-followup-merged-body.md" --label agent-report \
+            || GH_TOKEN="$GH_TOKEN_INERT" gh issue create --repo "$REPO" --title "$MERGED_TITLE" \
+              --body-file "$BODY_DIR/review-followup-merged-body.md" \
+            || GH_TOKEN="$GH_TOKEN_INERT" gh pr comment "$PR" --repo "$REPO" \
+              --body-file "$BODY_DIR/review-followup-merged-body.md"
+
+            echo "PR #$PR is $PR_STATE - filed a re-aimed follow-up instead of a steward handoff."
+            exit 0
+          fi
 
           TITLE="[steward-handoff] Review findings on PR #$PR"
 
