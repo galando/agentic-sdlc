@@ -1,0 +1,138 @@
+# Parked-branch sweep — opens the pull requests agent runs could not open.
+#
+# WHY THIS EXISTS.
+#
+# A long agent run outlives its API credential: `git push` uses one credential
+# and the GitHub API another, so a run whose token expires mid-run pushes its
+# finished, tested work and then fails the one call that would have made it
+# visible — `gh pr create` (or `gh pr ready`, for the draft AGENTS.md
+# guardrail 2 tells it to open early). Upstream, six such branches sat
+# invisible for days, one of them carrying the fix for a bug that kept firing
+# the whole time, while two agents truthfully reported "nothing is in flight"
+# because they checked issues and pull requests — not branches.
+#
+# tools/sweep-parked-branches.sh is the whole of the logic (tested by
+# tests/sweep-parked-branches.bats); this file only schedules it and routes a
+# failed run into the standard alert path. Keeping the logic in a tested
+# script and the YAML thin is deliberate — see docs/QUALITY-GATES.md on
+# harness guards, and the same split in review-handoff-decide.sh.
+#
+# WHAT IT IS NOT. Not a required check, not a gate, not a reviewer. It never
+# merges anything (guardrail 2): it makes invisible work visible and lets the
+# ordinary review machinery take it from there.
+
+name: parked-branch-sweep
+
+on:
+  schedule:
+    # Every 3 hours, off the contended top of the hour. Parked work waits at
+    # most one interval; each run costs about a hosted-runner minute. A repo
+    # with no agent/* branches gets a fast no-op, so shipping this enabled is
+    # safe on day one.
+    - cron: '41 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report only, open nothing'
+        type: boolean
+        default: true
+      max_age_days:
+        description: 'Ignore branches older than this'
+        default: '14'
+      limit:
+        description: 'Open at most this many pull requests'
+        default: '10'
+
+# nightly-alert.yml's contract: every caller declares exactly these two at
+# workflow level, or the whole run dies as startup_failure — see the block
+# comment at the top of that file. pull-requests: write is what the sweep
+# itself needs for `gh pr create` / `gh pr ready` when it runs on the
+# fallback GITHUB_TOKEN.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+# One sweep at a time, and NOT cancel-in-progress: this job exists precisely
+# because interrupted runs lose things.
+concurrency:
+  group: parked-branch-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    # Deliberately a GitHub-hosted runner, never vars.AGENT_RUNNER: this job's
+    # purpose includes running when agent infrastructure is broken, so it must
+    # not depend on the runner the agents use.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      rc: ${{ steps.sweep.outputs.rc }}
+    steps:
+      # fetch-depth: 0, and the script refuses to run without it: every
+      # judgement it makes is a base..branch commit range, and on a shallow
+      # clone those ranges are fiction — a 1-commit branch reads as thousands
+      # of commits ahead of a base it shares no ancestor with.
+      - name: Checkout with full history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Sweep parked branches
+        id: sweep
+        env:
+          # THE PAT IS THE POINT. GitHub does not start workflow runs from
+          # events created with GITHUB_TOKEN, so a pull request opened with the
+          # default token gets no CI and no review — visible, but nothing
+          # checks it. The default token is still the fallback, because a
+          # visible pull request beats a lost one, and the script exits 1 and
+          # says loudly which case it was.
+          #
+          # This chain resolves ONCE, when the env block expands, and it only
+          # covers a secret being ABSENT. A PAT that is EXPIRED — or alive but
+          # missing a permission — is still a non-empty string, so it wins the
+          # chain and there is nothing left to fall back to. That is why the
+          # script probes the token itself and carries its own FALLBACK.
+          # The PAT needs 'Contents: read' AS WELL AS 'Pull requests: write':
+          # `gh pr create` reads repository.defaultBranchRef before it writes.
+          GH_TOKEN: ${{ secrets.STEWARD_HANDOFF_PAT || secrets.GITHUB_TOKEN }}
+          FALLBACK_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          MAX_AGE_DAYS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_age_days || '14' }}
+          SWEEP_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '10' }}
+        # 2>&1 through tee, and the exit code taken from PIPESTATUS: the log
+        # must carry the ERROR lines a run that cannot start prints on stderr
+        # (an alert that says something broke and not what is half an alert),
+        # and tee's own exit code must not launder the script's.
+        # --no-fetch because the checkout above already fetched every branch
+        # (fetch-depth: 0 fetches all refs); a second fetch buys nothing.
+        run: |
+          set -uo pipefail
+          ARGS=(--max-age-days "$MAX_AGE_DAYS" --limit "$SWEEP_LIMIT" --no-fetch)
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          tools/sweep-parked-branches.sh "${ARGS[@]}" 2>&1 | tee sweep.log
+          echo "rc=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+  # A sweep that could not do its job is an S2: finished work is sitting
+  # invisible and the machine built to surface it is the thing that broke.
+  # nightly-alert opens or updates ONE tracking issue per gate, so a cause
+  # that persists (a dead PAT) updates the same issue instead of paging on
+  # every 3-hour tick.
+  notify-sweep:
+    if: ${{ always() && needs.sweep.outputs.rc != '0' && needs.sweep.result != 'skipped' }}
+    needs: [sweep]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      gate: 'Parked-branch sweep'
+      severity: 'S2'
+      what_red_means: >-
+        Finished agent work may be sitting on a branch with no pull request, and the
+        sweep could not repair that: a lookup failed, a create or a draft promotion was
+        refused, or the run fell back to GITHUB_TOKEN — in which case any pull request
+        it did open gets no CI and no review. Read the run's sweep summary for the
+        branch list, then fix the PAT or open the pull requests by hand.
+      runbook: 'docs/runbooks/parked-branch-sweep.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}

@@ -887,6 +887,26 @@ Four things about it belong here because they constrain what the routines can do
 
 A human merge remains the gate. `AGENTS.md` forbids self-merging.
 
+## The parked-branch sweep — a scheduled job, not an agent
+
+`.github/workflows/parked-branch-sweep.yml` runs `tools/sweep-parked-branches.sh` every
+three hours. It is not a routine: it needs no model, writes no ledger entry, and is not in
+`ledger.agents` or the watcher ring. Its whole job is to open the pull request a dead run
+could not — a run whose API token expires mid-run pushes its finished work (`git push`
+uses a different credential) and then fails the one call that would have made the work
+visible — and to mark ready a draft that has gone quiet. Guardrail 2's draft-first rule
+is the prevention half of the same lesson; the sweep is the repair half, and the reason
+"my token died" never means "my work is lost". It never merges anything, never reopens
+squash-merged work, and fails loudly rather than guess when GitHub cannot be asked —
+`docs/runbooks/parked-branch-sweep.md` has the decision table.
+
+One consequence for every routine and for the steward: **before you write that an issue
+has no work in flight, check the branches, not only the issues and pull requests.** A
+pushed branch with no pull request is exactly what a dead run leaves behind, and between
+sweeps it is invisible everywhere else. `git ls-remote origin 'refs/heads/agent/*'` is
+one call; `gh pr list --head <branch> --state all` answers whether anything ever showed
+it to a human — `[]` means no pull request has ever existed, in any state.
+
 ---
 
 ## Kill switch and steering
