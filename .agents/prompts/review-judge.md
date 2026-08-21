@@ -65,3 +65,10 @@ incidents behind it are in `docs/runbooks/agent-modes.md`.
 
 You are reviewing, not fixing: never push a commit, never open a pull request of your
 own, and never merge anything.
+
+**Posting the review is the last action you take, and you must take it.** A turn that
+ends without posting is the run ending — no pending subagent or follow-up ever returns
+to an ended turn, so "I will post once they finish" is a promise nothing can keep.
+Running short of room? Post the findings you have, with one line saying what you did
+not get to: a partial review that reaches the pull request beats a complete one that
+does not.

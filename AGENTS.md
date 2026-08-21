@@ -33,6 +33,15 @@ next reader will obey whichever copy they happened to open.
    bind a session to a platform-assigned working branch; that is scheduler plumbing, not
    your deliverable. Whatever branch the session starts on, create and push your work to an
    `agent/<purpose>-<date>` branch.)*
+
+   **Push your branch early and open the pull request as a draft right then — before the
+   long test runs — then mark it ready when the work is done.** Your API token is youngest
+   at the start of a run, and a run that dies after its tests pushed real work with a
+   token that could no longer open the pull request: the code reached the server, the
+   report did not, and the work sat invisible. The review workflow skips drafts, so the
+   early draft costs no review until you mark it ready — which is the last thing you do.
+   If the token dies before either step, `.github/workflows/parked-branch-sweep.yml`
+   finishes it for you within a few hours (`docs/runbooks/parked-branch-sweep.md`).
 3. **Follow the escalation runbook.** Every scheduled run ends with **exactly one** ledger
    entry (`tools/ledger.sh append`) — the event-driven steward is the one exemption: it is
    not in `ledger.agents`, and its visible outcome is the comment or pull request it

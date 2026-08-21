@@ -4,7 +4,7 @@
 <!-- placeholder: {{ALERT_CHANNEL}} — how a run summary reaches a human: none | webhook | command. -->
 <!-- placeholder: {{BUILD_PIPELINE}} — the spec pipeline agents build changes through. -->
 
-The ten scheduled agents run from `.github/workflows/agents-scheduled.yml` — a cron matrix
+The eleven scheduled agents run from `.github/workflows/agents-scheduled.yml` — a cron matrix
 over the agent ids in `.agents/config.yml`, each entry calling `tools/run-agent.sh`. One
 fresh session per firing, no memory, one bounded task.
 
@@ -147,6 +147,7 @@ are the shipped defaults.
 | `groomer` | `execute` | `19 9 * * 2` | backlog groomer — relabels, comments, and closes only on recorded verification |
 | `testgap` | `judge` | `29 9 * * 3` | test gap — proposes the next floor raise with evidence, or fills the worst coverage gap |
 | `deps` | `execute` | `43 9 * * 4` | dependency steward — one bounded upgrade pull request per run, CVE deltas as metrics |
+| `hygiene` | `judge` | `31 9 * * 5` | code hygiene — dead code and duplication on a two-focus rotation, one bounded pull request per run |
 | `release` | `judge` | `53 9 1 * *` | release drafter — drafts notes from merged pull requests and verified fixes; a human tags |
 
 **Odd minutes on purpose.** The top of the hour is the most contended slot on a shared
@@ -344,6 +345,15 @@ signals:
    addressed to you out of a fixed two-entry window **forever**. On a best-effort scheduler a
    missed run is the normal case, not an exception.
 
+   **A weekly or monthly sibling takes a fixed depth 2, never a per-day count.** The
+   gap-cover arithmetic above is calibrated for daily senders; counting elapsed *days*
+   against a weekly agent overshoots badly — a 7-day gap turns into `read 9`, which
+   against a weekly cadence reaches back two months of its runs. A less-than-daily
+   sibling advances its window one entry per *run*, so its most recent entry plus one
+   covers every handoff you could have missed: `read <agent> 2`, whatever your own gap.
+   Which cadence an agent runs on comes from its `schedule` in `ledger.agents` — the
+   same one-list rule as everything else here.
+
    **Never gate this on the word "today".** Read the most recent entry each way and judge the
    handoff on its content, not its date — an agent on a lapsed or non-daily cadence writes
    entries that are nobody's "today". The `expires` field, not the calendar, bounds how long
@@ -513,7 +523,7 @@ wrong.
 
 ---
 
-## The ten scheduled agents
+## The eleven scheduled agents
 
 Each entry names the agent's job, the things only *it* can see, and the rules above that
 bite hardest for it. **The executable prompt is `.agents/prompts/<agent>.md`.**
@@ -842,6 +852,33 @@ Keeps dependencies current in small, verifiable steps instead of a periodic scra
 - Never touches the CVE allowlist itself; an allowlist entry needs a human decision
   with a written exposure analysis.
 
+### `hygiene` — the code hygiene agent · `31 9 * * 5`
+
+Owns the two kinds of rot no gate measures: dead code and duplication. One agent with a
+rotating focus rather than two agents, because every fleet row costs every sibling a
+rule-7 read and every hygiene pull request costs the operator a review.
+
+- **Two-focus rotation, persisted in the ledger.** Each run works ONE focus —
+  `dead-code` or `duplication` — recorded in the entry's `focus` field, which
+  `tools/ledger.sh` validates as an enum at the write (a misspelled value would silently
+  reset the rotation forever, with no error anywhere). A `none` run does not advance the
+  rotation.
+- **One bounded pull request per run, at most** — one deletion cluster or one
+  duplication folded into one home, through the fix pipeline. Everything else found is
+  ranked `pending` for later runs.
+- **Three fences, each learned from a real system:** *dark is not dead* (code behind a
+  disabled flag is off on purpose — never delete flagged-off code or touch a flag);
+  *frameworks reach code without a textual reference* (dependency injection, scheduled
+  jobs, listeners, reflection, routes — search for the registered names, not only the
+  callers); and *the ratchet outranks the cleanup* (a deletion that would drop a
+  measured value below its floor was load-bearing for the metric — abandon the
+  candidate, never adjust a floor).
+- **Deliberately out of scope, decided once:** flaky tests (`testgap` and the nightly
+  flaky gate own them), architecture violations (the architecture gate blocks them
+  already), deleting tests (fights the coverage ratchet by construction), production
+  crash hunting (`health`/`quality` own signals), and feature-flag removal (an operator
+  decision it may propose in an issue, never enact).
+
 ### `release` — the release drafter · `53 9 1 * *`
 
 Turns a cycle's merged work into a release a human can decide about. Monthly by
@@ -887,13 +924,33 @@ Four things about it belong here because they constrain what the routines can do
 
 A human merge remains the gate. `AGENTS.md` forbids self-merging.
 
+## The parked-branch sweep — a scheduled job, not an agent
+
+`.github/workflows/parked-branch-sweep.yml` runs `tools/sweep-parked-branches.sh` every
+three hours. It is not a routine: it needs no model, writes no ledger entry, and is not in
+`ledger.agents` or the watcher ring. Its whole job is to open the pull request a dead run
+could not — a run whose API token expires mid-run pushes its finished work (`git push`
+uses a different credential) and then fails the one call that would have made the work
+visible — and to mark ready a draft that has gone quiet. Guardrail 2's draft-first rule
+is the prevention half of the same lesson; the sweep is the repair half, and the reason
+"my token died" never means "my work is lost". It never merges anything, never reopens
+squash-merged work, and fails loudly rather than guess when GitHub cannot be asked —
+`docs/runbooks/parked-branch-sweep.md` has the decision table.
+
+One consequence for every routine and for the steward: **before you write that an issue
+has no work in flight, check the branches, not only the issues and pull requests.** A
+pushed branch with no pull request is exactly what a dead run leaves behind, and between
+sweeps it is invisible everywhere else. `git ls-remote origin 'refs/heads/agent/*'` is
+one call; `gh pr list --head <branch> --state all` answers whether anything ever showed
+it to a human — `[]` means no pull request has ever existed, in any state.
+
 ---
 
 ## Kill switch and steering
 
 **Disable a schedule to stop that agent instantly.** No cleanup is needed — all state lives
 in the ledger. Set `enabled: false` on its entry in `.agents/config.yml`, or disable
-`agents-scheduled.yml` entirely to stop all five.
+`agents-scheduled.yml` entirely to stop every scheduled agent at once.
 
 **Steer any agent by editing `docs/runbooks/agent-modes.md` in a pull request.** That is the
 only channel they obey. Commenting in an issue does not reach them, and it is not supposed

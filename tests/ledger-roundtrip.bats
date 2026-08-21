@@ -217,6 +217,31 @@ teardown() {
   [[ "$output" == *"green, amber or red"* ]]
 }
 
+@test "a hygiene entry with a misspelled focus is rejected at the write, not silently at the next read" {
+  # `focus` is the rotation state the hygiene agent's NEXT run branches on, and nothing
+  # downstream ever rejects it: a misspelled value would just make every future run find
+  # nothing it recognises, default back to dead-code, and ship half the agent's job
+  # forever with no error anywhere. Failing the write is the only place the mistake
+  # costs one run instead of the rotation.
+  cd "$WORK/checkout"
+  LEDGER_AGENTS="ops quality hygiene" \
+    run "$LEDGER" append hygiene '{"date":"2026-08-04","verdict":"green","summary":"x","focus":"dead code"}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"dead-code | duplication | none"* ]]
+}
+
+@test "a hygiene entry with a valid focus — or none at all — is accepted" {
+  cd "$WORK/checkout"
+  LEDGER_AGENTS="ops quality hygiene" \
+    run "$LEDGER" append hygiene '{"date":"2026-08-04","verdict":"green","summary":"x","focus":"duplication","issues":[],"ping":{"summary_message_id":1,"incident":null}}'
+  [ "$status" -eq 0 ]
+  # Absent focus reads as a "none" run — legal, and it must not advance the rotation,
+  # which is the agent's own rule; the ledger only guards the vocabulary.
+  LEDGER_AGENTS="ops quality hygiene" \
+    run "$LEDGER" append hygiene '{"date":"2026-08-05","verdict":"amber","summary":"could not finish","issues":[],"ping":{"summary_message_id":1,"incident":null}}'
+  [ "$status" -eq 0 ]
+}
+
 @test "a date that would escape the ledger directory is rejected, loudly" {
   # `.date` is INTERPOLATED INTO A PATH: the narrative lands at
   # ledger/<agent>/<date>.md. Validating only that the field EXISTS lets a traversal

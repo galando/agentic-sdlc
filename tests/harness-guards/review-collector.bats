@@ -64,30 +64,28 @@ setup() {
 
 teardown() { rm -rf "$FIX"; }
 
-# Extract the lost-review step's jq program verbatim from the workflow. Running the real
-# program is the point: a copy pasted into this file would drift from the workflow the
-# first time somebody edited one and not the other, and this guard would then be
-# asserting things about a program that no longer runs anywhere.
-#
-# The step this program lives in used to file the steward handoff as well. The handoff
-# now runs at the end of the `referee` job — the first point where BOTH reviews exist —
-# and `steward-handoff-order.bats` guards that. What stayed here is the lost-review
-# check, and the three filters below are exactly as load-bearing for it: they decide
-# whether this reviewer's opinion reached the pull request at all.
-lost_review_jq() {
-  awk '/BODY="\$\(jq -r --arg since/ {f=1; next} f && /\$WORK\/c1\.json/ {f=0} f' "$REVIEW"
-}
+# The collector program used to live inline in the judge step's lost-review check and
+# was extracted from the YAML by awk here. When the challenge job grew its own
+# lost-review check it needed the identical program, and two copies of a collector is
+# how the upstream system once lost half of one — so the program moved to
+# tools/collect-review-comment.sh, its ONE home, and both workflow steps call it.
+# These assertions therefore execute the real script directly (the meta-doctrine's
+# stronger form: when a guard must execute, run the real logic), and the call-site
+# checks below prove the workflow actually invokes it for both roles.
+COLLECTOR="$REPO_ROOT/tools/collect-review-comment.sh"
 
 run_handoff() { # conversation-page-file inline-page-file
-  jq -r --arg since "$SINCE" -s "$(lost_review_jq)" "$1" "$2"
+  "$COLLECTOR" --marker '<!-- reviewer: judge -->' --since "$SINCE" --from-files "$1" "$2"
 }
 
-@test "review collector: the lost-review jq program can be located in the workflow" {
-  # If this fails the extraction below is silently testing an empty program, which would
-  # make every assertion in this file pass for the wrong reason.
-  prog="$(lost_review_jq)"
-  [ -n "$prog" ]
-  [[ "$prog" == *"add"* ]]
+@test "review collector: the shared collector exists and the workflow calls it for BOTH roles" {
+  # If this fails, the assertions below are testing a program nothing runs — which would
+  # make every one of them pass for the wrong reason.
+  [ -x "$COLLECTOR" ]
+  run grep -c "tools/collect-review-comment.sh --marker '<!-- reviewer: judge -->'" "$REVIEW"
+  [ "$output" -eq 1 ]
+  run grep -c "tools/collect-review-comment.sh --marker '<!-- reviewer: challenge -->'" "$REVIEW"
+  [ "$output" -eq 1 ]
 }
 
 @test "review collector: a human comment in the window is NOT mistaken for a review" {
@@ -159,24 +157,35 @@ BLOCKING: found only on the inline endpoint.")" > "$FIX/c2.json"
   [[ "$output" == *"inline endpoint"* ]]
 }
 
-@test "review collector: both endpoints are queried, in the lost-review check and in the referee" {
-  # Four calls: two endpoints x two collectors. A collector that drops back to one
-  # endpoint is the single-home bug returning.
+@test "review collector: both endpoints are queried, in the shared collector and in the referee" {
+  # Two endpoints x two collector homes. A collector that drops back to one endpoint is
+  # the single-home bug returning — whichever file it returns in.
   run grep -cE 'gh api "repos/\$REPO/issues/\$PR/comments" --paginate --slurp' "$REVIEW"
-  [ "$output" -eq 2 ]
+  [ "$output" -eq 1 ]
   run grep -cE 'gh api "repos/\$REPO/pulls/\$PR/comments"' "$REVIEW"
-  [ "$output" -eq 2 ]
+  [ "$output" -eq 1 ]
+  run grep -cE 'gh api "repos/\$REPO/issues/\$PR/comments" --paginate --slurp' "$COLLECTOR"
+  [ "$output" -eq 1 ]
+  run grep -cE 'gh api "repos/\$REPO/pulls/\$PR/comments"' "$COLLECTOR"
+  [ "$output" -eq 1 ]
 }
 
 @test "review collector: selection is by positive role marker, never by exclusion" {
   # Selecting role A as "everything that is not role B" makes any unmarked comment —
-  # status chatter, a human, a retry — count as role A's review.
+  # status chatter, a human, a retry — count as role A's review. The shared collector
+  # takes the marker as an argument and matches it POSITIVELY; the workflow must pass a
+  # positive marker at each call site, and the referee's inline collector keeps its own
+  # positive selects.
+  run grep -c 'select(.body | contains($marker))' "$COLLECTOR"
+  [ "$output" -eq 1 ]
   run grep -c 'select(.body | contains("<!-- reviewer: judge -->"))' "$REVIEW"
-  [ "$output" -ge 2 ]
+  [ "$output" -ge 1 ]
   run grep -c 'select(.body | contains("<!-- reviewer: challenge -->"))' "$REVIEW"
   [ "$output" -ge 1 ]
   # No negated marker test anywhere: that is the exclusion shape.
   run grep -cE 'contains\("<!-- reviewer:[^"]*"\)[[:space:]]*\|[[:space:]]*not' "$REVIEW"
+  [ "$output" -eq 0 ]
+  run grep -cE 'contains\(\$marker\)[[:space:]]*\|[[:space:]]*not' "$COLLECTOR"
   [ "$output" -eq 0 ]
 }
 
@@ -185,5 +194,7 @@ BLOCKING: found only on the inline endpoint.")" > "$FIX/c2.json"
   # array per page, so "take the last one" silently returns one result per page.
   # Invisible until a thread passes 100 comments — which is when you need it to be right.
   run grep -c -- '--paginate --slurp' "$REVIEW"
-  [ "$output" -ge 4 ]
+  [ "$output" -ge 2 ]
+  run grep -c -- '--paginate --slurp' "$COLLECTOR"
+  [ "$output" -ge 2 ]
 }

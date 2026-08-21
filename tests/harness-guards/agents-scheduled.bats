@@ -18,7 +18,7 @@ CONFIG="$REPO_ROOT/.agents/config.yml"
 }
 
 @test "agents-scheduled.yml's cron entries match .agents/config.yml's ledger.agents schedules, one for one" {
-  for id in health quality audit chief-of-staff challenger docs groomer testgap deps release; do
+  for id in health quality audit chief-of-staff challenger docs groomer testgap deps hygiene release; do
     schedule="$(AGENTS_CONFIG="$CONFIG" bash -c ". '$REPO_ROOT/tools/lib/config.sh'; cfg_agent_field '$id' schedule")"
     grep -qF "cron: \"$schedule\"" "$WORKFLOW" || {
       echo "# no cron entry in agents-scheduled.yml matches $id's configured schedule '$schedule'"
@@ -27,9 +27,9 @@ CONFIG="$REPO_ROOT/.agents/config.yml"
   done
 }
 
-@test "agents-scheduled.yml carries exactly ten cron entries, matching the ring size" {
+@test "agents-scheduled.yml carries exactly eleven cron entries, matching the ring size" {
   count="$(grep -cE '^\s*- cron: ' "$WORKFLOW")"
-  [ "$count" -eq 10 ]
+  [ "$count" -eq 11 ]
 }
 
 @test "the matrix is read from config at runtime, never hard-coded as a YAML list" {

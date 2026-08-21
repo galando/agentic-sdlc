@@ -25,9 +25,10 @@ format, on a branch nobody has to render.
 list `agents-scheduled.yml` builds its matrix from, and the order the watcher ring walks.
 One list. A second list of agent names anywhere else is a second source of truth and will
 drift. The shipped default is `health`, `quality`, `audit`, `chief-of-staff`,
-`challenger` (daily), plus `docs`, `groomer`, `testgap`, `deps`, `release`
-(weekly/monthly — Part B of PR #18's second-brain/SDLC-extension design; implementation
-spec at `.temper/specs/second-brain-and-sdlc-extension/`).
+`challenger` (daily), plus `docs`, `groomer`, `testgap`, `deps`, `hygiene`, `release`
+(weekly/monthly — Part B of PR #18's second-brain/SDLC-extension design plus the
+code-hygiene routine; implementation spec at
+`.temper/specs/second-brain-and-sdlc-extension/`).
 
 ## Creating the branch
 
@@ -135,6 +136,12 @@ narrative stay exactly as precise as they are.
   just the daily brief or also the self-gated retrospective and planning pass
   (`agent-routines.md`). The agent reads its own last seven entries for the most recent
   `"heavy"` to decide whether today qualifies.
+- **`focus`** — `"dead-code"` | `"duplication"` | `"none"`, hygiene agent only: the
+  two-focus rotation state its next run branches on. **Validated by `ledger.sh` at the
+  write**, because nothing downstream would ever reject a misspelled value — the next
+  run would just find nothing it recognises and silently restart the rotation at
+  dead-code, forever. A field an agent's own future run branches on gets an enum check
+  at the write path; that is the general rule, `focus` is merely its first instance.
 
 ## Concurrency
 

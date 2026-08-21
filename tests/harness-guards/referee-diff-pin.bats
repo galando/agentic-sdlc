@@ -294,11 +294,16 @@ job_block() { # job-name
 
 @test "stamp: the marker line the collector matches on is UNCHANGED" {
   # The stamp is a SECOND line, deliberately. Folding the sha into the role marker would
-  # break every `contains("<!-- reviewer: judge -->")` selection at once — the collector,
-  # the lost-review check and the referee's split all key on that exact string.
+  # break every selection keyed on that exact string at once — the referee's split
+  # (inline in the workflow) and both lost-review checks (which pass the marker to
+  # tools/collect-review-comment.sh, the collector's one home since it was shared).
   run grep -c 'contains("<!-- reviewer: judge -->")' "$REVIEW"
-  [ "$output" -ge 2 ]
+  [ "$output" -ge 1 ]
+  run grep -c "collect-review-comment.sh --marker '<!-- reviewer: judge -->'" "$REVIEW"
+  [ "$output" -ge 1 ]
   run grep -cE '<!-- reviewer: (judge|challenge) [^-]' "$REVIEW"
+  [ "$output" -eq 0 ]
+  run grep -cE '<!-- reviewer: (judge|challenge) [^-]' "$REPO_ROOT/tools/collect-review-comment.sh"
   [ "$output" -eq 0 ]
 }
 

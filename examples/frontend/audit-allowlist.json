@@ -23,15 +23,5 @@
     "id": 1123525,
     "package": "vite",
     "reason": "server.fs.deny bypass on Windows alternate data streams (GHSA-fx2h-pf6j-xcff) — dev-server-only, Windows-only; same reasoning as 1120784."
-  },
-  {
-    "id": 1120126,
-    "package": "vitest",
-    "reason": "Arbitrary file read/execute via the Vitest UI server (GHSA-5xrq-8626-4rwp) — only reachable when `vitest --ui` is running and listening. Neither `npm run test`, `npm run test:coverage`, nor any CI job in this repository starts the UI server; @vitest/coverage-v8 inherits this advisory transitively from vitest for the same reason."
-  },
-  {
-    "id": "@vitest/coverage-v8",
-    "package": "@vitest/coverage-v8",
-    "reason": "npm audit reports this package's only advisory as inherited from 'vitest' with no advisory id of its own attached at this level — it is the same GHSA-5xrq-8626-4rwp (Vitest UI server) covered by the 1120126 entry above, listed again here because audit-ci.mjs falls back to the package name when npm's JSON carries no numeric id at this node."
   }
 ]
