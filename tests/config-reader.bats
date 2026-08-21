@@ -136,7 +136,7 @@ both_readers_agree() {
   yq_val="$(AGENTS_CONFIG_READER=yq bash -c ". '$LIB'; cfg_agents" | tr '\n' ' ')"
   awk_val="$(AGENTS_CONFIG_READER=awk bash -c ". '$LIB'; cfg_agents" | tr '\n' ' ')"
   [ "$yq_val" = "$awk_val" ]
-  [ "$yq_val" = "health quality audit chief-of-staff challenger docs groomer testgap deps release " ]
+  [ "$yq_val" = "health quality audit chief-of-staff challenger docs groomer testgap deps hygiene release " ]
 }
 
 @test "config reader: cfg_predecessor skips disabled agents and wraps, under both readers" {
