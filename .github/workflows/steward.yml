@@ -297,23 +297,46 @@ jobs:
             echo "No commits ahead of $BASE on $BRANCH — nothing to open a pull request for."
             exit 0
           fi
-          if [ -n "$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
-            echo "A pull request already exists for $BRANCH."
+          ERR_FILE="$(mktemp)"
+          BODY_FILE="$(mktemp)"
+          trap 'rm -f "$ERR_FILE" "$BODY_FILE"' EXIT
+          # why <n> — the first n bytes of gh's answer, on ONE line. A ::error::
+          # annotation stops at the first newline, and gh prints the HTTP status
+          # ("HTTP 401") in that answer when the API refused.
+          why() { tr '\n' ' ' < "$ERR_FILE" | head -c "$1"; }
+          http_status() { grep -oE 'HTTP [0-9]{3}' "$ERR_FILE" | head -n1 | cut -d' ' -f2 | grep . || echo unknown; }
+          # A lookup that FAILED must never read as "no pull request exists".
+          # Inside `$(...)` a failing gh prints nothing, and nothing is exactly
+          # what "no pull request" prints — so a dead token opened a duplicate.
+          # Same rule as tools/sweep-parked-branches.sh rule 1 ("never a
+          # second pull request"): the exit status is checked, not the output.
+          LOOKUP_RC=0
+          EXISTING="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+            --json number --jq '.[].number' 2>"$ERR_FILE")" || LOOKUP_RC=$?
+          if [ "$LOOKUP_RC" -ne 0 ]; then
+            echo "::error::Could not ask GitHub whether $BRANCH already has a pull request (gh exit $LOOKUP_RC, HTTP $(http_status)): $(why 300). Opening nothing — a failed lookup and 'no pull request' look identical, and one of them opens a duplicate. tools/sweep-parked-branches.sh opens it on its next run."
+            exit 1
+          fi
+          if [ -n "$EXISTING" ]; then
+            echo "A pull request already exists for $BRANCH (#$EXISTING)."
             exit 0
           fi
-          BODY_FILE="$(mktemp)"
           {
             echo "Opened automatically by the steward for issue #${ISSUE_NUMBER}."
             echo
             echo "A human merges. See AGENTS.md guardrail 2."
           } > "$BODY_FILE"
-          gh pr create --repo "$REPO" --base "$BASE" --head "$BRANCH" \
+          if ! gh pr create --repo "$REPO" --base "$BASE" --head "$BRANCH" \
             --title "${ISSUE_TITLE:-Automated change from $BRANCH}" \
-            --body-file "$BODY_FILE"
+            --body-file "$BODY_FILE" 2>"$ERR_FILE"; then
+            echo "::error::GitHub refused to open a pull request for $BRANCH (HTTP $(http_status)): $(why 300). The work is pushed and safe; tools/sweep-parked-branches.sh opens it on its next run."
+            exit 1
+          fi
 
       # -----------------------------------------------------------------------
-      # Auto-triage MUST leave a visible outcome — a comment or a pushed branch
-      # — or fail the job on purpose.
+      # Auto-triage MUST leave a visible outcome — a comment, a pushed branch,
+      # or a commit on the pull request a handoff names — or fail the job on
+      # purpose.
       #
       # On the auto-triage path there may be no tracking comment for the agent
       # to update, so posting falls to the agent deciding to post. When it does,
@@ -394,8 +417,77 @@ jobs:
               }
             }
 
-            if (posted || pushed) {
-              core.info(`Visible outcome present (comment=${!!posted}, branch=${pushed}).`);
+            // Outcome 3: commits landed on the branch the ISSUE names, inside
+            // this run's window. A [steward-handoff] run pushes to the pull
+            // request's EXISTING branch, so it creates no branch of its own and
+            // outcome 2 always 404s; its closing reply is often lost as well,
+            // because the API token expires late in a long run while `git push`
+            // keeps working on a different credential. Both signals above then
+            // read false on a run that did exactly what it was asked, the
+            // handoff issue stays open, and the title dedupe in review.yml blocks
+            // the next handoff for that pull request. Same window as the two
+            // signals above, so a branch quiet since before the run still
+            // reports as silence.
+            //
+            // Scoped to [steward-handoff] on purpose. A [review-lost] issue is
+            // titled the same way ("... on PR #<n>") and its run re-runs a
+            // review, never pushes — a commit on that branch is somebody else's
+            // work and would silence the check that catches a lost review.
+            let committed = false;
+            let stewardCommitted = false;
+            const issueTitle = (context.payload.issue && context.payload.issue.title) || '';
+            const prRef = issueTitle.startsWith('[steward-handoff]')
+              ? (issueTitle.match(/\bPR #(\d+)\b/)
+                || ((context.payload.issue && context.payload.issue.body) || '').match(/\/pull\/(\d+)\b/))
+              : null;
+            if (prRef) {
+              try {
+                const pr = await github.rest.pulls.get({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  pull_number: Number(prRef[1]),
+                });
+                const headRef = pr.data.head.ref;
+                // A pull request headed by the default branch would make every
+                // merge inside the window read as this run's work. No handoff
+                // names one today; this keeps it that way.
+                const onDefaultBranch =
+                  headRef === (pr.data.base.repo || {}).default_branch;
+                if (onDefaultBranch) {
+                  core.warning(
+                    `PR #${prRef[1]} is headed by the default branch; not reading its ` +
+                    `commits as this run's outcome.`);
+                }
+                const commits = onDefaultBranch ? [] : await github.paginate(
+                  github.rest.repos.listCommits, {
+                    owner: context.repo.owner, repo: context.repo.repo,
+                    sha: headRef, since: startedAt.toISOString(), per_page: 100,
+                  });
+                // Two tiers, the same split as `posted` / `stewardPosted`: any
+                // commit means the branch is not abandoned, so it answers the
+                // silence question; only the steward's own commit is the steward
+                // finishing, so only that closes the issue. `c.author` is the
+                // GitHub ACCOUNT GitHub resolved from the commit's email — never
+                // the git author name, which anyone can set to anything — and
+                // `type === 'Bot'` is the same portable filter `stewardPosted`
+                // uses. A null `author` (unresolved email) degrades to "not
+                // closed".
+                committed = commits.length > 0;
+                stewardCommitted = commits.some(
+                  c => c.author && c.author.type === 'Bot');
+              } catch (err) {
+                // A probe that could not run is neither silence nor health. Say
+                // so and let the notice below fire: a notice on a run that did
+                // work is recoverable, an unreported silent run is not.
+                core.warning(
+                  `Could not read commits for PR #${prRef[1]}: ${err.message}. ` +
+                  `Treating this run as having no commit signal.`);
+              }
+            }
+
+            if (posted || pushed || committed) {
+              core.info(
+                `Visible outcome present (comment=${!!posted}, branch=${pushed}, ` +
+                `commits=${committed}).`);
 
               // Close a finished [steward-handoff] issue.
               //
@@ -424,12 +516,15 @@ jobs:
               //  2. `stewardPosted`, NOT `posted`. The any-author check above is
               //     deliberate for "is this issue silently unanswered". For
               //     CLOSING it would let a human writing "hold on" close the very
-              //     ticket they were objecting to.
+              //     ticket they were objecting to. `stewardCommitted`, not the
+              //     looser `committed`, for the same reason: a commit from the
+              //     pull request's author, mid-run, is not the steward finishing.
               //
               // Best-effort: a failure warns rather than reddening a run whose
               // work is done.
               const title = (context.payload.issue && context.payload.issue.title) || '';
-              if (title.startsWith('[steward-handoff]') && (stewardPosted || pushed)) {
+              if (title.startsWith('[steward-handoff]')
+                  && (stewardPosted || pushed || stewardCommitted)) {
                 try {
                   await github.rest.issues.update({
                     owner: context.repo.owner,
@@ -456,7 +551,7 @@ jobs:
               issue_number: issueNumber,
               body: [
                 `<!-- steward-no-outcome:${context.runId} -->`,
-                '⚠️ **Auto-triage ran on this issue but produced no reply and no branch.**',
+                '⚠️ **Auto-triage ran on this issue but produced no reply, no branch and no commit.**',
                 '',
                 `[Run ${context.runId}](${runUrl}) started and finished, so this is not a`,
                 'dropped trigger — the steward simply left nothing behind. That is a harness',
@@ -468,7 +563,8 @@ jobs:
             });
             core.setFailed(
               `Auto-triage produced no visible outcome on issue #${issueNumber} — ` +
-              `no comment and no pushed branch. Notice posted on the issue.`);
+              `no comment, no pushed branch and no commit on the pull request's ` +
+              `branch. Notice posted on the issue.`);
 
       # -----------------------------------------------------------------------
       # Per-issue concurrency (the group above) stops the common case: steward

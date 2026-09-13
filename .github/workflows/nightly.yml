@@ -213,6 +213,8 @@ jobs:
     if: needs.stacks.outputs.backend == 'true' || needs.stacks.outputs.frontend == 'true'
     runs-on: ${{ vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 60
+    outputs:
+      findings: ${{ steps.frontend-audit.outputs.line }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -226,11 +228,25 @@ jobs:
           cache-dependency-path: examples/frontend/package-lock.json
 
       - name: Frontend advisory audit
+        id: frontend-audit
         if: needs.stacks.outputs.frontend == 'true'
         working-directory: ./examples/frontend
+        # The audit's own UNALLOWLISTED / STALE lines are the findings the alert
+        # names, so a red issue says which advisory rather than "something".
+        # Captured from stderr into a step output; the step still fails on a red
+        # audit, and the summary step below runs on that failure too.
         run: |
           npm ci
-          npm run audit:ci
+          set +e
+          npm run audit:ci 2> audit-ci.stderr
+          rc=$?
+          set -e
+          cat audit-ci.stderr >&2
+          line="$(grep -E '^audit-ci: (UNALLOWLISTED|STALE)' audit-ci.stderr \
+                  | sed -E 's/^audit-ci: //; s/\. Add an entry.*$//; s/\. Remove it from.*$//' \
+                  | paste -sd ';' - | cut -c1-600)"
+          echo "line=${line}" >> "$GITHUB_OUTPUT"
+          exit "$rc"
 
       - name: Set up the backend toolchain
         if: needs.stacks.outputs.backend == 'true'
@@ -453,10 +469,16 @@ jobs:
   # a job that never reached a verdict, and the issue said something had failed
   # when nothing had. `result` is 'failure' only when the job RAN and FAILED,
   # and is 'cancelled' or 'skipped' otherwise. Keep it spelled out per job.
+  #
+  # 'cancelled' IS listed, and only because this workflow sets
+  # `cancel-in-progress: false` above: with that setting a cancelled result can
+  # only mean the job hit its own timeout-minutes wall (or a human stopped it),
+  # never a supersede — and a gate that hangs past its budget tells nobody
+  # otherwise. The two settings are a pair; change one and re-read the other.
   # =========================================================================
 
   notify-mutation-backend:
-    if: ${{ always() && needs.nightly-mutation-backend.result == 'failure' }}
+    if: ${{ always() && (needs.nightly-mutation-backend.result == 'failure' || needs.nightly-mutation-backend.result == 'cancelled') }}
     needs: [nightly-mutation-backend]
     uses: ./.github/workflows/nightly-alert.yml
     with:
@@ -474,7 +496,7 @@ jobs:
       ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
 
   notify-mutation-frontend:
-    if: ${{ always() && needs.nightly-mutation-frontend.result == 'failure' }}
+    if: ${{ always() && (needs.nightly-mutation-frontend.result == 'failure' || needs.nightly-mutation-frontend.result == 'cancelled') }}
     needs: [nightly-mutation-frontend]
     uses: ./.github/workflows/nightly-alert.yml
     with:
@@ -489,7 +511,7 @@ jobs:
       ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
 
   notify-e2e-accessibility:
-    if: ${{ always() && needs.nightly-e2e-accessibility.result == 'failure' }}
+    if: ${{ always() && (needs.nightly-e2e-accessibility.result == 'failure' || needs.nightly-e2e-accessibility.result == 'cancelled') }}
     needs: [nightly-e2e-accessibility]
     uses: ./.github/workflows/nightly-alert.yml
     with:
@@ -507,23 +529,26 @@ jobs:
       ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
 
   notify-dependency-scan:
-    if: ${{ always() && needs.nightly-dependency-scan.result == 'failure' }}
+    if: ${{ always() && (needs.nightly-dependency-scan.result == 'failure' || needs.nightly-dependency-scan.result == 'cancelled') }}
     needs: [nightly-dependency-scan]
     uses: ./.github/workflows/nightly-alert.yml
     with:
       gate: 'Dependency CVE scan'
       severity: 'S2'
+      findings: ${{ needs.nightly-dependency-scan.outputs.findings }}
       what_red_means: >-
         A dependency carries a high or critical advisory. This fires against an UNCHANGED lockfile,
         so it is usually a newly-published advisory rather than anything this repository changed.
-        Either upgrade, or allowlist it with a written exposure analysis — and remember the gate
-        also fails when an allowlisted advisory disappears, so stale exceptions cannot accumulate.
+        Either upgrade (Dependabot proposes the bump weekly — .github/dependabot.yml), or allowlist
+        it with a written exposure analysis — and remember the gate also fails when an allowlisted
+        advisory disappears, so stale exceptions cannot accumulate. The findings line above names
+        the advisory ids; the same findings on a later night add no new comment.
       runbook: 'docs/runbooks/qa-procedures.md'
     secrets:
       ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
 
   notify-api-contract:
-    if: ${{ always() && needs.nightly-api-contract.result == 'failure' }}
+    if: ${{ always() && (needs.nightly-api-contract.result == 'failure' || needs.nightly-api-contract.result == 'cancelled') }}
     needs: [nightly-api-contract]
     uses: ./.github/workflows/nightly-alert.yml
     with:
@@ -539,7 +564,7 @@ jobs:
       ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
 
   notify-flaky-detection:
-    if: ${{ always() && needs.nightly-flaky-detection.result == 'failure' }}
+    if: ${{ always() && (needs.nightly-flaky-detection.result == 'failure' || needs.nightly-flaky-detection.result == 'cancelled') }}
     needs: [nightly-flaky-detection]
     uses: ./.github/workflows/nightly-alert.yml
     with:

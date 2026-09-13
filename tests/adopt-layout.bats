@@ -24,6 +24,12 @@ EOF
   cat > "$FIXTURE/tools/mutation-scope.sh" <<'EOF'
 SRC_PREFIX="examples/backend/src/main/java/"
 EOF
+  # Dependabot's directories sit OUTSIDE .github/workflows, so a sweep scoped to
+  # the workflows would leave the bot bumping a directory that no longer exists.
+  cat > "$FIXTURE/.github/dependabot.yml" <<'EOF'
+    directory: "/examples/backend"
+    directory: "/examples/frontend"
+EOF
   cat > "$FIXTURE/.gitignore" <<'EOF'
 examples/backend/target/
 examples/frontend/node_modules/
@@ -48,6 +54,9 @@ teardown() {
   grep -qF 'working-directory: ./backend' "$FIXTURE/.github/workflows/w.yml"
   ! grep -qF 'examples/' "$FIXTURE/.github/workflows/w.yml"
   grep -qF 'SRC_PREFIX="backend/src/main/java/"' "$FIXTURE/tools/mutation-scope.sh"
+  grep -qF 'directory: "/backend"' "$FIXTURE/.github/dependabot.yml"
+  grep -qF 'directory: "/frontend"' "$FIXTURE/.github/dependabot.yml"
+  ! grep -qF 'examples/' "$FIXTURE/.github/dependabot.yml"
   grep -qF 'backend/target/' "$FIXTURE/.gitignore"
   ! grep -qF 'examples/' "$FIXTURE/.gitignore"
   # floors.yml's COMMENTS name the rendered configs; stale example paths there sent a

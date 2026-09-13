@@ -237,8 +237,8 @@ decides:
 | Verdict | What it means | What happens |
 |---|---|---|
 | `blocking` | At least one finding must be fixed before this merges — a wrong result, data loss, a security hole, a weakened gate, an `AGENTS.md` violation, or a test that does not prove what it claims | `[steward-handoff]` issue filed **with `STEWARD_HANDOFF_PAT`**. The steward wakes and fixes the pull request. |
-| `non-blocking` | Every finding is a suggestion, a follow-up or a process note. The change is safe as it stands | `[review-followup]` issue filed **with `GITHUB_TOKEN`**. Nothing is woken; the pull request is left alone for its author to merge. |
-| `undecided`, missing, empty, unrecognised | The referee could not tell, did not run, or wrote something nobody recognises | Same as `blocking`. **Fail safe.** |
+| `non-blocking` | Every finding is a suggestion, a follow-up or a process note. The change is safe as it stands | **Open pull request:** the label `review-followup-pending` is added and the findings are posted on the pull request under `### Review follow-up: clear these before you merge`, both **with `GITHUB_TOKEN`**. No issue. The merge decides — see below. **Already merged or closed:** a `[review-followup] Non-blocking findings on merged PR #N` issue is filed at once, inert. |
+| `undecided`, missing, empty, unrecognised | The referee could not tell, did not run, or wrote something nobody recognises | Same as `blocking`. **Fail safe.** One narrow exception: a missing verdict caused by a reviewer whose own job log names a spent allowance — see "A spent model allowance" below. |
 
 The referee also ends its comment with `**Merge verdict:** <word>`, so a human reads the
 same answer the machine acted on.
@@ -254,12 +254,57 @@ to do". One unnecessary steward run costs one person one look; a real finding no
 sees costs a defect in production. Do not "helpfully" default an unreadable verdict to
 `non-blocking`.
 
-**Why the findings are still filed when nothing is woken.** Dropping them would be the
+**Why the findings are still kept when nothing is woken.** Dropping them would be the
 stranded-finding failure this whole machinery exists to prevent, arriving through the front
 door. `non-blocking` means "not before merge", never "not worth doing".
 
+### A non-blocking verdict marks the pull request; the merge decides whether it becomes an issue
+
+**What was wrong.** A `non-blocking` verdict filed a `[review-followup]` issue the moment
+the referee ruled. The author then fixed most of those findings on the branch within hours
+— which is what a non-blocking finding invites — and the issue was stale on arrival. Every
+one of them cost somebody a read to discover there was nothing left to do.
+
+**What changed.** On an **open** pull request the workflow files nothing. It adds the label
+`review-followup-pending` (exact string; the merge-time sweep keys on it) and posts one
+comment headed `### Review follow-up: clear these before you merge`, with the findings
+embedded and three choices:
+
+- **Fix them here, then remove the label before you merge.** Nothing is filed; the loop
+  ends. This is the cheap path and the usual one.
+- **Leave the label on.** When the pull request merges, the sweep files a
+  `[review-followup]` issue against the base branch carrying those findings — see
+  `docs/runbooks/review-followup-sweep.md`.
+- **Disagree with a finding?** Say so on the pull request and remove the label. A finding
+  can be wrong, and writing down why is a valid outcome.
+
+Both the label and the comment go through `GITHUB_TOKEN`, so nothing is woken. If the
+label cannot be added, or the pull request has already merged or closed by the time the
+referee rules, there is no merge left to catch it and the follow-up is filed at once —
+titled `Non-blocking findings on merged PR #N` when it merged. The decision itself lives
+in `tools/review-handoff-decide.sh` (`mark` versus `followup`, keyed on `--merged-at` /
+`--pr-state`), so `tests/handoff-decision.bats` exercises every branch without a workflow.
+
+The re-aimed follow-up for a pull request that merged **with a waking verdict** states the
+verdict it actually read in its title: `Blocking findings on merged PR #N` only when the
+verdict was `blocking`, else `Unsettled findings on merged PR #N`. It used to say
+"Blocking" whatever the verdict was, and an issue filed that way was closed with "there is
+nothing to land".
+
+### Every filed body embeds the findings
+
+Every issue the workflow files — the steward handoff, the follow-up, the re-aimed
+follow-up — and the mark comment carry the referee's comparison inside a `<details>` block,
+or a warning block saying it could not be read. A body that only said "read the reviews on
+PR #N" cost one agent session per issue just to find them, and the link went stale the
+moment the pull request's comments changed. Every filed body ends with
+`**Do not edit this body** — comment instead, so the filed record survives.` The handoff
+also lists every inline review thread with its id, so the fixer can resolve each one once
+it is fixed.
+
 **Known consequence: with only one reviewer, every agent pull request still wakes the
-steward.** The referee is skipped when fewer than two reviews land — there is nothing to
+steward** (unless the missing reviewer's job log names a spent allowance — the one narrow
+case that posts a notice instead, below). The referee is skipped when fewer than two reviews land — there is nothing to
 compare — so no verdict is written, and the fail-safe applies. A repository with no
 `CHALLENGE_API_KEY` is therefore in exactly the state this fix was written to end, on every
 pull request. That is not an oversight and it is not a regression (the old behaviour was the
@@ -330,6 +375,115 @@ file a handoff itself — the collector that decides whether the reviews carry f
 very thing that was cancelled, so filing speculatively would wake the steward for clean pull
 requests and teach everyone to ignore it.
 
+### A reviewer that died is not a review that was lost
+
+**What was wrong.** Both lost-review checks treated every "no comment landed" the same
+way: file a `[review-lost]` issue saying the review "ran and reported success, but posted
+no comment". But a reviewer job that ends in **failure** never wrote an opinion — the model
+refused the request, or the runner died — so there is nothing in its log to recover and
+nothing to investigate. When a spent allowance killed every reviewer of the day the same
+way, an issue per pull request held up every merge until a human closed each one, and not
+one of them named a finding.
+
+**What changed.** Each reviewer step now has an id, keeps its output in a log file, and
+exports `tools/run-agent.sh`'s exit code as a step output (`5` = required credential
+missing, `6` = optional credential missing, anything else non-zero = the provider CLI's
+own exit). The lost-review step branches on it:
+
+| The reviewer step ended | What it means | What the workflow does |
+|---|---|---|
+| Green, no marked comment | The reviewer wrote a review and lost it. Its log usually holds the text. | `[review-lost]` issue, as before. The challenge job also exits 1. |
+| Failure, exit 5 | No credential reached the run. | A notice on the pull request; `skipped_reason=no-credential`; no issue. |
+| Failure, any other exit | The reviewer died before writing anything. | A notice on the pull request headed `## The <role>-role review did not run`, naming the cause when the log states it; `skipped_reason=reviewer-failed`; **no issue, deliberately**. |
+
+The referee reads each reviewer job's `skipped_reason` output and its `result`
+(`needs.<job>.result`) before it calls a missing review a loss. Its notice then says the
+reviewer "was skipped (`<reason>`), and it explained that in its own comment above. This is
+not a lost review. The <other> review above is real — read it." A job that ended `failure`
+or `cancelled` gets the same treatment with the job result in place of the reason.
+
+**A skip is not symmetric.** The two reviewers run on different credentials, and a cause
+that silences one does not silence the other. No notice claims "both reviewers are
+affected" or "none is coming"; each says only what it knows about its own reviewer and
+tells the reader to check the comments below for the other. The supply-chain carve-out
+(a pull request that edits workflow files) is inherited from providers whose runner
+declines to run under edited CI — `tools/run-agent.sh` has no such guard of its own — so
+its notice says the missing review may be a declined run **or** a lost one, and files
+nothing either way.
+
+`[review-lost]` issues are deduplicated across **every** wording for the pull request with
+the anchored regex `^\[review-lost\] .* on PR #N$`, in both lost-review steps. An exact
+match on each step's own title could not see the other step's issue, and two were open for
+one cause. `tests/harness-guards/review-lost-check.bats` runs both steps against a stubbed
+`gh` for every branch above.
+
+### A spent model allowance
+
+(When the opt-in merger is enabled, one real review counts under the four conditions in
+`docs/runbooks/agent-modes.md`, "Mode: merger" — the missing reviewer's cause must be a
+named quota refusal read from its own job log, never "unknown".)
+
+The reviewers meter separately from anything the product spends: a review is a model call
+on the reviewer's own credential, and an allowance that is spent there is spent only there.
+A refused reviewer job ends in **seconds**, in failure, and posts no review. Its own job log
+states the refusal — "usage limit reached", "quota exceeded", "insufficient balance" and the
+other wordings the workflow lists once in `REVIEW_QUOTA_WORDINGS`.
+
+What the workflow does with it:
+
+- The reviewer's lost-review step reads its own kept log, quotes the line in the "did not
+  run" notice, and files nothing.
+- The referee reads the lost reviewer's **job log once**, in the step "Read the lost
+  reviewer's job log once" (`gh api` first, then `curl -sSfL`, because the logs endpoint
+  answers 302 to a short-lived blob URL and `gh` has returned nothing for it; retried,
+  because the endpoint lags the job). The result is one step output every consumer reads.
+- If the verdict is **absent** (never the literal `undecided`), exactly one reviewer wrote
+  nothing, that reviewer's log names a refusal, and the pull request is still open, the
+  handoff step posts `## The steward was not woken, and no issue was filed` and stops.
+  All four must hold; any lookup failure leaves an input empty and the handoff **is** filed
+  with a note that the cause is unknown. `tests/handoff-decision.bats` covers the four
+  conditions; `tests/harness-guards/review-lost-log.bats` runs the fetch step with both
+  paths empty and proves the quota line comes back empty rather than invented.
+
+**Do not re-run before the reset.** A spent allowance refuses a re-run the same way until
+it resets. Waiting is the answer, not another run. When the reviewer can run again,
+re-run it the one way that works — the next section.
+
+### Re-running the reviewers
+
+The workflow triggers on `opened` and `ready_for_review` only. So:
+
+- **The only re-run trigger is the draft toggle.** Mark the pull request as a draft, then
+  ready for review again. The reviewers run against the current head.
+- **A push starts nothing.** `synchronize` is deliberately not a trigger — that is what
+  keeps one review per pull request and stops the steward's fix push bouncing back into a
+  fresh review.
+- **Re-running the workflow run replays the original event payload.** It reviews the
+  commit that ran first, not today's head — the pinned diff is fetched from the shas in
+  that payload.
+
+Every notice the workflow posts on a pull request says the same thing, so the reader never
+has to come here to find it.
+
+### Every finding the reviewer posts is kept
+
+A review has three shapes — a top-level conversation comment, an inline comment on a code
+line, and a review submission — each on its own API endpoint. The collector
+(`tools/collect-review-comment.sh`, and the referee's own copy in the workflow) reads all
+three, keeps **every** item that carries the role marker, sorts them by time, heads each
+inline item with its `path:line`, and joins them with `---`. It used to end in `| last`,
+which threw away every inline finding but the newest; a finding that is on the pull
+request but not in the collected body is a finding the referee never sees and the handoff
+never names. An inline comment that carries no marker itself but belongs to a review
+submission whose body does is kept as that role's. Unmarked items are dropped, whatever
+their author — the workflow's own notices come from the same account as the reviews, so a
+time-split fallback would count "this review is missing" as the review.
+
+Both reviewer prompts therefore require the marker on **every** item a reviewer posts, and
+the referee prompt says each review file may hold several items separated by `---`.
+`tests/harness-guards/review-collector.bats` feeds the same three-shape fixture to the
+script and to the referee's extracted jq and requires identical output.
+
 ### The handoff issue closes itself
 
 That issue is **a signal shaped like a work item**. Filing it starts the steward's run, and
@@ -382,7 +536,7 @@ spend is genuinely required, and it is small.
 
 | Where | Name | Effect if missing |
 |---|---|---|
-| Repository secrets | `CHALLENGE_API_KEY` | `challenge-review` skips with a workflow warning; the `judge` review still runs. The `referee` job still runs and posts a notice **on the pull request** naming which review is missing and how many it therefore had — it is not gated on the second review, because the steward handoff is filed from it. **The pull request is never failed by the absence.** |
+| Repository secrets | `CHALLENGE_API_KEY` | `challenge-review` skips with a workflow warning; the `judge` review still runs. The `referee` job still runs and posts a notice **on the pull request** saying the challenge-role reviewer did not run, that this is not a lost review, and that the judge-role review above is real — it is not gated on the second review, because the steward handoff is filed from it. **The pull request is never failed by the absence.** |
 | The scheduled runner's environment | `CHALLENGE_API_KEY` | The challenger re-derives on the `judge` model and records `"challenge":"unavailable — key unset"`. The check still happens, with a stated caveat. |
 
 Never put the key in a tracked file (`AGENTS.md` guardrail 5). Any settings file that is

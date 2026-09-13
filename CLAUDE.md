@@ -34,7 +34,7 @@ into a statement that is no longer true.)
 ## Commands
 
 ```bash
-# The harness suite — the main one. ~630 tests, seconds to run.
+# The harness suite — the main one. ~900 tests, a few minutes to run.
 bats tests/ tests/harness-guards/
 
 # A single file, or a single test by name
@@ -48,6 +48,9 @@ shellcheck tools/*.sh tools/providers/*.sh tools/lib/*.sh
 
 # De-identification sweep. Term-agnostic by design: it has no built-in list.
 tools/check-deidentified.sh --terms <file>
+
+# The one-command adoption (what an adopter runs; safe to re-run, never pushes)
+tools/bootstrap.sh --product "Name" --dry-run
 
 # Print the exact argv a provider would run, invoking nothing
 tools/run-agent.sh <agent> --dry-run

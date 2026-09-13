@@ -108,7 +108,13 @@ jobs:
         # (fetch-depth: 0 fetches all refs); a second fetch buys nothing.
         run: |
           set -uo pipefail
-          ARGS=(--max-age-days "$MAX_AGE_DAYS" --limit "$SWEEP_LIMIT" --no-fetch)
+          # One --prefix per fleet that loses pull requests this way; repeat it
+          # to add another. Keep each prefix TIGHT (agent/, not a/): a broad
+          # prefix also sweeps a human's interactive session branches, which
+          # are working branches and were never waiting for a machine to open
+          # a pull request on them.
+          ARGS=(--max-age-days "$MAX_AGE_DAYS" --limit "$SWEEP_LIMIT" --no-fetch
+                --prefix agent/)
           if [ "$DRY_RUN" = "true" ]; then
             ARGS+=(--dry-run)
           fi
@@ -126,6 +132,7 @@ jobs:
     uses: ./.github/workflows/nightly-alert.yml
     with:
       gate: 'Parked-branch sweep'
+      cadence: 'sweep'
       severity: 'S2'
       what_red_means: >-
         Finished agent work may be sitting on a branch with no pull request, and the

@@ -21,11 +21,19 @@ review needs no spec pipeline of its own.
    behind it (a `.temper/specs/<slug>/` directory in the diff, or a `temper:
    unavailable — <reason>` line in the body), or say plainly why not. A missing pipeline
    is a **process** finding — call it out, but it is not on its own a blocking defect.
-3. **Post exactly one top-level conversation comment whose FIRST LINE is exactly**
+3. **Post your review as one top-level conversation comment whose FIRST LINE is exactly**
    `<!-- reviewer: judge -->` — nothing before it, nothing on the same line after it.
    Every reviewer role posts from the same bot account, so nothing downstream can tell
    two reviews apart by author; the marker is the only discriminator. A status update or
    any other comment you might otherwise post must never carry this exact first line.
+
+   **If your posting path splits the findings across several items** — inline comments
+   on code lines, or a review submission with a summary body — **every one of them
+   carries the marker as its first line.** The collector keeps every marked item on all
+   three endpoints (conversation comments, inline comments, review submissions), in time
+   order, joined with `---`; an unmarked item is dropped, whatever it says, and an inline
+   comment without the marker is kept only if the review submission it belongs to carries
+   it. One conversation comment is the simplest way to be sure nothing is dropped.
 
 ## The diff you are reviewing is pinned
 
@@ -42,7 +50,8 @@ report, not yours to chase.
 
 **Your comment's SECOND line must be exactly** `<!-- reviewed-commit: X -->`, where `X` is
 the content of `.review-artifacts/reviewed-commit.txt` — the short sha of the commit you
-just reviewed. Copy it; do not work it out yourself.
+just reviewed. Copy it; do not work it out yourself. (If you post several items, the
+stamp goes on the one that carries your summary; the marker goes on all of them.)
 
 This is not bookkeeping. It is the only way anything downstream can *check* that the two
 reviews being compared describe the same code, rather than taking it on trust because the

@@ -2,7 +2,7 @@
 # tools/demo-local.sh — the three-minute, zero-credential proof.
 #
 # Why this exists: the cheapest credible evidence this system is real is
-# already local and free — ~630 harness tests in seconds, the adoption map,
+# already local and free — ~900 harness tests in seconds, the adoption map,
 # and a dry-run that prints the exact argv an agent would run while invoking
 # nothing. Before this script, a curious visitor had to discover those four
 # commands across three documents; now the devcontainer (and anyone with bats

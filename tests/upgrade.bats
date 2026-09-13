@@ -20,6 +20,7 @@ make_template() {
   printf 'site\n' > "$dir/site/index.html"
   printf 'maintainer notes\n' > "$dir/docs/maintainers/notes.md"
   printf 'readme\n' > "$dir/README.md"
+  printf '# Adopting\n<!-- PLACEHOLDERS:BEGIN -->\n<!-- PLACEHOLDERS:END -->\n' > "$dir/ADOPTING.md"
   printf '## [1.0.0] - 2026-01-01\n' > "$dir/CHANGELOG.md"
   ( cd "$dir" && git init -q && git config user.name t && git config user.email t@example.invalid \
       && git add -A && git commit -qm base )
@@ -79,6 +80,10 @@ setup() {
   # The example product and the site never cross over.
   [ ! -e "$host/examples" ]
   [ ! -e "$host/site" ]
+  # ADOPTING.md crosses over even though it is outside the manifest: init.sh
+  # regenerates its table in place and stops when the file is missing.
+  [ -f "$host/ADOPTING.md" ]
+  ! jq -e '.files["ADOPTING.md"]' "$host/.agents/template-manifest.json" >/dev/null
   # The manifest lands in the TARGET with the template's pristine hashes.
   [ -f "$host/.agents/template-manifest.json" ]
   [ "$(jq -r '.template_version' "$host/.agents/template-manifest.json")" = "1.0.0" ]

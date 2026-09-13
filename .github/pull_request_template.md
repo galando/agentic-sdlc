@@ -7,6 +7,11 @@
 
 Closes #
 
+<!-- One `Closes #N` line per issue this change fixes. An issue named only in a
+     heading or a sentence closes nothing; the groomer then has to close it by hand
+     under a stricter bar. A pull request that names a remaining step in "What I did
+     not do" below does NOT close its issue — leave the keyword off and say so. -->
+
 ## Behavior change
 
 <!-- What an end user (or an operator) can now do, or no longer suffers.
@@ -58,6 +63,14 @@ Closes #
      (see docs/QUALITY-GATES.md and AGENTS.md). Remember: suppression is not
      passing. A skipped test or a widened exclude that turns a red gate green
      counts as lowering a floor. -->
+
+## What I did not do
+
+<!-- Plain words: what parked, what you could not verify, what a human must still
+     run. If this lists a remaining step, this pull request does not close its issue
+     (docs/runbooks/agent-modes.md, "A pull request that names a remaining step").
+     Agents: anything here also goes in the ledger `not_done` array with its named
+     stop (AGENTS.md guardrail 3). -->
 
 ## Risk & rollback
 

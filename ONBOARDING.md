@@ -15,6 +15,23 @@ Two rules bind you before anything else:
    in part 4 (which need an authenticated `gh`). If you cannot push or reach
    GitHub, do parts 1–3 and hand back part 4 as a list.
 
+## The short path (try this first)
+
+One command does parts 2 and 3 below with no questions and prints part 5:
+
+```bash
+tools/bootstrap.sh --product "<the system the agents watch>"   # inside the repository
+# or, from a repository that does not have the harness yet:
+curl -fsSL https://raw.githubusercontent.com/galando/agentic-sdlc/main/tools/bootstrap.sh | bash -s -- --product "<name>"
+```
+
+It runs `tools/init.sh --defaults` (every unanswered variable from
+`profiles/<provider>.answers`, printed), installs the harness first when the
+repository does not carry it, verifies with the shipped checkers, and never
+pushes. Use the long form below when the human's answers differ from the
+profile (a different provider, models or endpoint), or when you need every
+`ADOPT_*` offer under your control. Either way, part 4 is still yours to run.
+
 ## 0. The one ordering trap
 
 `tools/adopt.sh` is the guided walk, and it is what you will drive — but **in a
@@ -103,7 +120,7 @@ After each phase, and always before you report done:
 tools/check-placeholders.sh                 # zero unresolved placeholders
 tools/status.sh                             # every step shows [done] or names what's left
 bats tests/ tests/harness-guards/           # the harness suite — all green
-tools/run-agent.sh --list-agents            # the eleven scheduled agents resolve
+tools/run-agent.sh --list-agents            # the twelve scheduled agents resolve
 tools/run-agent.sh health --dry-run         # exact argv, invokes nothing — repeat per agent
 tools/run-agent.sh --check-credentials health   # names the missing secret, if any
 ```

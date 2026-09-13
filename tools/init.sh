@@ -33,7 +33,7 @@ die() { echo "init.sh: $*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-usage: tools/init.sh [--answers FILE]
+usage: tools/init.sh [--answers FILE] [--defaults]
 
 Runs the adoption interview and rewrites every placeholder it resolves.
 
@@ -44,15 +44,24 @@ Runs the adoption interview and rewrites every placeholder it resolves.
                     is asked for interactively. This is what makes a second run with
                     "the same answers" reproducible without re-typing them, and what
                     tests/init-idempotent.bats drives non-interactively.
+  --defaults       ask nothing. Every unanswered variable is taken from
+                    profiles/<PROVIDER>.answers (PROVIDER itself defaults to
+                    claude-code), and PRODUCT_NAME from the repository's name — the
+                    origin remote's, or the directory's. Every assumption is printed.
+                    Pre-set variables (the environment, --answers) always win, so
+                    PRODUCT_NAME="Acme" tools/init.sh --defaults is the whole
+                    interview in one line. This is what tools/bootstrap.sh runs.
 
 No network calls. Completes in seconds. Safe to re-run.
 EOF
 }
 
 ANSWERS_FILE=""
+DEFAULTS=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --answers) ANSWERS_FILE="${2:-}"; shift 2 ;;
+    --defaults) DEFAULTS=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "unknown flag '$1'" ;;
   esac
@@ -62,6 +71,42 @@ if [ -n "$ANSWERS_FILE" ]; then
   [ -f "$ANSWERS_FILE" ] || die "--answers file not found: $ANSWERS_FILE"
   # shellcheck source=/dev/null
   . "$ANSWERS_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# --defaults: the interview with no questions. The profile is the single source of
+# the per-provider defaults (profiles/README.md: one platform team writes one file,
+# every team adopts with it), so this reads the profile rather than carrying a second
+# copy of the model ids. PRODUCT_NAME has no possible default in general; the
+# repository's own name is the one guess that is right often enough to print and
+# move on, and it is printed, so a wrong guess is visible before it is committed.
+# Sourced in a subshell: a profile line can only contribute a value, never run here.
+# ---------------------------------------------------------------------------
+if $DEFAULTS; then
+  : "${PROVIDER:=claude-code}"
+  DEFAULTS_PROFILE="$ROOT/profiles/$PROVIDER.answers"
+  [ -f "$DEFAULTS_PROFILE" ] || die "--defaults: no profile for provider '$PROVIDER' (expected profiles/$PROVIDER.answers). Pass --answers FILE instead, or add the profile."
+  assumed=""
+  for tok in MODEL_JUDGE MODEL_EXECUTE MODEL_CHALLENGE CHALLENGE_BASE_URL ALERT_CHANNEL RUNNER_LABEL LEDGER_COMMIT_NAME LEDGER_COMMIT_EMAIL BUILD_PIPELINE; do
+    eval "cur=\"\${$tok:-}\""
+    [ -n "$cur" ] && continue
+    # shellcheck disable=SC1090
+    val="$( ( . "$DEFAULTS_PROFILE" >/dev/null 2>&1; eval "printf '%s' \"\${$tok:-}\"" ) )"
+    [ -n "$val" ] || die "--defaults: profiles/$PROVIDER.answers sets no $tok, and nothing else did"
+    eval "$tok=\"\$val\""
+    assumed="$assumed $tok=$val"
+  done
+  if [ -z "${PRODUCT_NAME:-}" ]; then
+    PRODUCT_NAME=""
+    if remote_url="$(cd "$ROOT" && git remote get-url origin 2>/dev/null)"; then
+      PRODUCT_NAME="$(printf '%s' "$remote_url" | sed -E 's#\.git/?$##; s#/+$##; s#^.*[:/]([^/:]+)$#\1#')"
+    fi
+    [ -n "$PRODUCT_NAME" ] || PRODUCT_NAME="$(basename "$ROOT")"
+    assumed="$assumed PRODUCT_NAME=$PRODUCT_NAME"
+  fi
+  echo "--defaults: assumed$assumed"
+  echo "            (change any of these by setting the variable, or by re-running with --answers FILE; the interview is idempotent)"
+  echo
 fi
 
 # ---------------------------------------------------------------------------
@@ -132,7 +177,7 @@ DOCS_URL="$(adapter_docs_url "$PROVIDER")"
 if [ "$STATUS" = "verified" ]; then
   cat <<EOF
 Provider '$PROVIDER' is VERIFIED. Minimal mode: the steward and PR review ship LIVE,
-the eleven scheduled routines ship DISABLED (enable them one at a time after an
+the twelve scheduled routines ship DISABLED (enable them one at a time after an
 interactive dry-run — see README.md "turning on the routines").
 EOF
 else

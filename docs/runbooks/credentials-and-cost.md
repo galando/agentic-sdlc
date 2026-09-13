@@ -14,7 +14,7 @@ run — the honest version, not the sales version.
 | `ALERT_WEBHOOK_URL` | The push side of a nightly-failure alert (chat/webhook ping) | Optional. The GitHub issue — the primary channel — still opens; only the push is skipped, and the run's summary says so |
 | `CI_HEALTH_PAT` | The optional CI-health watchdog (self-hosted runner liveness, hosted-minutes) | Optional. The watchdog announces it checked nothing and exits 0 — never a silent skip |
 | `DEIDENT_TERMS` | The de-identification sweep in `fast-repo-hygiene`, for your own fork's naming hygiene | Optional, adopter-supplied. The sweep announces it is unarmed and skips — never a false "clean" |
-| `GITLEAKS_LICENSE` | Gate 11's scanner (`gitleaks/gitleaks-action@v2`) on an **organization-owned** repository — a free key from [gitleaks.io](https://gitleaks.io) | Required **only for org-owned repos**: without it the action refuses to run and `fast-secret-scan`, a required day-one context, goes red with a licensing error. Personal repositories need nothing |
+| `GITLEAKS_LICENSE` | Gate 11's scanner (`gitleaks/gitleaks-action@v3`) on an **organization-owned** repository — a free key from [gitleaks.io](https://gitleaks.io) | Required **only for org-owned repos**: without it the action refuses to run and `fast-secret-scan`, a required day-one context, goes red with a licensing error. Personal repositories need nothing |
 | `VALIDATE_DB_PASSWORD` | `full-migration-validation`'s scratch Postgres service | Optional — defaults to a fixed password scoped to that ephemeral CI container |
 | `IT_DB_PASSWORD` | `full-integration-tests`'s scratch Postgres service | Optional — same default-password pattern as above |
 | `NVD_API_KEY` | Gate 16's backend CVE scan (`nightly-dependency-scan`), a free key from [nvd.nist.gov](https://nvd.nist.gov/developers/request-an-api-key) | Optional. The backend half of the scan SKIPS with a `::notice::` — the frontend advisory audit is unaffected, and the gate is never failed for the absence. Without a key, dependency-check's NVD client currently errors out updating its database rather than degrading to slower unauthenticated access, so running it anyway would report a false gate failure |
@@ -59,4 +59,10 @@ that spend tokens, roughly in ramp order, are: each steward run, two reviews per
 request (one if the challenge key is absent), and each enabled routine once per day.
 Turn routines on one at a time (`README.md` section 6) precisely so spend stays
 proportional to the value you are actually getting, rather than jumping straight to
-eleven daily/weekly agents plus two reviews per PR.
+every daily/weekly agent plus two reviews per PR.
+
+**When the budget behind `AGENT_CLI_TOKEN` runs out, every agent stops at once and
+nothing files an alert about it** — the agents that would notice are the ones stopped.
+What that looks like, how to read the budget for free from a review job's log, the
+arithmetic for the dark period, and why the fix is operator-only:
+`model-budget-exhaustion.md`.

@@ -55,7 +55,8 @@ setup() {
   ln -s "$REPO_ROOT/tools" "$WORK/run/tools"
 
   # A stubbed `gh` recording every call. `issue list` returns nothing, so the dedupe path
-  # is open unless a test says otherwise.
+  # is open unless a test says otherwise. `pr view` answers the state the test sets
+  # (OPEN by default), `pr edit` adds the label unless the test says it fails.
   cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 # The token is recorded alongside the call, because WHICH token files the issue is the
@@ -64,6 +65,8 @@ printf '[%s] %s\n' "${GH_TOKEN:-unset}" "$*" >> "$GH_CALLS"
 case "$1 $2" in
   "issue list") printf '%s\n' "${STUB_OPEN_TITLES:-}" ;;
   "issue create") [ "${STUB_ISSUE_FAILS:-false}" = true ] && exit 1 ;;
+  "pr view") printf '%s %s\n' "${STUB_PR_STATE:-OPEN}" "${STUB_MERGED_AT:-}" ;;
+  "pr edit") [ "${STUB_LABEL_FAILS:-false}" = true ] && exit 1 ;;
 esac
 exit 0
 STUB
@@ -94,6 +97,7 @@ run_handoff() {
        RUNNER_TEMP="$WORK/tmp" \
        COLLECT_OUTCOME="${4:-success}" \
        HEAD_REF="${5:-agent/fix-1}" \
+       LOST_REVIEWER="${LOST_REVIEWER:-}" QUOTA_LINE_FROM_LOG="${QUOTA_LINE_FROM_LOG:-}" \
        PR=12 REPO=o/r SERVER=https://e.invalid PR_TITLE="T" PR_AUTHOR="bot" \
        RUN_URL=https://e.invalid/run TOKEN_TRIGGERS=true \
        GH_TOKEN=elevated-pat GH_TOKEN_INERT=inert-github-token \
@@ -124,16 +128,43 @@ REVIEW_BODY="Looks mostly fine. One thing: src/a.js:10 drops the error."
   run calls
   # Not a handoff...
   [[ "$output" != *"[steward-handoff]"* ]]
-  # ...but the findings are still filed. Dropping them is the stranded-finding failure
-  # this machinery exists to prevent, arriving through the front door.
-  [[ "$output" == *"[review-followup]"* ]]
+  # ...and on an OPEN pull request not an issue either: the pull request is MARKED and
+  # the findings are posted on it. The merge decides whether they become an issue.
+  [[ "$output" != *"issue create"* ]]
+  [[ "$output" == *"pr edit 12 --repo o/r --add-label review-followup-pending"* ]]
+  [[ "$output" == *"pr comment"* ]]
 }
 
-@test "handoff decision: THE TOKEN IS THE SWITCH — the follow-up is filed with the inert one" {
+@test "handoff decision: the mark comment has the exact heading, three choices, and the findings" {
+  printf '## Reviewer comparison\n\nFINDING-MARKER-7\n' > "$WORK/run/.review-artifacts/referee-comment.md"
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" non-blocking
+  [ "$status" -eq 0 ]
+  body="$(cat "$WORK"/tmp/review-followup-marker.md)"
+  [[ "$body" == "### Review follow-up: clear these before you merge"* ]]
+  [[ "$body" == *"review-followup-pending"* ]]
+  # Fix and remove the label; leave it and the sweep files at merge; disagree and remove it.
+  [[ "$body" == *"remove the label before you merge"* ]]
+  [[ "$body" == *"Leave the label on"* ]]
+  [[ "$body" == *"merge-time sweep files"* ]]
+  [[ "$body" == *"Disagree with a finding"* ]]
+  # The findings are embedded, not linked.
+  [[ "$body" == *"<details>"* ]]
+  [[ "$body" == *"FINDING-MARKER-7"* ]]
+}
+
+@test "handoff decision: THE TOKEN IS THE SWITCH — the mark and the follow-up use the inert one" {
   # GitHub does not start workflow runs from events created with GITHUB_TOKEN, and the
-  # steward auto-invokes on `issues.opened`. Filing this with the PAT instead would wake it
-  # for exactly the findings the verdict just said not to wake it for — and nothing else
-  # in the workflow would look any different.
+  # steward auto-invokes on `issues.opened`. Filing or commenting with the PAT instead
+  # would wake it for exactly the findings the verdict just said not to wake it for — and
+  # nothing else in the workflow would look any different.
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" non-blocking
+  [ "$status" -eq 0 ]
+  run calls
+  [[ "$output" == *"[inert-github-token] pr edit"* ]]
+  [[ "$output" == *"[inert-github-token] pr comment"* ]]
+  [[ "$output" != *"[elevated-pat] pr comment"* ]]
+
+  export STUB_PR_STATE=MERGED STUB_MERGED_AT=2026-09-01T10:00:00Z
   run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" non-blocking
   [ "$status" -eq 0 ]
   run calls
@@ -142,6 +173,59 @@ REVIEW_BODY="Looks mostly fine. One thing: src/a.js:10 drops the error."
   # The dedupe read has to use it too, or the step leaks the elevated token to a call it
   # does not need it for.
   [[ "$output" != *"[elevated-pat] issue list"* ]]
+}
+
+@test "handoff decision: when the label cannot be added, the follow-up is filed at once" {
+  # No label means no merge-time catch. Filing now beats dropping.
+  export STUB_LABEL_FAILS=true
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" non-blocking
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"::warning::Could not mark PR #12"* ]]
+  run calls
+  [[ "$output" == *"[inert-github-token] issue create --repo o/r --title [review-followup] Non-blocking findings on PR #12"* ]]
+  [[ "$output" != *"[steward-handoff]"* ]]
+  body="$(cat "$WORK"/tmp/review-followup-body.md)"
+  [[ "$body" == *"could not be labelled"* ]]
+}
+
+@test "handoff decision: non-blocking on an already-MERGED pull request files now, titled for the merge" {
+  export STUB_PR_STATE=MERGED STUB_MERGED_AT=2026-09-01T10:00:00Z
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" non-blocking
+  [ "$status" -eq 0 ]
+  run calls
+  [[ "$output" != *"pr edit"* ]]
+  [[ "$output" == *"--title [review-followup] Non-blocking findings on merged PR #12"* ]]
+  body="$(cat "$WORK"/tmp/review-followup-body.md)"
+  [[ "$body" == *"already merged"* ]]
+  [[ "$body" == *"2026-09-01T10:00:00Z"* ]]
+}
+
+@test "handoff decision: the re-aimed title states the verdict it actually read" {
+  # It used to say "Blocking findings" whatever the verdict was; an issue filed that way
+  # was closed with "there is nothing to land". `Blocking` only for `blocking`.
+  export STUB_PR_STATE=MERGED STUB_MERGED_AT=2026-09-01T10:00:00Z
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" blocking
+  [ "$status" -eq 0 ]
+  run calls
+  [[ "$output" == *"--title [review-followup] Blocking findings on merged PR #12"* ]]
+  [[ "$output" != *"[steward-handoff]"* ]]
+  [[ "$output" == *"[inert-github-token] issue create"* ]]
+
+  for raw in undecided "" merge; do
+    run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" "$raw"
+    [ "$status" -eq 0 ]
+    run calls
+    [[ "$output" == *"--title [review-followup] Unsettled findings on merged PR #12"* ]] \
+      || { echo "[$raw]: $output"; return 1; }
+    [[ "$output" != *"Blocking findings"* ]]
+  done
+
+  # A closed, unmerged pull request has no branch to push to either, and says so.
+  export STUB_PR_STATE=CLOSED STUB_MERGED_AT=
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" blocking
+  [ "$status" -eq 0 ]
+  run calls
+  [[ "$output" == *"--title [review-followup] Blocking findings on closed PR #12"* ]]
 }
 
 @test "handoff decision: UNDECIDED wakes the steward" {
@@ -240,11 +324,125 @@ REVIEW_BODY="Looks mostly fine. One thing: src/a.js:10 drops the error."
 @test "handoff decision: an already-open FOLLOW-UP issue is not filed twice either" {
   # The non-blocking branch needs its own dedupe: `ready_for_review` re-fires this whole
   # job, and a second identical follow-up is noise on an issue tracker the operator reads.
-  export STUB_OPEN_TITLES="[review-followup] Non-blocking findings on PR #12"
+  export STUB_PR_STATE=MERGED STUB_MERGED_AT=2026-09-01T10:00:00Z
+  export STUB_OPEN_TITLES="[review-followup] Non-blocking findings on merged PR #12"
   run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" non-blocking
   [ "$status" -eq 0 ]
   run calls
   [[ "$output" != *"issue create"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# THE SPENT-ALLOWANCE CARVE-OUT, executed. The job log was read ONCE in the step above
+# this one and arrives as QUOTA_LINE_FROM_LOG; this step never fetches it again.
+# ---------------------------------------------------------------------------
+
+@test "handoff decision: a spent allowance on the missing reviewer posts a notice, files nothing, wakes nobody" {
+  export LOST_REVIEWER=challenge
+  export QUOTA_LINE_FROM_LOG="Usage limit reached, resets at 04:00 UTC"
+  run run_handoff "$REVIEW_BODY" "" ""
+  [ "$status" -eq 0 ]
+  run calls
+  [[ "$output" != *"issue create"* ]]
+  [[ "$output" == *"pr comment"* ]]
+  body="$(cat "$WORK"/tmp/handoff-skipped-body.md)"
+  [[ "$body" == "## The steward was not woken, and no issue was filed"* ]]
+  [[ "$body" == *"challenge-role"* ]]
+  [[ "$body" == *"Usage limit reached, resets at 04:00 UTC"* ]]
+  [[ "$body" == *"A spent allowance refuses a re-run the same way until it resets. Waiting is the"* ]]
+  [[ "$body" == *"not another run"* ]]
+  [[ "$body" == *"reviewed once, not twice"* ]]
+  [[ "$body" == *"draft and ready for review again"* ]]
+}
+
+@test "handoff decision: ANTI-VACUITY — an empty quota line files the handoff and says the cause is unknown" {
+  # Both log fetches came back empty. The carve-out must not fire on nothing, and the
+  # body has to tell the reader why this was filed rather than skipped.
+  export LOST_REVIEWER=challenge
+  export QUOTA_LINE_FROM_LOG=""
+  run run_handoff "$REVIEW_BODY" "" ""
+  [ "$status" -eq 0 ]
+  run calls
+  [[ "$output" == *"[elevated-pat] issue create"* ]]
+  [[ "$output" == *"[steward-handoff]"* ]]
+  body="$(cat "$WORK"/tmp/steward-handoff-body.md)"
+  [[ "$body" == *"did"$'\n'"> not name a cause"* || "$body" == *"did not name a cause"* ]]
+  [[ "$body" == *"cause is unknown"* ]]
+}
+
+@test "handoff decision: the literal verdict 'undecided' is never quota-skipped" {
+  export LOST_REVIEWER=challenge
+  export QUOTA_LINE_FROM_LOG="Usage limit reached"
+  run run_handoff "$REVIEW_BODY" "" undecided
+  [ "$status" -eq 0 ]
+  run calls
+  [[ "$output" == *"[steward-handoff]"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# EVERY FILED BODY EMBEDS THE FINDINGS and ends with the do-not-edit line. A body that
+# only linked to the pull request cost one agent session per issue just to read them.
+# ---------------------------------------------------------------------------
+
+KEEP='**Do not edit this body** — comment instead, so the filed record survives.'
+
+@test "bodies: the handoff embeds the referee comparison in a details block, and keeps the record" {
+  printf '## Reviewer comparison\n\n- src/a.js:10 drops the error.\n' \
+    > "$WORK/run/.review-artifacts/referee-comment.md"
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" blocking
+  [ "$status" -eq 0 ]
+  body="$(cat "$WORK"/tmp/steward-handoff-body.md)"
+  [[ "$body" == *"<details><summary>"* ]]
+  [[ "$body" == *"src/a.js:10 drops the error."* ]]
+  [[ "$body" == *"</details>"* ]]
+  [[ "$body" == *"$KEEP" ]]
+}
+
+@test "bodies: an unreadable comparison becomes a warning block, never a silent omission" {
+  rm -f "$WORK/run/.review-artifacts/referee-comment.md"
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" blocking
+  [ "$status" -eq 0 ]
+  body="$(cat "$WORK"/tmp/steward-handoff-body.md)"
+  [[ "$body" == *"> [!WARNING]"* ]]
+  [[ "$body" == *"could not be read"* ]]
+  [[ "$body" == *"$KEEP" ]]
+}
+
+@test "bodies: the follow-up and the re-aimed follow-up embed the findings too" {
+  printf '## Reviewer comparison\n\nFINDING-MARKER-42\n' > "$WORK/run/.review-artifacts/referee-comment.md"
+  export STUB_PR_STATE=MERGED STUB_MERGED_AT=2026-09-01T10:00:00Z
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" non-blocking
+  [ "$status" -eq 0 ]
+  body="$(cat "$WORK"/tmp/review-followup-body.md)"
+  [[ "$body" == *"FINDING-MARKER-42"* ]]
+  [[ "$body" == *"$KEEP" ]]
+
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" blocking
+  [ "$status" -eq 0 ]
+  body="$(cat "$WORK"/tmp/review-reaim-body.md)"
+  [[ "$body" == *"FINDING-MARKER-42"* ]]
+  [[ "$body" == *"merge verdict was **blocking**"* ]]
+  [[ "$body" == *"$KEEP" ]]
+}
+
+@test "bodies: the handoff lists every inline thread the fixer has to resolve" {
+  printf '[{"reviewer":"judge","id":501,"html_url":"https://e.invalid/pr/12#discussion_r501","path":"src/a.js","line":10}]\n' \
+    > "$WORK/run/.review-artifacts/inline-threads.json"
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" blocking
+  [ "$status" -eq 0 ]
+  body="$(cat "$WORK"/tmp/steward-handoff-body.md)"
+  [[ "$body" == *"Inline review threads to resolve"* ]]
+  [[ "$body" == *'`src/a.js:10`'* ]]
+  [[ "$body" == *"discussion_r501"* ]]
+  [[ "$body" == *"thread 501"* ]]
+}
+
+@test "bodies: no inline threads means no thread section — the body does not promise what is not there" {
+  rm -f "$WORK/run/.review-artifacts/inline-threads.json"
+  run run_handoff "$REVIEW_BODY" "$REVIEW_BODY" blocking
+  [ "$status" -eq 0 ]
+  body="$(cat "$WORK"/tmp/steward-handoff-body.md)"
+  [[ "$body" != *"Inline review threads to resolve"* ]]
 }
 
 @test "handoff decision: a review that posted nothing is not counted as a review" {

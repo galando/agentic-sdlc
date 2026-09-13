@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "MAINTAINER RECORD FOR THIS TEMPLATE — not something an adopter needs, and tools/init.sh",
+    "MAINTAINER RECORD FOR THIS TEMPLATE \u2014 not something an adopter needs, and tools/init.sh",
     "offers to delete it along with tools/check-upstream-drift.sh.",
     "",
     "This template was extracted from a running system that keeps meeting incidents and keeps",
@@ -10,10 +10,10 @@
     "",
     "Update last_synced_upstream_sha in the same pull request that carries a sync across.",
     "A sync point nobody updates makes the tool report the same commits forever, until",
-    "somebody stops running it — which is worse than having no tool at all."
+    "somebody stops running it \u2014 which is worse than having no tool at all."
   ],
-  "last_synced_upstream_sha": "95825a50437b4fe6d1edebfce04d2f760e7e591d",
-  "last_synced_on": "2026-08-08",
+  "last_synced_upstream_sha": "3e67468bc9aa5b35621cc78ca72f17911139692f",
+  "last_synced_on": "2026-09-13",
   "not_carried": [
     {
       "sha": "d3bf43c4e604d8e1a65b9a44a362ddf4c61a4c8f",

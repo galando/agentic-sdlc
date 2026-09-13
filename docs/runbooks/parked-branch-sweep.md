@@ -29,7 +29,11 @@ Both halves of the lesson ship:
 
 ## What one run does
 
-For every `agent/*` branch on the remote:
+For every branch on the remote under a swept prefix — `agent/` by default;
+the workflow passes `--prefix agent/`, and `--prefix` repeats
+(`--prefix agent/ --prefix other/`) when a second fleet parks work the same
+way. Keep each prefix tight: a broad one also sweeps a human's interactive
+session branches, which were never waiting for a machine to open anything.
 
 | Branch state | Sweep action |
 |---|---|
@@ -113,6 +117,7 @@ gate, updated rather than re-filed, so a cause that persists across the
 ```bash
 GH_TOKEN=... tools/sweep-parked-branches.sh --dry-run   # report, touch nothing
 GH_TOKEN=... tools/sweep-parked-branches.sh             # do it
+GH_TOKEN=... tools/sweep-parked-branches.sh --prefix agent/ --prefix other/   # two fleets
 ```
 
 From the Actions tab, `workflow_dispatch` defaults to a dry run. A hand-run

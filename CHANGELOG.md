@@ -11,6 +11,163 @@ diff against, and keeping the surface small keeps that diff readable.
 placeholder — see `ADOPTING.md`). Every release therefore needs a heading in exactly this
 shape.
 
+## [0.5.0] - 2026-09-13
+
+Three things in one release: **the pipelines stop failing** (and say what they found when
+they do), **adoption is one command**, and **the lessons the running system learned between
+2026-08-20 and 2026-09-13** are carried back de-identified — the review loop, the doctrine,
+the CI plumbing, and seven knowledge cards. The theme of those three weeks upstream was
+**silence that reads as health**: a refused reviewer filed as a lost one, a dead scheduler
+nobody noticed for a day, findings filed at review time that merged fixed two hours later,
+a closed issue mistaken for a finished fix, and work left "for next run" by an agent that
+had every right to do it.
+
+### If you read nothing else
+
+| What | Was | Is now |
+|---|---|---|
+| **Adopting** | Four doors, an eleven-question interview, and a documented order of four tools; every live adoption stalled on "which step is mine" | `tools/bootstrap.sh --product "Name"` — or `curl … \| bash` from inside any repository. No questions (`tools/init.sh --defaults` takes every answer from the provider profile and prints it), installs beside your files, verifies with the shipped checkers, never pushes, ends with the four things only you can do |
+| **The nightly CVE gate** | Red for eleven days on two transitive dev dependencies; the notifier added an identical comment to the same issue every night | Dependencies bumped (stryker 10 clears the `tmp` advisories as well); `.github/dependabot.yml` keeps the lockfiles moving without a human; the alert **names the advisories** and **stays quiet while they have not changed** |
+| **A reviewer that never wrote** | Every empty review body was "lost" — a job that died in seconds or was refused for a spent allowance filed a `[review-lost]` issue, and an open one blocks every merge | The job's exit status is read: a dead job posts a notice and files nothing; a refused job's log is read ONCE, the cause named, no handoff filed, no re-run advised; a skipped reviewer says why and the other review still counts |
+| **Non-blocking findings** | Filed as an issue at review time — upstream 166 in a month, most against a pull request that merged a median 2.1 hours later with the finding already fixed | The pull request is **labelled**; `review-followup-sweep.yml` files an issue **at merge** only if the label survived, and closes stale follow-ups on an unmerged close |
+| **The fleet stops** | The watcher ring runs inside the agents; a dead scheduler cannot make it report anything | `fleet-heartbeat.yml` watches every enabled agent's ledger from the hosted runner, on its own cron; a broken watch is red, never a quiet green |
+| **Never punt** | An agent could write "for next run" about work it had every right to do; nothing refused it | Efficiency rule 9 and guardrail 3: undone work needs one of six named stops, and `tools/ledger.sh` **refuses the entry** otherwise |
+
+### Added
+
+- **One-command adoption.** `tools/bootstrap.sh` (from a template clone or piped from
+  `curl` inside any repository): finds the repository, installs the harness with
+  `tools/upgrade.sh --install` when it is not there yet, runs `tools/init.sh --defaults`,
+  verifies, prints the handback. `--dry-run` shows the plan; a second run finds the
+  repository adopted and stops. It never reads stdin — the offers cannot be answered by
+  the script text when it is itself the pipe. `tools/init.sh --defaults` is the interview
+  with no questions: every unanswered variable from `profiles/<provider>.answers`,
+  `PRODUCT_NAME` from the repository's name, every assumption printed, pre-set variables
+  always winning. `tests/bootstrap.bats` (10 tests) drives both against a copy of the
+  live tree, greenfield and brownfield. README leads with it; `ONBOARDING.md`,
+  the skill and the site point at it.
+- **`.github/dependabot.yml`** — weekly grouped bumps for the example stacks and the
+  actions, re-pointed by `tools/adopt-layout.sh` on retirement (tested). Dependabot
+  proposes; the dependency steward reads what the bumps mean.
+- **The shared notifier names what it found.** `nightly-alert.yml` gains `findings` (a
+  line the body carries as `**What this run found:**`; the same line on the previous
+  comment means no new comment, and no push) and `cadence` (the word in the title, so a
+  merge-time watch or a heartbeat no longer files issues that say "nightly"; a thread
+  filed under an older word is found and retitled, never orphaned). The nightly
+  dependency scan passes its own `UNALLOWLISTED` / `STALE` lines. `notifier-findings.bats`
+  runs the real JavaScript against a stubbed API (9 tests).
+- **`fleet-heartbeat.yml` + `tools/check-heartbeat.sh`** — every enabled agent's newest
+  ledger entry against its own `schedule:` in `.agents/config.yml`, read by `git archive`
+  of the ledger branch on a hosted runner every six hours, six hours' grace. Overdue
+  agents and a broken watch are two different issues and both red jobs. With every agent
+  disabled (the shipped default) it reports "nothing to watch" and needs no ledger branch.
+  `tests/check-heartbeat.bats` (15 tests) drives it on a frozen clock.
+- **`main-watch.yml`** — the FAST suite against the default branch's HEAD every four
+  hours, because two independently green pull requests can break the branch together and
+  no other gate reads it after a merge. Fires on `cancelled` too: with
+  `cancel-in-progress: false` that can only mean the suite hung past its budget.
+- **The review follow-up sweep** — `tools/review-followup-sweep.sh` +
+  `.github/workflows/review-followup-sweep.yml` + `docs/runbooks/review-followup-sweep.md`
+  + `tests/review-followup-sweep.bats` (28 tests). A non-blocking verdict labels the pull
+  request `review-followup-pending` and posts the findings under `### Review follow-up:
+  clear these before you merge`; the sweep files `[review-followup] Non-blocking findings
+  on merged PR #N` only when the label survives the merge, closes follow-ups on an
+  unmerged close, and runs a daily `--scan` backstop because a `GITHUB_TOKEN` merge starts
+  no run. Filed with `GITHUB_TOKEN` on purpose — the token is the switch.
+- **The merger, opt-in and shipped off** — the twelfth scheduled agent, the only one
+  allowed to merge, and only under the written bar in `docs/runbooks/agent-modes.md`
+  ("Mode: merger"): green on the head commit, a referee verdict for that head, no human
+  changes-requested, `Closes #N`, nothing on the exclusion list (the rules agents obey,
+  destructive migrations, major bumps, the dependency allowlist, a `hold` label). One
+  merge at a time, never GitHub auto-merge, the default branch's own checks read before
+  the next. Human-merge stays the default; guardrail 2 says so.
+- **Seven knowledge cards**, product-neutral: `guard-inside-the-guarded`,
+  `half-landed-fix`, `issue-count-is-a-band`, `log-tail-is-not-the-run`,
+  `measure-the-property-not-the-value`, `second-branch-is-yours`,
+  `shallow-clone-hides-history`; `parked-pr-branch` gains the "no checks on the
+  sweeper's pull request" follow-on trap.
+- **Coverage headroom, report only** — `examples/frontend/scripts/check-coverage-headroom.mjs`
+  prints, per floor, the margin left in points and in items and marks a thin one; a floor
+  0.2 points above measured no longer reads the same as one 5 points above.
+- **`docs/runbooks/model-budget-exhaustion.md`** and **`agent-modes-history.md`** (past
+  modes and expired exceptions, out of the session-start read).
+- **Forty-seven new pins** in `tests/harness-guards/pins.json` (129 → 176), one per
+  load-bearing string above, plus new behavioural guards that run the real steps:
+  `review-lost-check.bats`, `review-lost-log.bats`, `steward-pr-open.bats`,
+  `notifier-findings.bats`, `watches.bats`, and 16 new ledger cases.
+
+### Changed
+
+- **The review loop** (`review.yml`, `tools/collect-review-comment.sh`,
+  `tools/review-handoff-decide.sh`, the three review prompts): both reviewer steps carry an
+  id and their exit status is read; a job that died posts "did not run … no findings in its
+  log to recover" and files nothing; the referee reads `needs.*.result`; the lost reviewer's
+  job log is fetched ONCE (with the `curl -L` fallback, because the endpoint answers 302,
+  and a retry, because it lags the job) and a named quota refusal means no handoff, no
+  issue, and "waiting is the answer, not another run"; the review job exports
+  `skipped_reason` and the referee says "this is not a lost review — the other review is
+  real"; the collector reads all three comment shapes (conversation, inline, formal review
+  body) and keeps EVERY marked item, joined, never `| last`; every filed body embeds the
+  referee comparison and ends "Do not edit this body"; `[review-lost]` dedupes on an
+  anchored regex across wordings; every notice says the re-run trigger is the
+  draft→ready toggle and that re-running the run replays the original payload.
+- **The steward** (`steward.yml`): a finished `[steward-handoff]` run is not silent —
+  commits on the pull request's branch inside the run's window are the third outcome, and
+  the issue closes only on a commit whose resolved account is a Bot (never the git author
+  name); a failed "does a pull request exist?" lookup opens nothing, prints the HTTP status,
+  and names the sweep as the repair. `tools/sweep-parked-branches.sh` takes `--prefix`
+  repeatedly, kept tight on purpose.
+- **Doctrine** (`AGENTS.md`, `agent-routines.md`, `agent-modes.md`, `agent-ledgers.md`,
+  `agent-escalation.md`, the headless sheet, every prompt): never punt (rule 9, six stops,
+  `not_done` validated at the write, and "your starting branch never caps your pull
+  requests"); `ping.summary` is `sent|none` and **never a second ledger entry** (the
+  template's own rule 4a asked for one — upstream three agents obeyed it daily); a second
+  run on the same date **appends** its narrative under `## Run N`; `fix_verified` gains
+  `too_early` (with `recheck_after` and `issue`) and the five verdicts are validated; a
+  closed issue is not a finished fix (the "done" test for a parked row, and a pull request
+  naming a remaining step does not close its issue); the band checklist grows to seven
+  checks plus its alert-rule corollary; the count inside an issue is a band; the mode file
+  must never be the shorter copy, and parked work has an owner; the nightly-gate reader
+  checks the accepted-exception list first and finds the tracker by search; the groomer
+  gains the text-only and refuted close paths and a merged-PR search that takes issues off
+  the timestamp skip list; never edit a machine-filed issue body; a secret is never an
+  argument.
+- **The nightly notifiers fire on `cancelled`** as well as `failure`, and the pairing with
+  `cancel-in-progress: false` is written where the next reader will look.
+- **Secret scan**: `gitleaks-action@v3`, the SARIF upload off, `TMPDIR` on the runner's
+  temp — and a guard that `HOME` is never moved.
+- **CI health watch**: the offline-runner list no longer ends in a stray space.
+- Eleven agents became twelve in every count that is not read from the config; the
+  scheduled-agents guards now read the ring from the config instead of a typed list.
+
+### Fixed
+
+- **The nightly dependency CVE gate**, red since 2026-09-03: `fast-uri` 3.1.5 → 3.1.6 and
+  `js-yaml` 4.3.1 → 4.3.2 (both `npm audit fix`), stryker 8 → 10 (clears the two `tmp`
+  advisories, whose allowlist entries the gate's own stale-exception ratchet then removed).
+  Lint, build, coverage and a mutation run verified on the bumped tree.
+- **The brownfield install** (`tools/upgrade.sh --install`) never carried `ADOPTING.md`
+  across, so the interview that followed died regenerating a file that was not there.
+- **The upstream sync record** (`.agents/upstream-sync.json`) had not been advanced at
+  0.4.0; it now names the upstream commit this release was read against.
+
+### Not carried, and why (recorded so the next sync does not re-read them)
+
+- The identical-tree skip on the pull-request gates (cache a green result per stack tree
+  id): a real saving on a large product, none on the bundled example; it lands with
+  `docs/runbooks/porting-to-your-stack.md` when the gates are swapped for a real stack.
+- The CI health watch's queue-starvation and wedged-runner legs: they need the job token
+  and `/actions/runs`, and every alert text names a specific runner box; the "an exit code
+  outside the script's contract is a warning, never green" rule is the portable half and is
+  in `tools/check-heartbeat.sh`'s contract.
+- The provider-budget leg of the CI health watch: it parses one vendor's usage payload out
+  of a review job log. `docs/runbooks/model-budget-exhaustion.md` carries what an agent does
+  at the wall; the reading belongs in an adapter if anywhere.
+- The steward's identity-by-account-id: the template already identifies bots by account
+  type, which does not rename.
+- Product cards (`band-on-a-new-row`, `row-page-identity`): every example names a listing,
+  a scraper or a public search API.
+
 ## [0.4.0] - 2026-08-20
 
 An upstream-lessons release, like 0.3.0: everything here landed first in the running

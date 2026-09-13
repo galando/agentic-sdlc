@@ -1,0 +1,165 @@
+# The fleet heartbeat — notices when the scheduled agents STOP, from outside them.
+#
+# Every scheduled agent checks its predecessor's ledger entry (the watcher ring,
+# tools/check-liveness.sh) and one of them checks the newest entry across the
+# whole ring. Both checks run inside an agent run. The one failure they cannot
+# report is the one that stops every run at once: a scheduler that stopped, an
+# AGENT_RUNNER label that points at nothing, a provider refusing every session,
+# the agents' own model budget spent. Upstream, the scheduler stopped and five
+# agents missed ten runs before anyone was told, because the agents that would
+# have noticed were the ones that had stopped.
+#
+# So this runs on a GitHub-HOSTED runner, never on AGENT_RUNNER, and reads two
+# things that exist whether or not any agent is alive: each agent's `schedule:`
+# in .agents/config.yml and the newest entry in ledger/<agent>.jsonl on the
+# ledger branch. Overdue agents become one tracking issue through
+# nightly-alert.yml with `cadence: heartbeat`; a BROKEN watch (an unreadable
+# ledger branch, a cron the checker cannot parse) is a different issue and a red
+# job, never a quiet green — a fault must not be mistaken for a healthy fleet.
+#
+# Honest limits, stated once:
+#   - In this template the agents are GitHub Actions cron too, so this watch
+#     shares GitHub's scheduler with them. It is still independent of the
+#     self-hosted runner, the provider credential and budget, and run-agent.sh.
+#   - GitHub disables every schedule after ~60 days without a push. That takes
+#     this watch down with the fleet it watches. agents-scheduled.yml names the
+#     same blind spot; the ledger's own staleness is the signal that survives.
+#   - It ships ARMED but has nothing to say until an agent is enabled: with
+#     every agent `enabled: false` (the shipped default) it reports "nothing to
+#     watch" and exits 0, and it never needs the ledger branch to exist first.
+#
+# NEVER A REQUIRED STATUS CHECK: it does not run on pull requests.
+# Cost: four runs a day at the one-minute minimum, ~120 hosted minutes a month.
+name: fleet-heartbeat
+
+on:
+  schedule:
+    # Odd minute: the top of the hour is the most contended scheduler slot.
+    - cron: '47 */6 * * *'
+  workflow_dispatch:
+
+# `issues: write` is what the notifier needs, and a reusable workflow cannot hold
+# more permission than its caller (nightly-alert.yml's header says why).
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: fleet-heartbeat
+  cancel-in-progress: true
+
+jobs:
+  watch-fleet-heartbeat:
+    # Hosted, literally. The whole point is to run where AGENT_RUNNER cannot take
+    # it down; a `vars.*_RUNNER` expression here would be the watchdog scheduled
+    # onto the thing it watches.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      overdue: ${{ steps.watch.outputs.overdue }}
+      broken: ${{ steps.watch.outputs.broken }}
+      findings: ${{ steps.watch.outputs.findings }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Read the ledger branch without a second checkout
+        id: ledger
+        run: |
+          set -uo pipefail
+          . tools/lib/config.sh
+          BRANCH="$(cfg_get ledger.branch agent-ledger)"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          # A missing branch is only a fault once an agent is enabled; the
+          # checker decides that. Here it is recorded, never concluded on.
+          if git fetch --depth 1 origin "$BRANCH" 2>/dev/null \
+             && git archive "origin/$BRANCH" ledger 2>/dev/null | tar -x -C "$RUNNER_TEMP"; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            mkdir -p "$RUNNER_TEMP/ledger"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=No ledger branch::'$BRANCH' is not on origin (tools/create-ledger-branch.sh creates it). Fine while every agent is disabled; a fault the moment one is enabled."
+          fi
+
+      - name: Compare every enabled agent's newest ledger entry with its schedule
+        id: watch
+        env:
+          LEDGER_DIR: ${{ runner.temp }}/ledger
+          LEDGER_PRESENT: ${{ steps.ledger.outputs.present }}
+          REPORT_FILE: ${{ runner.temp }}/overdue.txt
+        run: |
+          set -uo pipefail
+          # An absent ledger branch is a broken watch only when there is
+          # something to watch: an unreadable directory makes the checker exit 2
+          # itself, so the empty stand-in directory above is enough to route it.
+          if [ "$LEDGER_PRESENT" != "true" ]; then rmdir "$LEDGER_DIR" 2>/dev/null || true; fi
+          set +e
+          tools/check-heartbeat.sh check > watch.out 2> watch.err
+          rc=$?
+          set -e
+          cat watch.out; cat watch.err >&2
+          overdue=false; broken=false
+          if [ "$rc" -ne 0 ]; then
+            broken=true
+          elif [ -s "$REPORT_FILE" ]; then
+            overdue=true
+          fi
+          findings="$(paste -sd ';' "$REPORT_FILE" 2>/dev/null | cut -c1-600)"
+          [ "$broken" = true ] && findings="$(paste -sd ';' watch.err | cut -c1-600)"
+          {
+            echo "overdue=$overdue"
+            echo "broken=$broken"
+            echo "findings=$findings"
+          } >> "$GITHUB_OUTPUT"
+          # Red in the Actions tab whenever there is something to act on. Both
+          # outcomes are; the two notifier jobs below tell them apart.
+          if [ "$broken" = true ]; then
+            echo "::error title=Fleet heartbeat watch is BROKEN::this is NOT a report of overdue agents; the watch itself failed — $findings"
+            exit 1
+          fi
+          if [ "$overdue" = true ]; then
+            echo "::error title=Overdue agents::$findings"
+            exit 1
+          fi
+
+  notify-overdue:
+    if: ${{ always() && needs.watch-fleet-heartbeat.outputs.overdue == 'true' }}
+    needs: [watch-fleet-heartbeat]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      gate: 'Agent fleet heartbeat'
+      cadence: 'heartbeat'
+      severity: 'S2'
+      # The notifier itself must not wait on the fleet's runner.
+      runner: 'ubuntu-latest'
+      findings: ${{ needs.watch-fleet-heartbeat.outputs.findings }}
+      what_red_means: >-
+        An ENABLED scheduled agent has written no ledger entry since its last due slot plus the
+        grace period. Nothing inside the fleet will report this, because the thing that stopped
+        is the fleet. Check, in this order: the Actions tab for agents-scheduled.yml runs (none
+        at all means the schedule is disabled or the repository went quiet for ~60 days), a run
+        that exited at the credential check (AGENT_CLI_TOKEN), a runner label with no runner
+        behind it, and the provider's own usage page (a spent allowance refuses every run the same
+        way until it resets; do not re-run before then). The repair is an operator action.
+      runbook: 'docs/runbooks/agent-routines.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+
+  notify-broken:
+    if: ${{ always() && needs.watch-fleet-heartbeat.outputs.broken == 'true' }}
+    needs: [watch-fleet-heartbeat]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      gate: 'Agent fleet heartbeat watch'
+      cadence: 'heartbeat'
+      severity: 'S2'
+      runner: 'ubuntu-latest'
+      findings: ${{ needs.watch-fleet-heartbeat.outputs.findings }}
+      what_red_means: >-
+        The WATCH is broken, which is not a report about the agents: it could not read the ledger
+        branch, or an agent's schedule is in a shape tools/check-heartbeat.sh does not accept. Until
+        this is fixed nobody is watching the fleet from outside it, which is the state this
+        workflow exists to end. The findings line names the exact fault.
+      runbook: 'docs/runbooks/agent-routines.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}

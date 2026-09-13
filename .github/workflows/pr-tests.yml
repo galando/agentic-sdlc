@@ -182,6 +182,16 @@ jobs:
         working-directory: ./examples/frontend
         run: npm run test:coverage -- --run
 
+      # Report only: how much room is left above each coverage floor, in points
+      # and in items. The ratchet above only says pass or fail, so a floor with
+      # 0.2 points of margin reads the same as one with 5 — until a later pull
+      # request trips it. Never red: the script exits 0 by contract.
+      - name: Frontend coverage headroom (report only)
+        if: always() && needs.changes.outputs.frontend == 'true'
+        continue-on-error: true
+        working-directory: ./examples/frontend
+        run: npm run check:coverage-headroom
+
       - name: Design-system guardrail
         if: needs.changes.outputs.frontend == 'true'
         working-directory: ./examples/frontend

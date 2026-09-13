@@ -128,7 +128,8 @@ and say prominently in your comment that the pipeline was unavailable and why.
 |---|---|
 | Plan gate PASS: continuation choice | Set the run mode to autonomous, print the summary box, continue. |
 | Any post-plan gate PASS | Print the summary box, advance the stage, continue. |
-| Any gate FAIL, loop budget available | Loop back automatically, per the feedback-loop rules. |
+| Review gate FAIL, and you fixed some or all of its findings in this stage | Re-test the fix, then mark each fixed finding resolved with the pipeline's own resolve-evidence verb, naming the commit or note that fixed it. The row stays in the gate ledger as the record of what was found; only the gate stops counting it. Re-run the gate. Loop back only for what is still open. **On a CLI without that verb, park** — looping without resolving re-fails on the same findings until the budget is gone. **Never delete or clear evidence to pass a gate.** |
+| Any gate FAIL, loop budget available | Loop back automatically, per the feedback-loop rules. **Not the Review gate when you fixed its findings** — that is the row above. |
 | Any gate FAIL, budget exhausted | **Park** (section 3). Never override on your own authority — an override is a human act. |
 | Build judges the plan infeasible | **Park immediately.** This loop is human-only by design; do not attempt it, do not stall waiting. |
 | Design stage offer | Follow the deterministic rule: run design iff the complexity is medium or complex and the design phase is enabled. Otherwise it is skipped — there is nothing to decide. |
@@ -160,6 +161,15 @@ and say prominently in your comment that the pipeline was unavailable and why.
 4. Update your comment: verdict, the gate ledger verbatim, what parked and why (if
    parked), and what a human should do next. The comment is the operator's only window
    into the run — **never end silently**.
+
+   **If the comment API refuses you with a 401 late in a long run, that is expected and
+   it is not your failure.** The token a hosted run is given lives about an hour; the job
+   is allowed longer. Write the closing message as usual and carry on. Do not park over
+   it, and do not report the run as failed because of it. **Keep saving the pull-request
+   body to a file on your branch** — a `*pr-body*.md` file, or your autonomy report —
+   because `tools/sweep-parked-branches.sh` reads that file when it has to open the pull
+   request for you (`docs/runbooks/parked-branch-sweep.md`), and guardrail 2's
+   draft-first rule means the work is already visible.
 
    **Write it in plain language** (`AGENTS.md` guardrail 6,
    `docs/runbooks/agent-communication-style.md`). Open with a few short, simple sentences:

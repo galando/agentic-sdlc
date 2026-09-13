@@ -81,6 +81,26 @@ on:
         required: false
         default: ''
         type: string
+      findings:
+        # What this run actually found, when the gate can say: advisory ids, a
+        # failing test name, the overdue agents. Optional with an empty default so
+        # the callers that cannot say are unchanged. Without it the comment is
+        # identical every run and a reader cannot tell an accepted red from a new
+        # finding; with it, a run whose findings match the previous comment adds
+        # no comment at all (the summary still records that it checked).
+        description: 'One line naming what this run found, e.g. the advisory ids. Empty when the gate cannot say.'
+        required: false
+        default: ''
+        type: string
+      cadence:
+        # The word in the issue title and text. Defaults to 'nightly' so the
+        # scheduled callers need no change; a caller that does not run on a
+        # schedule (a merge-time watch, a fleet heartbeat) passes its own word,
+        # otherwise the issue tells the reader to look in the wrong place.
+        description: 'How this gate runs, e.g. "nightly", "main-watch" or "heartbeat" — used in the alert title and text.'
+        required: false
+        default: 'nightly'
+        type: string
     secrets:
       ALERT_WEBHOOK_URL:
         required: false
@@ -107,12 +127,16 @@ jobs:
           SEVERITY: ${{ inputs.severity }}
           MEANING: ${{ inputs.what_red_means }}
           RUNBOOK: ${{ inputs.runbook }}
+          FINDINGS: ${{ inputs.findings }}
+          CADENCE: ${{ inputs.cadence }}
         with:
           script: |
             const gate = process.env.GATE;
+            const cadence = (process.env.CADENCE || 'nightly').trim();
+            const findings = (process.env.FINDINGS || '').trim();
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}` +
                            `/actions/runs/${context.runId}`;
-            const title = `[nightly] ${gate} is failing`;
+            const title = `[${cadence}] ${gate} is failing`;
 
             // One issue per gate, reopened or commented rather than duplicated:
             // a gate that stays red for a week should be one thread with seven
@@ -131,32 +155,84 @@ jobs:
               labels: 'agent-report',
               per_page: 100,
             });
-            const match = existing.find(i => i.title === title);
+            // Match this gate's open thread whatever cadence word it was filed
+            // under, so a renamed cadence does not orphan the thread the notifier
+            // was already commenting on; a stale-prefix match gets its title
+            // brought in line, otherwise the title keeps the old word forever
+            // while every comment under it reads the new one.
+            const suffix = `${gate} is failing`;
+            const exact = existing.find(i => i.title === title);
+            const stale = exact ? undefined : existing.find(i => /^\[[^\]]+\] /.test(i.title)
+                            && i.title.replace(/^\[[^\]]+\] /, '') === suffix);
+            const match = exact ?? stale;
+
+            const findingsLine = `**What this run found:** ${findings}`;
+            const noBlockNote = cadence === 'nightly'
+              ? [
+                  'Nightly gates do not block merges, so this will not stop anyone from',
+                  'shipping on top of it. That is deliberate for slow, real-browser and',
+                  'external-provider checks — and exactly why it needs a human to look.',
+                ]
+              : [
+                  `This does not block merging: the ${cadence} run that found it is not a`,
+                  'pull-request check. That is exactly why it needs a human to look:',
+                  'nothing else in the pipeline will.',
+                ];
 
             const body = [
-              `**${process.env.SEVERITY} — ${gate} failed on the nightly run.**`,
+              `**${process.env.SEVERITY} — ${gate} failed on the ${cadence} run.**`,
               '',
+              ...(findings ? [findingsLine, ''] : []),
               `**What red means:** ${process.env.MEANING}`,
               '',
               `- Run: ${runUrl}`,
               `- Commit: \`${context.sha.slice(0, 7)}\` on \`${context.ref}\``,
               `- Runbook: \`${process.env.RUNBOOK}\``,
               '',
-              'Nightly gates do not block merges, so this will not stop anyone from',
-              'shipping on top of it. That is deliberate for slow, real-browser and',
-              'external-provider checks — and exactly why it needs a human to look.',
+              ...noBlockNote,
             ].join('\n');
 
             if (match) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: match.number,
-                body,
-              });
+              if (stale) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: match.number,
+                  title,
+                });
+                core.info(`Retitled issue #${match.number} to "${title}"`);
+              }
+              // Same findings as the last comment on this thread: say nothing new.
+              // A thread that gains an identical comment every run buries the one
+              // run whose findings changed; the step summary still records the
+              // check. An empty findings line never dedupes — the caller could not
+              // say what it found, so every run is news.
+              let unchanged = false;
+              if (findings) {
+                const comments = await github.paginate(github.rest.issues.listComments, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: match.number,
+                  per_page: 100,
+                });
+                const last = comments.length ? comments[comments.length - 1].body : match.body;
+                unchanged = (last || '').split('\n').includes(findingsLine);
+              }
+              if (unchanged) {
+                core.summary.addRaw(`Issue #${match.number} already carries these findings; no new comment.\n`).write();
+                core.info(`Issue #${match.number}: findings unchanged, no comment added`);
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: match.number,
+                  body,
+                });
+                core.info(`Commented on existing issue #${match.number}`);
+              }
               core.setOutput('number', match.number);
               core.setOutput('url', match.html_url);
-              core.info(`Commented on existing issue #${match.number}`);
+              core.setOutput('unchanged', unchanged ? 'true' : 'false');
             } else {
               const created = await github.rest.issues.create({
                 owner: context.repo.owner,
@@ -176,8 +252,14 @@ jobs:
           GATE: ${{ inputs.gate }}
           SEVERITY: ${{ inputs.severity }}
           ISSUE_URL: ${{ steps.issue.outputs.url }}
+          CADENCE: ${{ inputs.cadence }}
+          UNCHANGED: ${{ steps.issue.outputs.unchanged }}
         run: |
           set -uo pipefail
+          if [ "${UNCHANGED:-}" = "true" ]; then
+            echo "Findings unchanged since the last comment; no push sent." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if [ -z "${WEBHOOK:-}" ]; then
             # NOT a failure: the issue above is the primary channel and it
             # landed. Say it loudly in the summary so a missing secret is
@@ -192,7 +274,7 @@ jobs:
             exit 0
           fi
 
-          TEXT="🔴 [nightly] ${GATE} failed (${SEVERITY}) — ${ISSUE_URL}"
+          TEXT="🔴 [${CADENCE:-nightly}] ${GATE} failed (${SEVERITY}) — ${ISSUE_URL}"
           HTTP=$(curl -sS -o /tmp/alert-response.json -w '%{http_code}' --max-time 20 \
             -X POST "$WEBHOOK" \
             -H 'content-type: application/json' \

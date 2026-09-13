@@ -167,6 +167,17 @@ cmd_install() {
       copied=$((copied + 1))
     fi
   done < <(list_files "$ROOT")
+  # ADOPTING.md is outside the manifest surface (its table is regenerated per
+  # tree), but tools/init.sh regenerates that table INTO the file and stops when
+  # the file is absent — so the brownfield interview died on its last step until
+  # the prose was carried across here. Same never-overwrite contract.
+  if [ -f "$ROOT/ADOPTING.md" ]; then
+    if [ -e "$target/ADOPTING.md" ]; then
+      cp "$ROOT/ADOPTING.md" "$target/ADOPTING.md.agentic-sdlc.proposed"; collisions=$((collisions + 1))
+    else
+      cp "$ROOT/ADOPTING.md" "$target/ADOPTING.md"; copied=$((copied + 1))
+    fi
+  fi
   # Stamp in the TARGET: the hashes are this template's pristine content,
   # which is exactly what the target now holds (nothing substituted yet).
   local version
