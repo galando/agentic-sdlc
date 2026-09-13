@@ -43,8 +43,8 @@
   <properties>
     <java.version>17</java.version>
     <maven.compiler.release>17</maven.compiler.release>
-    <archunit.version>1.3.0</archunit.version>
-    <cucumber.version>7.18.1</cucumber.version>
+    <archunit.version>1.5.0</archunit.version>
+    <cucumber.version>7.34.8</cucumber.version>
 
     <!-- FLOORS:BEGIN backend.mutation.score -->
     <!-- floors.yml says `unset`. PIT's documented "no threshold" IS 0 — which is also
@@ -142,7 +142,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-enforcer-plugin</artifactId>
-        <version>3.5.0</version>
+        <version>3.6.3</version>
         <executions>
           <execution>
             <id>build-hygiene</id>
@@ -257,7 +257,7 @@
       <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>
-        <version>0.8.12</version>
+        <version>0.8.15</version>
         <executions>
           <execution>
             <id>prepare-agent</id>
@@ -314,12 +314,12 @@
           <plugin>
             <groupId>org.pitest</groupId>
             <artifactId>pitest-maven</artifactId>
-            <version>1.17.0</version>
+            <version>1.30.0</version>
             <dependencies>
               <dependency>
                 <groupId>org.pitest</groupId>
                 <artifactId>pitest-junit5-plugin</artifactId>
-                <version>1.2.1</version>
+                <version>1.2.3</version>
               </dependency>
             </dependencies>
             <configuration>
