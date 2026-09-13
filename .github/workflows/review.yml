@@ -122,7 +122,7 @@ jobs:
       # the referee can compare two reviews of two different code states while every
       # output still looks correct. `head.sha` is fixed when the run is triggered.
       - name: Checkout the reviewed commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
@@ -666,7 +666,7 @@ jobs:
       # the referee can compare two reviews of two different code states while every
       # output still looks correct. `head.sha` is fixed when the run is triggered.
       - name: Checkout the reviewed commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
@@ -1027,7 +1027,7 @@ jobs:
       # the referee can compare two reviews of two different code states while every
       # output still looks correct. `head.sha` is fixed when the run is triggered.
       - name: Checkout the reviewed commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1

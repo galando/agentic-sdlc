@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 50
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Decide whether this matrix entry runs
         id: gate

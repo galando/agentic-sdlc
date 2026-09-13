@@ -123,7 +123,7 @@ jobs:
       fleet: ${{ steps.read.outputs.fleet }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
       - name: Read fleet mode from .agents/config.yml
@@ -157,7 +157,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
@@ -365,7 +365,7 @@ jobs:
         # failing this job over an absence the harness itself chose would turn
         # "day one is green for every provider" (SC11b) false on the first issue.
         if: ${{ !cancelled() && github.event_name == 'issues' && github.event.action == 'opened' && steps.harness-gate.outputs.enabled == 'true' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           AGENT_BRANCH: ${{ steps.agent-branch.outputs.branch_name }}
           STARTED_AT: ${{ steps.jobstart.outputs.iso }}
@@ -591,7 +591,7 @@ jobs:
       - name: Report any steward requests that were evicted from the queue
         if: always()
         continue-on-error: true
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const SIX_HOURS = 6 * 60 * 60 * 1000;
