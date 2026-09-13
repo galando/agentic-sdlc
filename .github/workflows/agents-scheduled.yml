@@ -1,13 +1,14 @@
-# The eleven scheduled agents — health, quality, audit, chief-of-staff, challenger
-# (daily), and docs, groomer, testgap, deps, hygiene, release (weekly/monthly — the
+# The twelve scheduled agents — health, quality, audit, chief-of-staff, challenger
+# (daily), docs, groomer, testgap, deps, hygiene, release (weekly/monthly — the
 # SDLC-extension agents from Part B of PR #18's design plus the code-hygiene routine;
-# spec at .temper/specs/second-brain-and-sdlc-extension/).
+# spec at .temper/specs/second-brain-and-sdlc-extension/), and the opt-in merger
+# (twice daily; the only agent allowed to merge, under the bar in agent-modes.md).
 #
 # Ships DISABLED BY DEFAULT: the cron schedule below is present and fires on time (the
 # schedule is not inert in the sense of "absent"), but every agent's own
 # `ledger.agents[].enabled` in .agents/config.yml starts `false`, so every scheduled run
 # resolves to a no-op that logs why and exits green. Nobody should meet this system as
-# eleven crons and an alert firehose on day one (docs/runbooks/agent-modes.md). The
+# twelve crons and an alert firehose on day one (docs/runbooks/agent-modes.md). The
 # one-line enable is flipping `enabled: false` to `true` for one agent in
 # .agents/config.yml — no workflow edit needed. README.md's "turning on the routines"
 # section documents the order (dry-run via workflow_dispatch first, then enable).
@@ -46,13 +47,14 @@ on:
     - cron: "43 9 * * 4"   # deps (weekly, Thursdays)
     - cron: "31 9 * * 5"   # hygiene (weekly, Fridays)
     - cron: "53 9 1 * *"   # release (monthly, the 1st)
+    - cron: "47 12,18 * * *"  # merger (twice daily; opt-in, ships off)
   workflow_dispatch:
     inputs:
       agent:
         description: >-
           Agent id to run right now (health, quality, audit, chief-of-staff,
-          challenger, docs, groomer, testgap, deps, release), or "all" to
-          dry-run every enabled agent.
+          challenger, docs, groomer, testgap, deps, hygiene, release, merger),
+          or "all" to dry-run every enabled agent.
         required: true
         default: all
         type: string

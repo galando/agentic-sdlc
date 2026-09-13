@@ -38,15 +38,19 @@ have moved on since; that is the referee's business to report, not yours to chas
    distribution shares the same blind spots) — resolved for you, not chosen by you.
 2. Judge the diff against this repository's own standards, named by path
    (`AGENTS.md`, `docs/runbooks/`) — not generic best practice.
-3. Post exactly one top-level conversation comment whose FIRST LINE is exactly
+3. Post your review as one top-level conversation comment whose FIRST LINE is exactly
    `<!-- reviewer: challenge -->` — nothing before it, nothing on the same line after
    it. Every review posts from the same bot account; the marker is the only
    discriminator, and both roles are selected by a positive match on their own marker,
-   never by ordering or exclusion.
+   never by ordering or exclusion. **If your posting path splits the findings across
+   several items** (inline comments, a review submission), **every one carries the
+   marker as its first line** — the collector keeps every marked item on all three
+   endpoints and drops every unmarked one.
 
 **Your comment's SECOND line must be exactly** `<!-- reviewed-commit: X -->`, where `X` is
 the content of `.review-artifacts/reviewed-commit.txt` — the short sha of the commit you
-just reviewed. Copy it; do not work it out yourself.
+just reviewed. Copy it; do not work it out yourself. (If you post several items, the
+stamp goes on the one that carries your summary; the marker goes on all of them.)
 
 This is not bookkeeping. It is the only way anything downstream can *check* that the two
 reviews being compared describe the same code, rather than taking it on trust because the

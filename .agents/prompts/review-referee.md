@@ -10,11 +10,19 @@ Read `AGENTS.md` and `docs/runbooks/agent-communication-style.md` before anythin
 
 ## Your job
 
-Compare reviewer A's comment (marker `<!-- reviewer: judge -->`) and reviewer B's comment
+Compare reviewer A's review (marker `<!-- reviewer: judge -->`) and reviewer B's review
 (marker `<!-- reviewer: challenge -->`), collected for you into
-`.review-artifacts/judge.md` and `.review-artifacts/challenge.md` from **both** the
-issue-comments endpoint and the pull-request review-comments endpoint. The change they
-were both reviewing is in `.review-artifacts/diff.patch`.
+`.review-artifacts/judge.md` and `.review-artifacts/challenge.md` from **all three**
+places a review can live: the conversation-comments endpoint, the inline
+review-comments endpoint, and the review-submissions endpoint. The change they were both
+reviewing is in `.review-artifacts/diff.patch`.
+
+**Each file may hold several items, separated by a line of `---`.** A reviewer that posted
+its findings as inline comments has one item per finding, each headed by
+**`path:line`** in bold; a review submission's summary is another item. Every marked
+item was kept — none was dropped as "older" — so read the whole file, and treat the
+`path:line` header as that finding's location. `.review-artifacts/inline-threads.json`
+lists the inline ones with their thread ids; you do not need it, the handoff does.
 
 Sort them, **and settle their disagreements**, so that the person reading your comment has
 to decide nothing.
@@ -165,9 +173,13 @@ word and nothing else:
 the two reviewers goes; you have already settled those above.
 
 **This verdict decides exactly one thing: whether an agent is woken to go and fix the pull
-request.** `blocking` and `undecided` both wake it. `non-blocking` files a follow-up issue
-instead and leaves the pull request alone. So do not write `blocking` to signal that a
-finding is interesting — write it when merging without the fix would be wrong.
+request.** `blocking` and `undecided` both wake it. `non-blocking` wakes nobody: on an open
+pull request it marks the pull request with the label `review-followup-pending` and posts
+the findings under a heading the author can act on, and the merge decides whether they
+become an issue (`docs/runbooks/review-followup-sweep.md`); on a pull request that has
+already merged, `non-blocking` files a follow-up issue at once, inert. So do not write
+`blocking` to signal that a finding is interesting — write it when merging without the fix
+would be wrong.
 
 Writing nothing, or a word not in that table, also wakes the agent. That is deliberate: a
 missing input must never read as "nothing to do". It is not a reason to be careless, but

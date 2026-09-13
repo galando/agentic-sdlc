@@ -233,12 +233,12 @@ teardown() {
 @test "a hygiene entry with a valid focus — or none at all — is accepted" {
   cd "$WORK/checkout"
   LEDGER_AGENTS="ops quality hygiene" \
-    run "$LEDGER" append hygiene '{"date":"2026-08-04","verdict":"green","summary":"x","focus":"duplication","issues":[],"ping":{"summary_message_id":1,"incident":null}}'
+    run "$LEDGER" append hygiene '{"date":"2026-08-04","verdict":"green","summary":"x","focus":"duplication","issues":[],"ping":{"summary":"sent","incident":null}}'
   [ "$status" -eq 0 ]
   # Absent focus reads as a "none" run — legal, and it must not advance the rotation,
   # which is the agent's own rule; the ledger only guards the vocabulary.
   LEDGER_AGENTS="ops quality hygiene" \
-    run "$LEDGER" append hygiene '{"date":"2026-08-05","verdict":"amber","summary":"could not finish","issues":[],"ping":{"summary_message_id":1,"incident":null}}'
+    run "$LEDGER" append hygiene '{"date":"2026-08-05","verdict":"amber","summary":"could not finish","issues":[],"ping":{"summary":"sent","incident":null}}'
   [ "$status" -eq 0 ]
 }
 
@@ -374,4 +374,252 @@ teardown() {
   [ "$status" -ne 0 ]
   [[ "$output" != *"attempt 2"* ]]
   [[ "$output" != *"refetching and replaying"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# --validate-only: every check, no clone, nothing written.
+# ---------------------------------------------------------------------------
+
+@test "append --validate-only runs every check, writes nothing, and never clones" {
+  # Point the branch name at one the remote does not have: a real append would die
+  # at the clone. Validate-only must exit 0 before it gets there, so the only way
+  # this passes is if no clone was attempted.
+  cd "$WORK/checkout"
+  run env LEDGER_BRANCH=no-such-branch \
+    "$LEDGER" append --validate-only ops '{"date":"2026-08-04","verdict":"green","summary":"x"}'
+  [ "$status" -eq 0 ]
+  [ "$output" = "entry is valid (not written)" ]
+  run git -C "$WORK/remote.git" show "agent-ledger:ledger/ops.jsonl"
+  [ "$status" -ne 0 ]
+}
+
+@test "append --validate-only still refuses what a real append refuses" {
+  cd "$WORK/checkout"
+  run "$LEDGER" append --validate-only ops '{"date":"yesterday","verdict":"green","summary":"x"}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"YYYY-MM-DD"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Rule 9 — never punt. The `not_done` gate refuses a reason outside the fixed
+# list, a missing item or next step, and a `clock` stop with no draft PR number.
+# The matrix below is the upstream 46-check harness in condensed form.
+# ---------------------------------------------------------------------------
+
+nd() {
+  # nd <reason> [next] — a one-item not_done entry, validated only.
+  local reason="$1" next="${2:-open the exact thing}"
+  "$LEDGER" append --validate-only ops \
+    "{\"date\":\"2026-08-04\",\"verdict\":\"green\",\"summary\":\"x\",\"not_done\":[{\"item\":\"the thing\",\"reason\":\"$reason\",\"next\":\"$next\"}]}"
+}
+
+@test "not_done: every fixed stop is accepted" {
+  cd "$WORK/checkout"
+  for reason in guardrail cap operator-only 'blocked-by:#12' not-reproducible; do
+    run nd "$reason"
+    [ "$status" -eq 0 ] || { echo "refused accepted stop '$reason': $output"; false; }
+  done
+  run nd clock "draft PR #12 already pushed"
+  [ "$status" -eq 0 ]
+}
+
+@test "not_done: the punt vocabulary is refused, and the message names the accepted stops" {
+  cd "$WORK/checkout"
+  for reason in later 'next run' follow-up 'a human decides' 'out of scope' time; do
+    run nd "$reason"
+    [ "$status" -ne 0 ] || { echo "accepted punt '$reason'"; false; }
+    [[ "$output" == *"guardrail, cap, operator-only, blocked-by:#N, not-reproducible or clock"* ]]
+    [[ "$output" == *"punts, not stops"* ]]
+  done
+}
+
+@test "not_done: blocked-by must name an issue or PR as blocked-by:#N" {
+  cd "$WORK/checkout"
+  for reason in blocked-by 'blocked-by:' 'blocked-by:#N' 'blocked-by:1412'; do
+    run nd "$reason"
+    [ "$status" -ne 0 ] || { echo "accepted malformed '$reason'"; false; }
+  done
+  run nd 'blocked-by:#1412'
+  [ "$status" -eq 0 ]
+}
+
+@test "not_done: a clock stop is valid only with the draft PR number in next" {
+  cd "$WORK/checkout"
+  run nd clock "ran out of time"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"clock stop must name the draft PR number"* ]]
+  run nd clock "draft #77 pushed at 06:20Z"
+  [ "$status" -eq 0 ]
+}
+
+@test "not_done: a missing or empty item, next or reason is refused" {
+  cd "$WORK/checkout"
+  base='{"date":"2026-08-04","verdict":"green","summary":"x","not_done":'
+  for items in \
+    '[{"reason":"cap","next":"first next run"}]' \
+    '[{"item":"","reason":"cap","next":"first next run"}]' \
+    '[{"item":"x","reason":"cap"}]' \
+    '[{"item":"x","reason":"cap","next":""}]' \
+    '[{"item":"x","next":"first next run"}]' \
+    '[{"item":"x","reason":"","next":"first next run"}]'; do
+    run "$LEDGER" append --validate-only ops "${base}${items}}"
+    [ "$status" -ne 0 ] || { echo "accepted incomplete item: $items"; false; }
+  done
+}
+
+@test "not_done: a string or an array of strings is refused with 'must be an array'" {
+  cd "$WORK/checkout"
+  run "$LEDGER" append --validate-only ops \
+    '{"date":"2026-08-04","verdict":"green","summary":"x","not_done":"later"}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"must be an array"* ]]
+  run "$LEDGER" append --validate-only ops \
+    '{"date":"2026-08-04","verdict":"green","summary":"x","not_done":["the thing"]}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"must be an array"* ]]
+}
+
+@test "not_done: one bad item among good ones fails the whole entry" {
+  cd "$WORK/checkout"
+  run "$LEDGER" append --validate-only ops \
+    '{"date":"2026-08-04","verdict":"green","summary":"x","not_done":[{"item":"a","reason":"cap","next":"first next run"},{"item":"b","reason":"later","next":"soon"}]}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"punts, not stops"* ]]
+}
+
+@test "not_done: an absent field or an empty array is accepted, for any agent" {
+  cd "$WORK/checkout"
+  run "$LEDGER" append --validate-only ops '{"date":"2026-08-04","verdict":"green","summary":"x"}'
+  [ "$status" -eq 0 ]
+  run "$LEDGER" append --validate-only ops '{"date":"2026-08-04","verdict":"green","summary":"x","not_done":[]}'
+  [ "$status" -eq 0 ]
+  # The gate is not scoped to one agent: quality is refused the same punt ops is.
+  run "$LEDGER" append --validate-only quality \
+    '{"date":"2026-08-04","verdict":"green","summary":"x","not_done":[{"item":"a","reason":"next run","next":"x"}]}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"punts, not stops"* ]]
+}
+
+@test "not_done: the gate really writes an accepted entry and really blocks a refused one" {
+  # --validate-only proves the logic; this proves the real path runs the same gate.
+  cd "$WORK/checkout"
+  run "$LEDGER" append ops \
+    '{"date":"2026-08-04","verdict":"green","summary":"x","not_done":[{"item":"a","reason":"later","next":"x"}]}'
+  [ "$status" -ne 0 ]
+  run git -C "$WORK/remote.git" show "agent-ledger:ledger/ops.jsonl"
+  [ "$status" -ne 0 ]
+  run "$LEDGER" append ops \
+    '{"date":"2026-08-04","verdict":"green","summary":"x","not_done":[{"item":"a","reason":"cap","next":"first next run"}]}'
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# ping.summary is the intent — "sent" or "none" — never a message id.
+# ---------------------------------------------------------------------------
+
+@test "ping.summary accepts sent and none, refuses anything else, and tolerates an absent ping" {
+  cd "$WORK/checkout"
+  for v in sent none; do
+    run "$LEDGER" append --validate-only ops \
+      "{\"date\":\"2026-08-04\",\"verdict\":\"green\",\"summary\":\"x\",\"ping\":{\"summary\":\"$v\",\"incident\":null}}"
+    [ "$status" -eq 0 ] || { echo "refused ping.summary=$v: $output"; false; }
+  done
+  run "$LEDGER" append --validate-only ops \
+    '{"date":"2026-08-04","verdict":"green","summary":"x","ping":{"summary":"yes","incident":null}}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'"sent" or "none"'* ]]
+  # A message id in the field is the exact mistake the rule exists to stop.
+  run "$LEDGER" append --validate-only ops \
+    '{"date":"2026-08-04","verdict":"green","summary":"x","ping":{"summary":13,"incident":null}}'
+  [ "$status" -ne 0 ]
+  run "$LEDGER" append --validate-only ops '{"date":"2026-08-04","verdict":"green","summary":"x"}'
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# fix_verified: five verdicts, and the two that carry an obligation.
+# ---------------------------------------------------------------------------
+
+fv() {
+  "$LEDGER" append --validate-only ops \
+    "{\"date\":\"2026-08-04\",\"verdict\":\"green\",\"summary\":\"x\",\"fix_verified\":[$1]}"
+}
+
+@test "fix_verified: the five verdicts are accepted and a sixth word is refused" {
+  cd "$WORK/checkout"
+  for v in moved not_moved unmergeable_state; do
+    run fv "{\"pr\":12,\"metric\":\"served_rule_count\",\"verdict\":\"$v\"}"
+    [ "$status" -eq 0 ] || { echo "refused verdict $v: $output"; false; }
+  done
+  run fv '{"pr":12,"metric":"served_rule_count","verdict":"not_yet"}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"moved, partial, not_moved, too_early or unmergeable_state"* ]]
+}
+
+@test "fix_verified: partial needs follow_up; too_early needs recheck_after and issue" {
+  cd "$WORK/checkout"
+  run fv '{"pr":12,"metric":"m","verdict":"partial"}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"follow_up"* ]]
+  run fv '{"pr":12,"metric":"m","verdict":"partial","follow_up":34}'
+  [ "$status" -eq 0 ]
+  run fv '{"pr":12,"metric":"m","verdict":"partial","follow_up":"reopened"}'
+  [ "$status" -eq 0 ]
+
+  run fv '{"pr":12,"metric":"m","verdict":"too_early","issue":34}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"recheck_after"* ]]
+  run fv '{"pr":12,"metric":"m","verdict":"too_early","recheck_after":"soon","issue":34}'
+  [ "$status" -ne 0 ]
+  run fv '{"pr":12,"metric":"m","verdict":"too_early","recheck_after":"2026-08-11"}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"issue"* ]]
+  run fv '{"pr":12,"metric":"m","verdict":"too_early","recheck_after":"2026-08-11","issue":34}'
+  [ "$status" -eq 0 ]
+
+  run "$LEDGER" append --validate-only ops \
+    '{"date":"2026-08-04","verdict":"green","summary":"x","fix_verified":"moved"}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"must be an array"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Same-day narrative: the second run appends under a heading; the first run's
+# evidence stays; a same-day run with no narrative does not advance the number.
+# ---------------------------------------------------------------------------
+
+@test "a second same-day narrative appends under '## Run 2' and keeps the first intact" {
+  cd "$WORK/checkout"
+  printf 'first run evidence\n' > "$WORK/n1.md"
+  printf 'second run evidence\n' > "$WORK/n2.md"
+  "$LEDGER" append ops '{"date":"2026-08-04","verdict":"green","summary":"one"}' "$WORK/n1.md"
+  run "$LEDGER" append ops '{"date":"2026-08-04","verdict":"green","summary":"two"}' "$WORK/n2.md"
+  [ "$status" -eq 0 ]
+  run git -C "$WORK/remote.git" show "agent-ledger:ledger/ops/2026-08-04.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"first run evidence"* ]]
+  [[ "$output" == *"second run evidence"* ]]
+  [[ "$output" =~ $'\n''## Run 2 — '[0-9]{2}:[0-9]{2}Z ]]
+  # The first narrative of the day carries no heading of its own.
+  [[ "$output" != *"## Run 1"* ]]
+  # Both entries still point at the one file.
+  run "$LEDGER" read ops
+  [ "$(printf '%s\n' "$output" | jq -r '.narrative' | sort -u)" = "ledger/ops/2026-08-04.md" ]
+}
+
+@test "a same-day append with no narrative does not bump the run number" {
+  cd "$WORK/checkout"
+  printf 'one\n' > "$WORK/n1.md"
+  printf 'two\n' > "$WORK/n2.md"
+  printf 'three\n' > "$WORK/n3.md"
+  "$LEDGER" append ops '{"date":"2026-08-04","verdict":"green","summary":"one"}' "$WORK/n1.md"
+  "$LEDGER" append ops '{"date":"2026-08-04","verdict":"green","summary":"two"}' "$WORK/n2.md"
+  "$LEDGER" append ops '{"date":"2026-08-04","verdict":"green","summary":"no narrative"}'
+  "$LEDGER" append ops '{"date":"2026-08-04","verdict":"green","summary":"three"}' "$WORK/n3.md"
+  run git -C "$WORK/remote.git" show "agent-ledger:ledger/ops/2026-08-04.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"## Run 2 — "* ]]
+  [[ "$output" == *"## Run 3 — "* ]]
+  [[ "$output" != *"## Run 4"* ]]
+  [ "$(printf '%s\n' "$output" | grep -c '^## Run ')" -eq 2 ]
 }

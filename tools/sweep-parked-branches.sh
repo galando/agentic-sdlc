@@ -60,7 +60,11 @@
 #                         review, so the reviewers run)
 #   --remote NAME         default origin
 #   --base NAME           default main
-#   --prefix STR          branch prefix to sweep (default agent/)
+#   --prefix STR          branch prefix to sweep (default agent/). Repeat it to
+#                         sweep more than one fleet's branches (--prefix agent/
+#                         --prefix other/). Keep each prefix TIGHT: a broad one
+#                         also matches a human's interactive session branches,
+#                         which were never waiting for a machine to open anything.
 #   --no-fetch            skip `git fetch` (the harness and CI checkouts)
 #
 # Exit codes: 0 nothing needs a human · 1 something does (a lookup, a create or
@@ -71,7 +75,7 @@ set -uo pipefail
 
 REMOTE=origin
 BASE=main
-PREFIX='agent/'
+PREFIXES=()
 MAX_AGE_DAYS=14
 GRACE_MINUTES=90
 PROMOTE_AFTER=180
@@ -91,12 +95,14 @@ while [ $# -gt 0 ]; do
         --draft)          DRAFT=1 ;;
         --remote)         REMOTE="$2"; shift ;;
         --base)           BASE="$2"; shift ;;
-        --prefix)         PREFIX="$2"; shift ;;
-        -h|--help)        sed -n '2,70p' "$0"; exit 0 ;;
+        --prefix)         PREFIXES+=("$2"); shift ;;
+        -h|--help)        sed -n '2,73p' "$0"; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
 done
+
+[ "${#PREFIXES[@]}" -gt 0 ] || PREFIXES=('agent/')
 
 die() { echo "ERROR: $*" >&2; exit 2; }
 
@@ -405,7 +411,15 @@ body_for() {
     } > "$out"
 }
 
-for ref in $(git for-each-ref --format='%(refname:short)' "refs/remotes/$REMOTE/${PREFIX}*"); do
+# One pattern per prefix. git for-each-ref takes them all and lists a ref that
+# matches several of them once, so overlapping prefixes cannot make this loop
+# consider the same branch twice — which would open a second pull request for
+# it, the one thing rule 1 forbids.
+PATTERNS=()
+for p in "${PREFIXES[@]}"; do PATTERNS+=("refs/remotes/$REMOTE/${p}*"); done
+echo "sweeping: ${PREFIXES[*]}"
+
+for ref in $(git for-each-ref --format='%(refname:short)' "${PATTERNS[@]}"); do
     branch="${ref#"$REMOTE"/}"
 
     # Merged with a real merge commit — the tip is in the base branch already.

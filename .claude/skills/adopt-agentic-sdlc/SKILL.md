@@ -10,6 +10,10 @@ read it now and execute it top to bottom. This skill adds nothing to it; it
 exists so `/adopt-agentic-sdlc` finds it. Single source of truth: if this file
 and `ONBOARDING.md` ever disagree, `ONBOARDING.md` wins.
 
+The short path, when the human's answers match a shipped profile:
+`tools/bootstrap.sh --product "<name>"` — no questions, nothing pushed, and it
+prints the handback list. `ONBOARDING.md` says when to take the long form.
+
 The three things people get wrong, restated because they are cheap to ruin:
 
 1. **Order**: `tools/init.sh --answers <file>` FIRST, then `tools/adopt.sh`

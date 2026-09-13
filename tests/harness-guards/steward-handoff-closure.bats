@@ -26,6 +26,17 @@
 # The three scenarios that must never close are the point of the file: a human's own
 # issue, a [review-lost] issue, and a handoff where only a human replied.
 #
+# THE THIRD OUTCOME. A [steward-handoff] run pushes to the pull request's EXISTING branch,
+# so it never creates a branch of its own, and its closing reply is often lost when the
+# API token dies late in a long run. Counting only "a comment was posted or a new branch
+# was pushed" therefore read a finished handoff as silence, left the issue open, and the
+# title dedupe blocked the next handoff for that pull request. Commits on the pull
+# request's branch inside the run's window are the third signal. Two things about it are
+# behavioural, not textual, and are pinned below: it is scoped to [steward-handoff] titles
+# only, and the CLOSE keys on the commit's resolved GitHub ACCOUNT (`c.author.type`),
+# never on the git author name — the first version matched the name, and the close path
+# was dead in production while a stub that also matched the name could not see it.
+#
 # Requires node. That is a real dependency and it is declared loudly rather than skipped
 # — a guard that quietly does not run is the failure mode this whole directory exists to
 # prevent.
@@ -72,6 +83,14 @@ extract_script() {
 #   $3 branch name from the remote-diff step ("" for none)
 #   $4 whether that branch exists on the remote (true/false)
 #   $5 whether issues.update should throw (true/false), default false
+# The pull-request side is driven by environment variables so the original scenarios
+# keep their shape:
+#   T_COMMITS          commits on the pull request's head, as the API returns them
+#                      (default: none). The stub honours `since` the way the API does.
+#   T_PR_HEAD          the pull request's head ref (default agent/fix-12)
+#   T_DEFAULT_BRANCH   the base repository's default branch (default main)
+#   T_PULLS_GET_THROWS true makes pulls.get fail
+#   T_BODY             the issue body (default empty)
 run_outcome_check() {
   cat > "$WORK/harness.mjs" <<HARNESS
 import { readFileSync } from 'node:fs';
@@ -81,10 +100,34 @@ const title = process.env.T_TITLE;
 const comments = JSON.parse(process.env.T_COMMENTS);
 const branchExists = process.env.T_BRANCH_EXISTS === 'true';
 const updateThrows = process.env.T_UPDATE_THROWS === 'true';
+const commits = JSON.parse(process.env.T_COMMITS || '[]');
+const prHead = process.env.T_PR_HEAD || 'agent/fix-12';
+const defaultBranch = process.env.T_DEFAULT_BRANCH || 'main';
+const pullsGetThrows = process.env.T_PULLS_GET_THROWS === 'true';
+const body = process.env.T_BODY || '';
 
 const github = {
   paginate: async (fn, args) => fn(args),
   rest: {
+    pulls: {
+      get: async (a) => {
+        calls.push(['pullsGet', a.pull_number]);
+        if (pullsGetThrows) throw new Error('stubbed 502');
+        return { data: { head: { ref: prHead }, base: { repo: { default_branch: defaultBranch } } } };
+      },
+    },
+    repos: {
+      listCommits: async (a) => {
+        calls.push(['listCommits', a.sha, a.since]);
+        // `since` filters server-side; a stub that ignored it would let a script that
+        // forgot to pass it count last week's commits as this run's work.
+        return commits.filter(c => new Date(c.commit.author.date) >= new Date(a.since));
+      },
+      getBranch: async () => {
+        if (branchExists) return {};
+        const err = new Error('not found'); err.status = 404; throw err;
+      },
+    },
     issues: {
       listComments: async () => comments,
       createComment: async (a) => { calls.push(['createComment', a.issue_number]); },
@@ -93,17 +136,11 @@ const github = {
         calls.push(['update', a.issue_number, a.state, a.state_reason]);
       },
     },
-    repos: {
-      getBranch: async () => {
-        if (branchExists) return {};
-        const err = new Error('not found'); err.status = 404; throw err;
-      },
-    },
   },
 };
 
 const context = {
-  payload: { issue: { number: 77, title } },
+  payload: { issue: { number: 77, title, body } },
   repo: { owner: 'o', repo: 'r' },
   serverUrl: 'https://example.invalid',
   runId: 1234,
@@ -115,9 +152,9 @@ const core = {
   setFailed: (m) => calls.push(['setFailed', m]),
 };
 
-const body = readFileSync(process.env.T_SCRIPT, 'utf8');
+const script = readFileSync(process.env.T_SCRIPT, 'utf8');
 const fn = new Function('github', 'context', 'core', 'process',
-  \`return (async () => { \${body} })()\`);
+  \`return (async () => { \${script} })()\`);
 await fn(github, context, core, process);
 
 console.log(JSON.stringify(calls));
@@ -137,6 +174,14 @@ BOT_REPLY='[{"created_at":"2026-08-08T10:05:00Z","user":{"type":"Bot","login":"a
 HUMAN_REPLY='[{"created_at":"2026-08-08T10:05:00Z","user":{"type":"User","login":"someone"}}]'
 NO_COMMENTS='[]'
 STALE_BOT_REPLY='[{"created_at":"2026-08-08T09:00:00Z","user":{"type":"Bot","login":"agent[bot]"}}]'
+
+# Commits as the API returns them: `commit.author` is the git identity (a free-text name
+# anyone can set), `author` is the GitHub account GitHub resolved from the email — or null.
+BOT_COMMIT='[{"sha":"a1","commit":{"author":{"name":"agent","date":"2026-08-08T10:20:00Z"}},"author":{"login":"agent[bot]","type":"Bot"}}]'
+HUMAN_COMMIT='[{"sha":"b2","commit":{"author":{"name":"someone","date":"2026-08-08T10:20:00Z"}},"author":{"login":"someone","type":"User"}}]'
+NAME_ONLY_COMMIT='[{"sha":"c3","commit":{"author":{"name":"agent[bot]","date":"2026-08-08T10:20:00Z"}},"author":null}]'
+STALE_BOT_COMMIT='[{"sha":"d4","commit":{"author":{"name":"agent","date":"2026-08-08T09:30:00Z"}},"author":{"login":"agent[bot]","type":"Bot"}}]'
+HANDOFF='[steward-handoff] Review findings on PR #12'
 
 @test "closure: a finished handoff issue with the steward's reply is closed as completed" {
   run run_outcome_check "[steward-handoff] Review findings on PR #12" "$BOT_REPLY" "" false
@@ -224,4 +269,95 @@ STALE_BOT_REPLY='[{"created_at":"2026-08-08T09:00:00Z","user":{"type":"Bot","log
   [ "$status" -eq 0 ]
   run grep -q "title.startsWith('\[steward-handoff\]')" "$STEWARD"
   [ "$status" -eq 0 ]
+}
+
+# --- the third outcome: commits on the pull request's branch ---------------------------
+
+@test "closure: commits in the run's window on the handoff's PR branch are an outcome, not silence" {
+  # No reply, no new branch: the handoff pushed to the pull request's EXISTING branch.
+  # Before the commit signal this run was reported as silent.
+  T_COMMITS="$BOT_COMMIT" run run_outcome_check "$HANDOFF" "$NO_COMMENTS" "" false
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'["pullsGet",12]'* ]]
+  [[ "$output" == *'"listCommits","agent/fix-12","2026-08-08T10:00:00.000Z"'* ]]
+  [[ "$output" != *'"setFailed"'* ]]
+  [[ "$output" != *'"createComment"'* ]]
+  [[ "$output" == *'"update",77,"closed","completed"'* ]]
+}
+
+@test "closure: a commit is an outcome for anyone, but closes only when its ACCOUNT is a Bot" {
+  # The same two-tier split as posted / stewardPosted: the PR author committing mid-run
+  # means the branch is alive (no notice), and is not the steward finishing (no close).
+  T_COMMITS="$HUMAN_COMMIT" run run_outcome_check "$HANDOFF" "$NO_COMMENTS" "" false
+  [ "$status" -eq 0 ]
+  [[ "$output" != *'"setFailed"'* ]]
+  [[ "$output" != *'"update"'* ]]
+}
+
+@test "closure: the git author NAME never closes — only the resolved GitHub account does" {
+  # The first version matched the git name. Anyone can set that to anything, and in
+  # production the commits carried a name GitHub had not resolved to an account, so the
+  # close path was dead while a stub matching the same name stayed green. `author` null
+  # must degrade to "not closed", whatever the name says.
+  T_COMMITS="$NAME_ONLY_COMMIT" run run_outcome_check "$HANDOFF" "$NO_COMMENTS" "" false
+  [ "$status" -eq 0 ]
+  [[ "$output" != *'"setFailed"'* ]]
+  [[ "$output" != *'"update"'* ]]
+  # And the script must key on the account type, never the name field.
+  run grep -q "c.author && c.author.type === 'Bot'" "$WORK/outcome-check.js"
+  [ "$status" -eq 0 ]
+  run grep -q 'commit.author.name' "$WORK/outcome-check.js"
+  [ "$status" -ne 0 ]
+}
+
+@test "closure: a [review-lost] issue ignores commits on its PR branch" {
+  # Also titled "... on PR #N", but its run re-runs a review and never pushes: a commit
+  # there is somebody else's work and must not silence the lost-review notice.
+  T_COMMITS="$BOT_COMMIT" run run_outcome_check "[review-lost] Automated review posted nothing on PR #12" "$NO_COMMENTS" "" false
+  [ "$status" -eq 0 ]
+  [[ "$output" != *'"pullsGet"'* ]]
+  [[ "$output" == *'"setFailed"'* ]]
+  [[ "$output" == *'["createComment",77]'* ]]
+  [[ "$output" != *'"update"'* ]]
+}
+
+@test "closure: a failed pull-request lookup is neither silence nor health — notice posted, nothing closed" {
+  # The probe could not run. Concluding "silent" would be wrong, concluding "fine" would
+  # hide a lost run. Warn, let the notice fire (recoverable), close nothing.
+  T_COMMITS="$BOT_COMMIT" T_PULLS_GET_THROWS=true run run_outcome_check "$HANDOFF" "$NO_COMMENTS" "" false
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"warning"'* ]]
+  [[ "$output" == *'Could not read commits for PR #12'* ]]
+  [[ "$output" == *'["createComment",77]'* ]]
+  [[ "$output" == *'"setFailed"'* ]]
+  [[ "$output" != *'"update"'* ]]
+}
+
+@test "closure: a pull request headed by the DEFAULT branch contributes no commit signal" {
+  # Every merge in the window would otherwise read as this run's work.
+  T_COMMITS="$BOT_COMMIT" T_PR_HEAD=main T_DEFAULT_BRANCH=main \
+    run run_outcome_check "$HANDOFF" "$NO_COMMENTS" "" false
+  [ "$status" -eq 0 ]
+  [[ "$output" != *'"listCommits"'* ]]
+  [[ "$output" == *'"warning"'* ]]
+  [[ "$output" == *'"setFailed"'* ]]
+  [[ "$output" != *'"update"'* ]]
+}
+
+@test "closure: commits from BEFORE the run started are silence" {
+  # Same window as the comment and branch signals: a branch quiet since before the run
+  # is exactly the silent run the notice exists for.
+  T_COMMITS="$STALE_BOT_COMMIT" run run_outcome_check "$HANDOFF" "$NO_COMMENTS" "" false
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'["createComment",77]'* ]]
+  [[ "$output" == *'"setFailed"'* ]]
+  [[ "$output" != *'"update"'* ]]
+}
+
+@test "closure: the pull request can be named by a /pull/N link in the body when the title lacks it" {
+  T_COMMITS="$BOT_COMMIT" T_BODY='See https://example.invalid/o/r/pull/12 for the findings.' \
+    run run_outcome_check "[steward-handoff] Review findings" "$NO_COMMENTS" "" false
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'["pullsGet",12]'* ]]
+  [[ "$output" == *'"update",77,"closed","completed"'* ]]
 }

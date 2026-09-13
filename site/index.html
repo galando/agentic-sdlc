@@ -104,19 +104,21 @@ issue opened ──▶ steward triages ──▶ PR opened ──▶ two reviews
 <section>
   <h2>Four ways in</h2>
   <div class="cards">
-    <div class="card"><b>New repo</b>
-      Use this template, then <code>tools/adopt.sh</code> — one resumable command,
-      nothing happens without your yes. First merged agent loop in ~30 minutes.</div>
-    <div class="card"><b>Existing repo</b>
-      <code>tools/upgrade.sh --install</code> grafts the harness onto your repo —
-      never overwrites your files, and future template releases become a computable
-      three-way merge.</div>
+    <div class="card"><b>One command, any repo</b>
+      From inside a new or existing repository:
+      <code>curl -fsSL …/tools/bootstrap.sh | bash -s -- --product "Name"</code>.
+      No questions, nothing pushed; it ends with the four things only you can do.</div>
+    <div class="card"><b>From the template</b>
+      Use this template, then <code>tools/bootstrap.sh</code>; later,
+      <code>tools/adopt.sh</code> walks the GitHub-side steps — nothing happens
+      without your yes. Existing repos get the harness beside their files, never over
+      them, and future releases become a computable three-way merge.</div>
     <div class="card"><b>Your agent does it</b>
       Tell Claude Code or Codex: <i>"read ONBOARDING.md and adopt this."</i>
       Ready-made answer profiles included — a platform team ships one, every team
       adopts in one command.</div>
     <div class="card"><b>Just watching</b>
-      Open in a Codespace: a three-minute, zero-credential tour — ~650 tests, the
+      Open in a Codespace: a three-minute, zero-credential tour — ~900 tests, the
       adoption map, a dry-run agent command. Or set <code>mode: observe</code>: the
       whole fleet runs report-only, and pushing is <i>mechanically</i> impossible.</div>
   </div>
@@ -135,11 +137,11 @@ issue opened ──▶ steward triages ──▶ PR opened ──▶ two reviews
       23 gates — tests, coverage, mutation, architecture, secrets, a11y — with
       floors calibrated to <i>your</i> codebase, then ratcheted: they only move up.</div>
     <div class="card"><b>A fleet that remembers</b>
-      Eleven scheduled agents (all shipped off, enabled one at a time) and a
+      Twelve scheduled agents (all shipped off, enabled one at a time; one is an opt-in merger under a written bar) and a
       <i>second brain</i>: agents propose distilled lessons, a human merges them,
       every future session reads them first.</div>
     <div class="card"><b>Guards on the machine itself</b>
-      ~650 tests cover the agents' own plumbing; 129 incident-earned lessons are
+      ~900 tests cover the agents' own plumbing; 176 incident-earned lessons are
       pinned so they can never be lost quietly.</div>
     <div class="card"><b>No silent failures, no vendor lock</b>
       Everything optional degrades by announcing itself. Models are addressed by

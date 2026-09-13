@@ -4,9 +4,11 @@
 <!-- placeholder: {{ALERT_CHANNEL}} — how a run summary reaches a human: none | webhook | command. -->
 <!-- placeholder: {{BUILD_PIPELINE}} — the spec pipeline agents build changes through. -->
 
-The eleven scheduled agents run from `.github/workflows/agents-scheduled.yml` — a cron matrix
+The twelve scheduled agents run from `.github/workflows/agents-scheduled.yml` — a cron matrix
 over the agent ids in `.agents/config.yml`, each entry calling `tools/run-agent.sh`. One
-fresh session per firing, no memory, one bounded task.
+fresh session per firing, no memory, one bounded task. Eleven of them are the fleet an
+adopter turns on one at a time; the twelfth, the `merger`, is **opt-in** and ships
+disabled, because it is the one agent that merges (`AGENTS.md` guardrail 2).
 
 **The prompts live as plain markdown in `.agents/prompts/<agent>.md`**, not in this file
 and not in the workflow. They are reviewable in a diff, readable by any runner, and — most
@@ -149,6 +151,7 @@ are the shipped defaults.
 | `deps` | `execute` | `43 9 * * 4` | dependency steward — one bounded upgrade pull request per run, CVE deltas as metrics |
 | `hygiene` | `judge` | `31 9 * * 5` | code hygiene — dead code and duplication on a two-focus rotation, one bounded pull request per run |
 | `release` | `judge` | `53 9 1 * *` | release drafter — drafts notes from merged pull requests and verified fixes; a human tags |
+| `merger` | `judge` | `47 12,18 * * *` | **opt-in, ships disabled** — merges what meets the written bar in `agent-modes.md`, closes what the merges fixed, reads the default branch's own checks after each merge |
 
 **Odd minutes on purpose.** The top of the hour is the most contended slot on a shared
 scheduler, so a `0 6 * * *` cron is the one most likely to be delayed or dropped. Minutes
@@ -282,10 +285,15 @@ signals:
    work as a substitute: collapsing is a rendering affordance, so an agent receives the full
    body over the API anyway and pays for it, while the thread merely looks short.
 
-   **Every entry states the ping outcome explicitly** — `Ping: none (nothing S1+)`,
-   `Ping: sent (S2, message_id N)`, or `Ping: FAILED (<error>)`. A ping that silently failed
-   to send is otherwise invisible; if it failed, also title the issue
-   `[agent][UNDELIVERED PING]` per `agent-escalation.md`.
+   **Every entry states the ping outcome explicitly** in its `ping` field —
+   `{"summary":"sent","incident":null}` on a healthy run (the common case),
+   `{"summary":"none","incident":null}` when no heartbeat goes out, or
+   `{"summary":"sent","incident":<id>}` for an S2+ where an incident ping also went out. An
+   incident ping is sent *during* the run, before the append, so its id is real and is
+   recorded. The run-summary of rule 4a is sent *after* the append, so it has no id to
+   record — `ping.summary` is the **intent**, `sent` or `none`, and `tools/ledger.sh`
+   refuses anything else. A ping that silently failed to send is otherwise invisible; if
+   it failed, title an issue `[<agent>][UNDELIVERED PING]` per `agent-escalation.md`.
 
    **4a. Every run sends ONE run-summary line to `{{ALERT_CHANNEL}}` — including healthy
    runs.** This is separate from, and additional to, any S2+ incident ping. Send it last,
@@ -296,7 +304,16 @@ signals:
    ```
 
    `✅` healthy · `⚠️` something filed (S1) · `🔴` incident (S2+). One line; the ledger holds
-   the detail. Record its `message_id` on the `Ping:` line.
+   the detail.
+
+   **Do not record the run-summary's message id, and never append a second entry to carry
+   it.** The entry is written before this message is sent, so at write time neither the id
+   nor the send outcome exists, and the ledger is append-only. An agent that adds a "ping
+   record" entry afterwards spends its one deliverable (rule 5) on bookkeeping and pushes a
+   real run out of every sibling's read window: `tools/ledger.sh read <agent> 2` then
+   returns one run, not two — upstream, three of five agents did this on one day, and the
+   handoff depths in rule 7 silently lost a day. If the send genuinely fails, that is an
+   incident, not a correction: file `[<agent>][UNDELIVERED PING]`.
 
    **Why a heartbeat rather than exception-only alerting:** with exception-only alerting,
    only an agent that happens to hit S2 ever appears in the channel — so every agent could
@@ -393,6 +410,69 @@ signals:
    not restated here: a rule repeated in five prompts is a rule that diverges in five
    prompts, and the same goes for runbooks. It binds every agent listed here and every
    agent added later — including one whose prompt forgets to mention it.
+9. **Never punt** (`AGENTS.md` guardrail 3). A punt is a run that ends with work still open
+   that you could have finished inside your own rights and caps. It takes one of these
+   shapes:
+
+   - "next run", "later", "too late in the run", "follow-up": the work goes to your own
+     future self.
+   - a `handoff` for something that was your own job: the work goes to a sibling.
+   - "a human decides", "needs a human read", "the operator should": the work goes to the
+     operator, when the answer was in the repo, the logs or the page.
+   - an issue filed where a fix pull request was within reach and within your cap.
+   - `pending` used as a to-do list. **`pending` holds retests, nothing else.**
+
+   Two shapes from real ledgers. A docs sweep "left 17 for next run because they need a
+   human read" — two of the 17 already sat in `pending` with the words "verified fix" and
+   the exact replacement path, and were still left. A merging agent found and removed the
+   cause of a two-run stall "but too late in the run to merge on it"; the real stop was a
+   line of the merge bar, and the entry named the clock instead. **A stop is named by its
+   rule, never by the time of day.**
+
+   The rule: **if it is inside your rights and caps, do it in this run.** Before you write
+   any of the phrases above, ask which rule, cap, secret or right stops you. If none does,
+   do the work now. Only a named stop is a valid reason to leave something undone, and
+   these six are the whole list:
+
+   - `guardrail`: a guardrail forbids it (a production write, a merge outside the merger's
+     bar, a push to the default branch). Name the guardrail. Work outside your scope is
+     this stop too: guardrail 4 says file an issue and stop, so write `guardrail` and name
+     guardrail 4 and the issue. The words "out of scope" alone, with no issue filed, remain
+     a punt. **A second pull request is never this stop** — the branch your session starts
+     on does not cap your pull requests; a second one needs a second `agent/...` branch,
+     and creating one is ordinary work (`agent-modes.md`, standing decisions).
+   - `cap`: your per-run cap is spent (one deliverable, two fix pull requests, 15 issues
+     touched, 3 closes). Name the cap and what consumed it, and put the item first in your
+     next run's list.
+   - `operator-only`: a machine cannot do it: a secret, a repository setting, a DNS or CDN
+     console click, a database write, a shell command on the host. Name the exact click or
+     command.
+   - `blocked-by:#N`: a named open pull request or issue must land first. Name it.
+   - `not-reproducible`: you re-derived the premise and it did not hold. Say what you
+     measured.
+   - `clock`: the run hit its deadline. Valid only when the deliverable was already pushed
+     as a draft pull request in the first minutes (guardrail 2), so the work is visible,
+     not lost.
+
+   Every item you leave undone goes in the ledger `not_done` array with one of those
+   reasons (schema in `agent-ledgers.md`). "Later", "next run", "out of scope", "a human
+   decides" and "follow-up" are not reasons and never appear there: **`tools/ledger.sh
+   append` refuses an entry** whose `not_done` reason is outside the list above, whose
+   item lacks `item` or `next`, or whose `clock` stop names no pull-request number — so a
+   punt cannot be written into the ledger at all. `tools/ledger.sh append --validate-only
+   <agent> '<json>'` runs the same checks and writes nothing, for a prompt or a test that
+   wants to know before the run ends. An item with the same text in `not_done` on two
+   consecutive runs of the same agent is a punt in disguise, and the chief of staff's brief
+   names it.
+
+   What a handoff is for: work that belongs to another agent because of a right or a
+   role. The merger merges, the steward pushes on issue branches, the quality analyst does
+   deep dives, the chief of staff carries decisions to the operator. Everything you can do
+   yourself before the handoff, you do first, and the handoff note says what you already
+   did. **A handoff that says "please look into X" with nothing done is a punt.**
+
+   What escalation is for: guardrail 3 still holds. When a guardrail stops you, escalate
+   with the exact command a human runs. That is not a punt; it names the stop.
 
 ---
 
@@ -497,6 +577,25 @@ The rule, for every agent:
 4. **Signal has not moved past a full 24 h window since deploy → reopen the issue with the
    evidence**, and treat it as that run's top-ranked finding. An issue closed on merge is a
    claim awaiting verification, not a result.
+5. **Five verdicts, and these five are the whole list:** `moved`, `partial`, `not_moved`,
+   `too_early`, `unmergeable_state`. `tools/ledger.sh` refuses a sixth word at the write —
+   upstream, four of five verification objects on one day used an invented one, and every
+   reader that branches on the field silently skipped them.
+   - `partial` — the metric moved without proving the link, or half the defect is fixed.
+     It **requires `follow_up`** on the same object: the issue number that carries the
+     unfixed half, or `"reopened"` if you reopened the original.
+   - `too_early` — the pull request merged and deployed, but the job that would move the
+     signal has not yet run under the fix, so scoring it either way would be false. It
+     **requires `recheck_after` (`YYYY-MM-DD`) and `issue`** on the same object — the date
+     the band becomes scoreable and the issue it is scored for — because `fix_verified` is
+     keyed on the pull request and nothing else leads from it back to the issue. **Do not
+     carry it in `pending`** (retests for the very next run only; a recheck date can be
+     weeks out). It never reopens the issue and never reaches the operator's list; the
+     issue stays on the chief of staff's closed-but-unverified list, and on your own
+     verification list, until a scoreable verdict lands — however old the close is. The
+     filing agent re-scores it on or after `recheck_after`.
+   - A correction to your own earlier flags names no pull request, so it is not a fix
+     verification at all and belongs in `summary`.
 
 ### Instrument integrity outranks object-level findings
 
@@ -523,10 +622,13 @@ wrong.
 
 ---
 
-## The eleven scheduled agents
+## The twelve scheduled agents
 
 Each entry names the agent's job, the things only *it* can see, and the rules above that
-bite hardest for it. **The executable prompt is `.agents/prompts/<agent>.md`.**
+bite hardest for it. **The executable prompt is `.agents/prompts/<agent>.md`.** Every
+prompt carries one sentence that binds it to efficiency rule 9: *you do not punt — work
+inside your rights and caps is done in this run, and anything left undone is listed in the
+ledger `not_done` array with a named stop.*
 
 ### `health` — the health checker · `17 6 * * *`
 
@@ -542,16 +644,24 @@ is. Fires first in the ring.
 - **Watch the watchers** (re-based; see the liveness section): its predecessor in the ring
   is the **enabled** agent **before it in `ledger.agents`, wrapping** — disabled agents
   are skipped (they write no entries; watching one escalates forever), so with the whole
-  fleet enabled that is `release`, the last entry in the list. `release` runs monthly
-  rather than daily, so this check reads **`release`'s own `max-age-hours` override**,
-  never the daily default. `tools/check-liveness.sh predecessor health` resolves both the
+  fleet enabled that is the last entry in the list — `release` in the shipped order, or
+  the opt-in `merger` once the operator enables it. `release` runs monthly rather than
+  daily, so this check reads **the predecessor's own `max-age-hours` override**, never the
+  daily default. `tools/check-liveness.sh predecessor health` resolves both the
   predecessor and the window; when it reports no other agent is enabled, that is a green
   "nothing to watch", never an alarm. Run
   `tools/ledger.sh latest` and compare the predecessor's newest entry against that window.
   Older ⇒ note the gap and escalate per the ladder. **Not "did it run today".**
 - **Also run the external staleness check:** the newest entry across ALL agents against
   `liveness.staleness-hours`. This is the one check a ring structurally cannot perform on
-  itself.
+  itself — and it still runs inside an agent, so a scheduler that stops every agent at once
+  stops it too. The check that survives that is `.github/workflows/fleet-heartbeat.yml`:
+  on the hosted runner, every six hours, `tools/check-heartbeat.sh` reads every enabled
+  agent's `schedule:` and its newest ledger entry, files one issue for overdue agents and
+  a different one when the watch itself is broken (an unreadable ledger branch, a cron it
+  cannot parse), so a fault is never mistaken for a healthy fleet. Upstream, the scheduler
+  stopped and five agents missed ten runs before a human was told, because the only
+  check was this ring. Its repair is operator-only; the issue names what to look at.
 - **Verify the fixes for issues it filed** (see "Fix verification"), before the fast path.
 - **Blocked fix escalates like an incident.** A gauntlet-green fix pull request for a
   *currently firing* condition, open ≥24 h unmerged, is an S2 in its own right — ping with
@@ -714,9 +824,35 @@ always-on agent reading the same data a second time.
   4. **a decisions-needed list** — the things only the operator can do, each with a link and
      the one-line cost of not doing it soon.
 - **Closed-but-unverified is a standing brief section.** List every agent-filed issue closed
-  in the last 72 h for which no `fix_verified` entry exists yet from the filing agent, and put
-  each on the decisions-needed list. **A closed issue nobody has verified is the cheapest way
-  for a fleet to lose a real defect.**
+  in the last 72 h, **plus any issue carrying an unresolved `too_early` verdict however old
+  the close is**, for which no *scoreable* `fix_verified` verdict (`moved`, `partial`,
+  `not_moved`, `unmergeable_state`) exists yet from the filing agent, and put each on the
+  decisions-needed list. A `too_early` entry does not take an issue off this list: it
+  scores nothing, so keep the issue listed and flag it for re-scoring once its
+  `recheck_after` date has passed. When the merger is enabled, its closes land here too,
+  by design, until the filing agent's verdict arrives — this section is what makes closing
+  on merge safe, so keep it even when it is long. **A closed issue nobody has verified is
+  the cheapest way for a fleet to lose a real defect.** Two carve-outs: a close the groomer
+  made under **path 4** (text-only fix, quoted `file:line`, counted `issues_closed_text_only`)
+  and one made under **path 5** (report refuted, `not_planned`, counted
+  `issues_closed_refuted`) are not closed-but-unverified — neither has a metric to move.
+  Skip them; flagging them buries the signal this section exists for.
+- **Punts are a standing brief line** (efficiency rule 9). Read every `not_done` array in
+  the entries you already read. Flag an item whose reason is not one of rule 9's fixed
+  stops, an item with reason `clock` from an agent that opened no draft pull request, and
+  an item that repeats on two consecutive runs of the same agent. Each flagged item is one
+  line: agent, item, why it is a punt. You do not do that work yourself; you make the punt
+  visible so that agent's next run does it, or the operator sees the stop it hides.
+- **The nightly gates are a standing brief section** (standing decision in
+  `agent-modes.md`, stated here in the same terms so the two files cannot drift). Three
+  steps, in this order: (1) **check the accepted-exception list first** —
+  `qa-procedures.md` § 3 carries it, and a red gate on that list is reported *as accepted*,
+  naming the issue that tracks it; (2) **find the tracker by searching**, never from a
+  number written in any runbook — search open issues for the gate's `[nightly]` title and
+  take the newest; if none is open, say so plainly, the nightly alert files a fresh one on
+  the next failure; (3) **read the conclusion of the most recent *scheduled* run** of each
+  gate through the Actions API, with its date. An open `[nightly]` issue says a gate
+  failed once, at some point; it never says what the gate is doing now.
 - **Every second run — retrospective and planning (heavier, self-gated).** Check your own last
   7 entries for the most recent `"mode":"heavy"`. Fewer than 2 days ago ⇒ today is a light day;
   say so in one line and move on. Otherwise:
@@ -814,12 +950,63 @@ Keeps the open-issue backlog legible without getting ahead of verification.
   never on "its pull request merged" alone (`agent-modes.md`, "a merged pull request
   does not close an issue"). Capped at **3 closes and 15 issues touched per run**;
   hitting the cap is normal, not a failure.
+- **Five close paths, and the closing comment names which one.** (1) A linked merged pull
+  request *and* a `fix_verified` entry with a scoreable verdict from some agent's ledger
+  naming that exact pull-request number — never try to identify "the filer" first; find
+  the pull request, then fan out across every agent's ledger. (2) A genuine duplicate of an
+  open issue — close, keep the link, name the survivor. (3) `agent-modes.md` names the
+  issue as pre-approved for closing. (4) **The fix changed no runtime behaviour — read the
+  changed line yourself and quote it.** Path 1 asks for a metric to move; a comment, a
+  docs line, a knowledge card or a test name moves no metric, so for that class the bar is
+  unreachable by construction. Use it only when all four hold: a merged pull request
+  references the issue (a closing keyword is *not* required — a pull request that wrote
+  one would have closed the issue already); its diff touches **only** comments, docs,
+  knowledge cards, test names or other text no shipped code path reads — text shipped code
+  *emits* (interface strings, log lines, alert text) is **not** this class, nor is a config
+  value or a query; you read the changed line on the default branch and **quote it
+  verbatim with `file:line`**, naming every file you checked; and the issue's own report
+  claims nothing more than that text being wrong. Count it under
+  `issues_closed_text_only`, never `issues_closed_verified`. (5) **The report's own
+  central claim is disproved.** Use it only when all four hold: you quote the evidence
+  that disproves the claim with its source and timestamp — *failing to reproduce is not
+  evidence*, that is `not-reproducible` and the issue stays open; the evidence is dated
+  inside the window the report names; every live remainder the report carries already
+  has its own issue, which you name; and the report claims a condition, not a fix. Close
+  it `not_planned`, never `completed`, and count it under `issues_closed_refuted`.
+  `issues_closed_verified` stays the clean count an auditor reads months later to check
+  this agent never closed anything on a merge alone.
+- **One change the timestamp cannot see.** A pull request that merged since your last run
+  and fixed part of an issue *without linking it* moves no timestamp on that issue, so an
+  "unchanged since last look → skip" guard skips a live issue for as long as the link is
+  missing. Run **one** search per run for pull requests merged since your last entry that
+  name an issue number anywhere — body or commit message, not only a `Closes` link — and
+  take every issue that search names off the skip list. One search per run, not one per
+  issue.
+- **Prevention — a pull request that fixes filed issues must close them itself.** Every
+  issue it fixes gets its own `Closes #N` line in the "What & why" section
+  (`.github/pull_request_template.md`). An issue named only in a heading closes nothing.
 - **Body updates are appended, dated sections.** The original report is evidence and is
   never rewritten in place — the same append-only discipline the ledger itself uses.
+  **Never edit a machine-filed issue body at all — comment instead.** The host keeps no
+  readable history of a body edit; the filed body is the record of what the machine saw,
+  and your reasoning goes in a comment where both survive. This applies to every issue a
+  workflow filed.
 - **Duplicates are linked, never silently closed** on the groomer's own judgement about
   which is more original.
 - **SLA breaches are `handoff`ed to `chief-of-staff`**, not closed and not left to age
   silently behind a label filter nobody reads.
+- **Review follow-ups: the author clears the label; you are the backstop.** A non-blocking
+  review verdict labels the pull request `review-followup-pending`; the author fixes the
+  findings (or disagrees in writing) and removes the label before merging; if the label is
+  still on at merge, `.github/workflows/review-followup-sweep.yml` files one
+  `[review-followup]` issue against the default branch
+  (`docs/runbooks/review-followup-sweep.md`). Each run, take the **3 oldest** open
+  `[review-followup]` issues and do one of: close under path 4 quoting the `file:line`
+  that shows the finding already handled; **promote** — re-file as a plain `agent-report`
+  issue in ordinary words, link the original, close it as a duplicate; or leave it and say
+  why in one line. Record `review_followups_with_code_change` — how many of the closes
+  produced a code change. That number tells the operator whether the loop still earns its
+  cost; upstream it was 10% before the label-at-review-time change.
 
 ### `testgap` — the test gap agent · `29 9 * * 3`
 
@@ -895,6 +1082,67 @@ default, and runnable on demand via `workflow_dispatch` for an out-of-cycle rele
 - **A human presses release**, exactly like every other merge in this fleet — this
   agent's entire deliverable is the draft that makes that click informed.
 
+### `merger` — the merger · `47 12,18 * * *` · **opt-in, ships disabled**
+
+The one agent allowed to merge, and the only agent besides the groomer allowed to close
+an issue. Both powers are bounded, and the bounds live in `agent-modes.md` → "Mode:
+merger" — the merge bar, the exclusion list, the close rules, the caps — so the operator
+moves them by pull request. It exists because a fleet produces more green pull requests
+than one person can read: upstream, 37 commits landed by hand in seven days with eleven
+pull requests still open, and the operator's words were "if it is green, passed the code
+reviews and all good, merge it — do not wait for me to be the bottleneck". **Enabling it
+is that decision, made once, in `.agents/config.yml`**; until then guardrail 2's default —
+a human merges — stands unchanged.
+
+- **The lock, decided by a rejected push.** Two merger sessions must never run at once, so
+  the first act is a lock file on the ledger branch and the last act is its release. A
+  push is the atomic operation that decides who holds it. **Never replay your commit over
+  another session's lock file** — `tools/ledger.sh` may replay because each agent appends
+  to its own file; a single shared lock path has no such property, and a replay makes both
+  sessions believe they hold it. A lock older than the wall-clock cap is stale and may be
+  taken over; a younger one means stand down, write nothing, send nothing.
+- **Every open pull request lands in exactly one bucket**, recorded in the ledger: `MERGE`
+  (meets every line of the bar), `WAIT` (a check queued or running, a review not yet
+  posted), `FIX` (red CI, a conflict, a blocking verdict, an unanswered human review),
+  `EXCLUDED` (a path or label on the exclusion list — say which line), `BLOCKED ON
+  OPERATOR` (a state only a human click clears — name the click). A pull request left
+  untouched with no reason recorded is the one failure this agent must never have.
+- **Merge one at a time, never with the host's auto-merge, and read the brake before the
+  next one.** Auto-merge waits only for required checks; it cannot read the referee's
+  verdict (a comment, not a check), cannot see a `hold` label added later, and can land a
+  merge after the session ended. In this template there is no deploy, so **the brake is
+  the default branch's own checks after the push** — the FAST tier on the merge commit,
+  and the next nightly — plus the standing decision "merging a fix does not run anything
+  on the server". A red default branch pauses merging until it is green again, and the
+  merger diagnoses the failing step rather than handing it off. Where the adopter's
+  default branch *does* deploy, the deploy run is the brake and is read to completion,
+  never with a fixed sleep.
+- **Closes with the half-landed check, reopens on `not_moved` only.** Before closing an
+  issue a merged pull request fixes, read that pull request's "What I did not do"
+  section; a named remaining step means the fix landed in halves — reopen if the keyword
+  already closed it, comment naming the step and its owner, route by owner (the rule in
+  full: `agent-modes.md`, "Mode: merger" → close rules). Each run, read every agent's
+  `fix_verified` entries for the pull requests it merged in the last 14 days plus its own
+  `too_early_watch`: `not_moved` reopens with the ledger line quoted; `partial` already
+  carries its `follow_up`; `unmergeable_state` goes to the operator's "needs you" list;
+  `too_early` goes nowhere until its `recheck_after` date.
+- **Drive the FIX bucket to green, within the push cap.** A merge conflict is resolved by
+  merging the default branch in, never a rebase or force-push. Red CI: read the failing
+  job's log; one re-run only when the job died before any test ran or is stalled per
+  `qa-procedures.md`; **"flake" is never a root cause**; a failure that is red on the
+  default branch too is not this pull request's — say so and move on. **Never skip,
+  disable or quarantine a test, never lower a floor, never add an exclude.** A blocking
+  review verdict: fix every upheld finding, push, ask for a re-review of the delta.
+  Non-blocking findings: fix them or say in one comment why a finding is wrong, then
+  remove the `review-followup-pending` label — leave it on and the sweep files an issue
+  someone reads at a much higher cost.
+- **Wake the steward within a cap** on an issue whose fix is already named in a comment
+  or a ledger line and has no linked pull request — one comment with a precise brief (the
+  file, the line, the expected behaviour, the test to write). Never on an issue that asks
+  for production access, a business decision, or more information.
+- **One closing message, every run**: merged / closed / not merged and why / needs you,
+  one plain sentence each. Never drop an item to shorten it.
+
 ## The steward — event-driven, not a routine
 
 The sixth agent is not on a schedule. `.github/workflows/steward.yml` runs when an issue is
@@ -922,7 +1170,18 @@ Four things about it belong here because they constrain what the routines can do
   notification.** Two people tagging different issues in the same minute lose one of them.
   Job level, so a skipped job never enters the group and cannot evict a pending run.
 
-A human merge remains the gate. `AGENTS.md` forbids self-merging.
+Two more, which bind the steward itself:
+
+- **It does not punt** (efficiency rule 9): a review thread it can address, it addresses; a
+  red check on its own branch, it fixes; what a guardrail or a missing right stops, it
+  names in one comment with the exact stop.
+- **When the steward's token is refused on a path** — a hosted app token is typically
+  refused on `.github/workflows/`, where a scheduled routine's is not — the steward does not
+  drop the work: it parks the row in the parked-work table in `agent-modes.md` with the
+  owner named, so the agent that *can* push that path takes it on its next free slot.
+
+A human merge remains the gate — or the opt-in `merger`, under its written bar
+(`AGENTS.md` guardrail 2). The steward itself never merges.
 
 ## The parked-branch sweep — a scheduled job, not an agent
 
@@ -950,7 +1209,9 @@ it to a human — `[]` means no pull request has ever existed, in any state.
 
 **Disable a schedule to stop that agent instantly.** No cleanup is needed — all state lives
 in the ledger. Set `enabled: false` on its entry in `.agents/config.yml`, or disable
-`agents-scheduled.yml` entirely to stop every scheduled agent at once.
+`agents-scheduled.yml` entirely to stop every scheduled agent at once. The `merger` is the
+mirror image: it ships disabled, and `enabled: true` on its entry is the operator decision
+that lets an agent merge under the bar in `agent-modes.md` (`agent-operator-guide.md`).
 
 **Steer any agent by editing `docs/runbooks/agent-modes.md` in a pull request.** That is the
 only channel they obey. Commenting in an issue does not reach them, and it is not supposed

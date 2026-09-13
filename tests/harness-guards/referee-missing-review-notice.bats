@@ -24,6 +24,14 @@
 # THE FIX is a whole sentence per case rather than a noun in a hole — which is also why this
 # guard runs the real code instead of matching strings: the failure was in how three
 # fragments composed, and every fragment was individually fine.
+#
+# A SECOND LESSON, same notice. A missing review is not always a LOST review. A reviewer
+# that was skipped for a cause it explained on the pull request, or whose job DIED before it
+# wrote anything, has no review to have lost — and saying "nothing to compare" then reads as
+# "nobody reviewed this", which was false: a full review from the other role was sitting on
+# the pull request. The notice reads each reviewer job's `skipped_reason` output and its
+# `result` before calling the gap a loss, and a skip is NOT symmetric: it never claims the
+# other reviewer is affected.
 
 REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 REVIEW="$REPO_ROOT/.github/workflows/review.yml"
@@ -55,12 +63,18 @@ setup() {
 
 teardown() { rm -rf "$WORK"; }
 
-# $1 judge bytes, $2 challenge bytes. >1 means "this review landed".
+# $1 judge bytes, $2 challenge bytes. >1 means "this review landed". The reviewer jobs'
+# exported state comes from the environment: REVIEW_SKIPPED, CHALLENGE_SKIPPED,
+# REVIEW_RESULT, CHALLENGE_RESULT, JUDGE_ENABLED, CHALLENGE_RAN — defaulting to "both ran
+# to success and neither was skipped", which is the plain lost-review case.
 run_notice() {
   ( cd "$WORK" \
     && JUDGE_BYTES="$1" CHALLENGE_BYTES="$2" \
        RUN_URL="https://example.invalid/run/1" \
        GITHUB_OUTPUT="$WORK/gh-output" \
+       JUDGE_ENABLED="${JUDGE_ENABLED:-true}" CHALLENGE_RAN="${CHALLENGE_RAN:-true}" \
+       REVIEW_SKIPPED="${REVIEW_SKIPPED:-}" CHALLENGE_SKIPPED="${CHALLENGE_SKIPPED:-}" \
+       REVIEW_RESULT="${REVIEW_RESULT:-success}" CHALLENGE_RESULT="${CHALLENGE_RESULT:-success}" \
        bash -c "set -euo pipefail"$'\n'"$(cat "$WORK/notice.sh")"$'\n'"fi" )
   # The trailing `fi` closes the extracted `if`, on its OWN line: command substitution
   # strips the trailing newline, so appending " fi" put it on the same line as the block's
@@ -119,13 +133,21 @@ body() { cat "$WORK/.review-artifacts/referee-comment.md"; }
 @test "notice: every case names which review is missing, and says it in one sentence" {
   # Whichever branch runs, the reader must learn WHICH one is gone. A notice that says only
   # "a review is missing" sends them to compare two comment threads by hand.
-  for pair in "1 1" "500 1" "1 500"; do
+  run run_notice 1 1
+  [ "$status" -eq 0 ]
+  run body
+  [[ "$output" == *"nothing to compare"* ]]
+  [[ "$output" == *"nobody caught"* ]]
+  for pair in "500 1" "1 500"; do
     # shellcheck disable=SC2086
     run run_notice $pair
     [ "$status" -eq 0 ]
     run body
-    [[ "$output" == *"nothing to compare"* ]]
+    # One review IS there: "nothing to compare" would read as "nobody reviewed this".
+    [[ "$output" == *"not two reviews to compare"* ]]
+    [[ "$output" == *"stands on its own"* ]]
     [[ "$output" == *"nobody caught"* ]]
+    [[ "$output" != *"nothing to compare"* ]]
   done
 }
 
@@ -134,8 +156,116 @@ body() { cat "$WORK/.review-artifacts/referee-comment.md"; }
   # made three different renderings wrong at once, and it reads perfectly in the file.
   run grep -q 'MISSING=' "$REVIEW"
   [ "$status" -ne 0 ]
+  # One SENTENCE per case: neither, and four causes per missing role.
   run grep -c 'SENTENCE=' "$REVIEW"
-  [ "$output" -eq 3 ]
+  [ "$output" -eq 9 ]
   run grep -c 'REMAINS=' "$REVIEW"
-  [ "$output" -eq 3 ]
+  [ "$output" -eq 9 ]
+}
+
+@test "notice: a SKIPPED judge reviewer is not a lost review, and the challenge review is called real" {
+  # The reviewer job said why it posted nothing (`skipped_reason`), on the pull request.
+  # The referee must not call that a loss — and must not say "nothing to compare" about a
+  # pull request with a full challenge review on it.
+  REVIEW_SKIPPED=supply-chain run run_notice 1 500
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"was skipped (supply-chain)"* ]]
+  run body
+  [[ "$output" == *"was skipped"* ]]
+  [[ "$output" == *"(\`supply-chain\`)"* ]]
+  [[ "$output" == *"This is not a lost review"* ]]
+  [[ "$output" == *"The challenge-role review above is real"* ]]
+  [[ "$output" == *"one reviewer"* ]]
+  [[ "$output" != *"nothing to compare"* ]]
+  [[ "$output" != *"nobody caught"* ]]
+}
+
+@test "notice: a SKIPPED challenge reviewer is not a lost review either — the skip is not symmetric" {
+  CHALLENGE_SKIPPED=reviewer-failed run run_notice 500 1
+  [ "$status" -eq 0 ]
+  run body
+  [[ "$output" == *"challenge-role reviewer was skipped"* ]]
+  [[ "$output" == *"The judge-role review above is real"* ]]
+  [[ "$output" != *"nothing to compare"* ]]
+  # Nothing in it claims the judge-role reviewer was affected.
+  [[ "$output" != *"judge-role reviewer was skipped"* ]]
+  [[ "$output" != *"Both reviewers"* ]]
+}
+
+@test "notice: a reviewer whose job DIED wrote nothing — not lost, and says so" {
+  # `failure` and `cancelled` are both "the job ended before an opinion existed". The
+  # referee reads needs.<job>.result; without that it told the reader to go and recover
+  # a review that was never written.
+  for result in failure cancelled; do
+    REVIEW_RESULT="$result" run run_notice 1 500
+    [ "$status" -eq 0 ]
+    run body
+    [[ "$output" == *"job ended \`$result\`"* ]] || { echo "[$result] $output"; return 1; }
+    [[ "$output" == *"no findings in its log to recover"* ]]
+    [[ "$output" == *"not a lost review"* ]]
+    [[ "$output" == *"The challenge-role review above is real"* ]]
+    [[ "$output" != *"nothing to compare"* ]]
+
+    CHALLENGE_RESULT="$result" run run_notice 500 1
+    [ "$status" -eq 0 ]
+    run body
+    [[ "$output" == *"challenge-role reviewer's job ended \`$result\`"* ]]
+    [[ "$output" == *"The judge-role review above is real"* ]]
+  done
+}
+
+@test "notice: a challenge reviewer that never RAN (no credential) is not a lost review" {
+  CHALLENGE_RAN=false run run_notice 500 1
+  [ "$status" -eq 0 ]
+  run body
+  [[ "$output" == *"did not run"* ]]
+  [[ "$output" == *"This is not a lost review"* ]]
+  [[ "$output" == *"The judge-role review above is real"* ]]
+}
+
+@test "notice: a judge reviewer that is not ENABLED (no verified provider) is not a lost review" {
+  JUDGE_ENABLED=false run run_notice 1 500
+  [ "$status" -eq 0 ]
+  run body
+  [[ "$output" == *"not enabled"* ]]
+  [[ "$output" == *"This is not a lost review"* ]]
+  [[ "$output" == *"The challenge-role review above is real"* ]]
+}
+
+@test "notice: an explained skip takes precedence over a dead job — the reviewer's own words win" {
+  # The reviewer job exports reviewer-failed AND ends failure. The notice quotes the
+  # reason the reviewer gave rather than the bare job result.
+  REVIEW_SKIPPED=reviewer-failed REVIEW_RESULT=failure run run_notice 1 500
+  [ "$status" -eq 0 ]
+  run body
+  [[ "$output" == *"(\`reviewer-failed\`)"* ]]
+  [[ "$output" == *"explained that in its own comment above"* ]]
+}
+
+@test "notice: the lost reviewer is exported for the job-log step, only when exactly one is missing" {
+  run run_notice 1 500
+  [ "$status" -eq 0 ]
+  grep -q '^lost_reviewer=judge$' "$WORK/gh-output"
+  : > "$WORK/gh-output"
+  run run_notice 500 1
+  [ "$status" -eq 0 ]
+  grep -q '^lost_reviewer=challenge$' "$WORK/gh-output"
+  : > "$WORK/gh-output"
+  run run_notice 1 1
+  [ "$status" -eq 0 ]
+  ! grep -q 'lost_reviewer=' "$WORK/gh-output"
+}
+
+@test "notice: every branch carries the one re-run instruction" {
+  # The draft/ready toggle is the only trigger; a push starts nothing; a re-run of the
+  # run replays the original event. Said in every notice a merger might read.
+  for pair in "1 1" "500 1" "1 500"; do
+    # shellcheck disable=SC2086
+    run run_notice $pair
+    [ "$status" -eq 0 ]
+    run body
+    [[ "$output" == *"draft and ready for review again"* ]]
+    [[ "$output" == *"a push starts nothing"* ]]
+    [[ "$output" == *"replays the original event"* ]]
+  done
 }

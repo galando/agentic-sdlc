@@ -17,19 +17,33 @@ CONFIG="$REPO_ROOT/.agents/config.yml"
   grep -q 'workflow_dispatch:' "$WORKFLOW"
 }
 
-@test "agents-scheduled.yml's cron entries match .agents/config.yml's ledger.agents schedules, one for one" {
-  for id in health quality audit chief-of-staff challenger docs groomer testgap deps hygiene release; do
-    schedule="$(AGENTS_CONFIG="$CONFIG" bash -c ". '$REPO_ROOT/tools/lib/config.sh'; cfg_agent_field '$id' schedule")"
-    grep -qF "cron: \"$schedule\"" "$WORKFLOW" || {
-      echo "# no cron entry in agents-scheduled.yml matches $id's configured schedule '$schedule'"
-      false
-    }
-  done
+# The agent list is read from the config here, never typed out: a hand-written list
+# in this test would be the second source of truth the workflow itself is forbidden
+# from being, and it would drift the moment an agent is added. An agent in the config
+# with no cron in the workflow can never fire, whether or not it is enabled.
+configured_agents() {
+  AGENTS_CONFIG="$CONFIG" bash -c ". '$REPO_ROOT/tools/lib/config.sh'; cfg_agents"
 }
 
-@test "agents-scheduled.yml carries exactly eleven cron entries, matching the ring size" {
+@test "agents-scheduled.yml's cron entries match .agents/config.yml's ledger.agents schedules, one for one" {
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    schedule="$(AGENTS_CONFIG="$CONFIG" bash -c ". '$REPO_ROOT/tools/lib/config.sh'; cfg_agent_field '$id' schedule")"
+    grep -qF "cron: \"$schedule\"" "$WORKFLOW" || {
+      echo "# no cron entry in agents-scheduled.yml matches $id's configured schedule '$schedule' — add:  - cron: \"$schedule\"   # $id"
+      false
+    }
+  done < <(configured_agents)
+}
+
+@test "agents-scheduled.yml carries exactly one cron entry per configured agent, matching the ring size" {
   count="$(grep -cE '^\s*- cron: ' "$WORKFLOW")"
-  [ "$count" -eq 11 ]
+  expected="$(configured_agents | grep -c .)"
+  [ "$expected" -gt 0 ]
+  [ "$count" -eq "$expected" ] || {
+    echo "# $count cron entries in agents-scheduled.yml, $expected agents in .agents/config.yml"
+    false
+  }
 }
 
 @test "the matrix is read from config at runtime, never hard-coded as a YAML list" {
@@ -68,10 +82,11 @@ CONFIG="$REPO_ROOT/.agents/config.yml"
 }
 
 @test "every configured agent ships enabled: false (minimal mode, day one)" {
-  for id in health quality audit chief-of-staff challenger docs groomer testgap deps release; do
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
     enabled="$(AGENTS_CONFIG="$CONFIG" bash -c ". '$REPO_ROOT/tools/lib/config.sh'; cfg_agent_field '$id' enabled")"
-    [ "$enabled" = "false" ]
-  done
+    [ "$enabled" = "false" ] || { echo "# $id ships enabled: $enabled"; false; }
+  done < <(configured_agents)
 }
 
 @test "liveness is re-based for a best-effort scheduler: elapsed time, not calendar day" {

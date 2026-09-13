@@ -50,6 +50,19 @@
 #     mentioning the agent, which keeps one review per pull request instead of
 #     one per push. It is also the loop guard: the steward's fix push cannot
 #     bounce back into a fresh review.
+#   - HOW TO RE-RUN THE REVIEWERS: mark the pull request as a draft and ready
+#     for review again. That is the only re-run trigger. A push sends
+#     `synchronize` and starts nothing. Re-running the workflow run itself
+#     replays the ORIGINAL event payload, so it reviews the commit that ran
+#     first, not today's head. Every notice this workflow posts says the same.
+#   - A reviewer that DIED is not a review that was LOST. A job that ends in
+#     failure never wrote an opinion; a job that ends green and posts nothing
+#     wrote one and lost it. Same symptom, opposite answers: the second files a
+#     `[review-lost]` issue, the first posts a notice and files nothing.
+#   - A SKIPPED reviewer is not a lost review, and a skip is NOT symmetric. Each
+#     reviewer job exports `skipped_reason` when a known benign cause silenced
+#     it, and the referee reads that before calling a missing review a loss.
+#     The other reviewer runs on its own credential and may still post.
 name: review
 
 on:
@@ -71,6 +84,13 @@ concurrency:
   group: review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  # How a spent model allowance words its refusal, in ONE place. Every provider
+  # words it differently, and a wording missing here tells the reader to guess
+  # while the log states the cause. Read by both reviewer jobs (their own run
+  # log) and by the referee (the lost reviewer's job log). Vendor-neutral.
+  REVIEW_QUOTA_WORDINGS: 'usage limit reached|limit exhausted|quota exceeded|insufficient quota|insufficient balance|credit balance is too low|out of credits|exceeded your current quota'
+
 jobs:
   # =========================================================================
   # Reviewer A — the `judge` role.
@@ -88,6 +108,12 @@ jobs:
       # Exported so the referee never looks for a judge-role review that was
       # never posted because the primary provider is an unverified stub.
       harness_enabled: ${{ steps.harness-gate.outputs.enabled }}
+      # Empty unless THIS job was silenced by a known benign cause it already
+      # explained on the pull request: `supply-chain`, `no-credential`,
+      # `reviewer-failed`. The referee reads it before calling a single missing
+      # review a loss — with no signal to read it filed a false `[review-lost]`
+      # about a reviewer whose skip was explained one comment up.
+      skipped_reason: ${{ steps.lost.outputs.skipped_reason }}
     steps:
       # PINNED TO THE REVIEWED COMMIT, in all three jobs.
       #
@@ -225,7 +251,8 @@ jobs:
       #     EXACTLY `<!-- reviewer: judge -->`. Every role posts from the SAME
       #     bot account, so nothing downstream can tell two reviews apart by
       #     author; the marker is the only discriminator. Constrain the
-      #     producer — do not only parse defensively.
+      #     producer — do not only parse defensively. If a posting path splits
+      #     the findings across several comments, EVERY one carries the marker.
 
       # THE SAME diff both other jobs read. Not "a fresh diff" — the same one.
       # Without this each reviewer asked the platform for "this pull request's
@@ -245,16 +272,31 @@ jobs:
             --head "${{ github.event.pull_request.head.sha }}" \
             --out .review-artifacts/diff.patch
 
+      # The id is what lets the lost-review step below read whether this step
+      # FAILED, and the exit code says how. run-agent.sh exits 5 for a missing
+      # required credential, 6 for a missing optional one; anything else non-zero
+      # is the provider CLI's own exit — a refused request or a run that died. A
+      # reviewer that failed wrote no review; a reviewer that succeeded and
+      # posted nothing wrote one and lost it. Same symptom, opposite answers.
+      # The output is kept in a log file so the cause can be NAMED from it.
       - name: Reviewer A (judge role)
+        id: reviewer
         if: steps.harness-gate.outputs.enabled == 'true'
         env:
           AGENT_CLI_TOKEN: ${{ secrets.AGENT_CLI_TOKEN }}
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          LOG="${RUNNER_TEMP:-$(mktemp -d)}/reviewer-judge.log"
+          echo "log=$LOG" >> "$GITHUB_OUTPUT"
+          set +e
           tools/run-agent.sh reviewer --role judge \
             --prompt-file .agents/prompts/review-judge.md \
-            --timeout 2400
+            --timeout 2400 2>&1 | tee "$LOG"
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
 
       # -----------------------------------------------------------------------
       # Report a review that never reached the pull request.
@@ -272,6 +314,7 @@ jobs:
       # missing".
       # -----------------------------------------------------------------------
       - name: Report a lost or skipped review
+        id: lost
         # NOT always(): that also fires when the run was CANCELLED. A cancelled
         # review posts no comment, so always() would reach the empty-body branch
         # and report "the review may have been lost" about a cancellation
@@ -299,6 +342,11 @@ jobs:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           SINCE: ${{ steps.jobstart.outputs.iso }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # How the reviewer STEP ended, and with which exit code. `failure` means
+          # the request was refused or the run died before a review was written.
+          REVIEW_OUTCOME: ${{ steps.reviewer.outcome }}
+          REVIEW_RC: ${{ steps.reviewer.outputs.rc }}
+          REVIEW_LOG: ${{ steps.reviewer.outputs.log }}
         run: |
           set -euo pipefail
 
@@ -323,6 +371,96 @@ jobs:
             WORK="$(mktemp -d)"
           fi
 
+          # The one re-run instruction, written once. The draft/ready toggle is the
+          # only trigger this workflow listens to; a push starts nothing, and
+          # re-running the run replays the original event.
+          RERUN_ADVICE="To re-run the reviewers, mark this pull request as a draft and ready for review again. That toggle is the only re-run trigger: a push starts nothing, and re-running this workflow run replays the original event payload, so it reviews the commit that ran first."
+
+          # -------------------------------------------------------------------
+          # THE REVIEWER DIED. Not a lost review: a job that ends in failure never
+          # wrote an opinion, so there is nothing to recover and nothing to
+          # investigate. An issue per pull request for this held up every merge
+          # for a day when a spent allowance killed every reviewer the same way.
+          # Report it where the person merging is, name the cause when the log
+          # says it, and file nothing.
+          # -------------------------------------------------------------------
+          if [ "${REVIEW_OUTCOME:-}" = "failure" ] || { [ -n "${REVIEW_RC:-}" ] && [ "${REVIEW_RC:-0}" != "0" ]; }; then
+            RC="${REVIEW_RC:-unknown}"
+
+            # Exit 5: the REQUIRED credential is absent on a pull request that is
+            # not from a fork. No review was possible; that is a configuration
+            # fact, not a pipeline failure, and a different notice.
+            if [ "$RC" = "5" ]; then
+              {
+                echo "## The judge-role review did not run: no credential"
+                echo
+                echo "The judge-role reviewer's required credential is not available to this run, so"
+                echo "it could not start. That happens when the secret has not been set, or when the"
+                echo "platform withholds secrets from this kind of pull request (a dependency-update"
+                echo "bot's pull request, for example). The run log names the secret."
+                echo
+                echo "**This is not a lost review** — nothing was written. The challenge-role reviewer"
+                echo "runs after this one on its own credential and posts separately. Read the"
+                echo "comments below before you assume nobody looked."
+                echo
+                echo "**No issue was opened for this, deliberately.** A reviewer that never ran leaves"
+                echo "nothing to investigate."
+                echo
+                echo "**Before merging:** read the diff yourself. $RERUN_ADVICE"
+                echo
+                echo "- Review run: $RUN_URL"
+              } > "$WORK/review-nocred-body.md"
+              gh pr comment "$PR" --repo "$REPO" --body-file "$WORK/review-nocred-body.md" \
+                || echo "::warning::Could not post the no-credential notice to PR #$PR."
+              echo "::warning::The judge-role reviewer had no credential on PR #$PR (exit 5). Reported on the pull request; no issue filed."
+              echo "skipped_reason=no-credential" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            # Name the cause when the reviewer's own output says it. The step above
+            # kept its log; a spent allowance states its refusal there.
+            QUOTA_LINE=""
+            if [ -n "${REVIEW_LOG:-}" ] && [ -r "$REVIEW_LOG" ]; then
+              QUOTA_LINE="$(grep -m1 -oiE '[^\\"]*('"$REVIEW_QUOTA_WORDINGS"')[^\\"]*' "$REVIEW_LOG" || true)"
+            fi
+            {
+              echo "## The judge-role review did not run"
+              echo
+              echo "The **judge-role** reviewer ended with an error (exit code \`$RC\`) before it wrote"
+              echo "anything. There are no findings in its log to recover."
+              echo
+              if [ -n "$QUOTA_LINE" ]; then
+                echo "> The run log names the cause:"
+                echo "> \`${QUOTA_LINE}\`"
+                echo
+                echo "A spent allowance refuses a re-run the same way until it resets. Waiting is the"
+                echo "answer, not another run. See \`docs/runbooks/multi-model-review.md\`, \"A spent"
+                echo "model allowance\"."
+              else
+                echo "The log does not say which of two causes it was: the model refused the request"
+                echo "because its allowance is spent, or the runner process stopped. A spent allowance"
+                echo "refuses a re-run until it resets; a stopped runner does not."
+              fi
+              echo
+              echo "The challenge-role reviewer runs after this one on its own credential and posts"
+              echo "separately. Read the comments below before you assume nobody looked."
+              echo
+              echo "**No issue was opened for this, deliberately.** A reviewer that never ran leaves"
+              echo "nothing to investigate, and an issue per pull request for it holds up every merge"
+              echo "until a human closes it."
+              echo
+              echo "**Before merging:** read the diff yourself, or mark this pull request as a"
+              echo "draft and ready for review again once the reviewer can run. $RERUN_ADVICE"
+              echo
+              echo "- Review run: $RUN_URL"
+            } > "$WORK/review-unavailable-body.md"
+            gh pr comment "$PR" --repo "$REPO" --body-file "$WORK/review-unavailable-body.md" \
+              || echo "::warning::Could not post the review-unavailable notice to PR #$PR."
+            echo "::warning::The judge-role reviewer FAILED (exit $RC) before writing a review on PR #$PR. Reported on the pull request; no issue filed."
+            echo "skipped_reason=reviewer-failed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # The review this run posted, if any. Fetched BEFORE the author check
           # on purpose: a lost review strands every author equally, human or
           # agent. The "a human reads their own posted review" assumption below
@@ -332,8 +470,9 @@ jobs:
           # author-first ordering exited with "no handoff" without ever checking
           # whether anything had reached the pull request. Nobody saw it.
           #
-          # Reads BOTH comment homes — issue comments and pull-request review
-          # comments, slurped then merged. The collector itself lives in
+          # Reads ALL THREE comment homes — issue comments, pull-request review
+          # comments and review submissions — slurped then merged, and keeps
+          # EVERY marked item. The collector itself lives in
           # tools/collect-review-comment.sh, in exactly ONE home: the challenge
           # job's lost-review check needs the identical program, and two copies
           # of a collector drift — so both steps call the script, and
@@ -353,25 +492,18 @@ jobs:
           #     every role posts from the SAME account anyway, so a login could
           #     never tell two reviews apart. The marker is both the portable
           #     form and the stronger one. It is the same discriminator the
-          #     referee's collector uses ~350 lines below, deliberately.
-          #  3. ORDER — newest by `created_at`, explicitly sorted. The merged
-          #     list is a CONCATENATION of two endpoints, and concatenation order
-          #     is not chronological: `last` over it returns the final INLINE
-          #     comment whenever any exists, whatever time it was written.
+          #     referee's collector uses further down, deliberately.
+          #  3. ORDER — chronological, explicitly sorted. The merged list is a
+          #     CONCATENATION of endpoints, and concatenation order is not
+          #     chronological.
           #
           # Dropping (2) disarms the empty-body detector immediately below in
           # BOTH directions at once. A review that posted nothing plus one
           # unrelated human comment reads as a review that posted — which is the
           # lost-review incident this step exists to catch. And a human replying
-          # "looks fine to me" on a code line outranks the reviewer's blocking
-          # findings, so the clean-phrase check passes, the handoff is
-          # suppressed, and the findings are stranded on the pull request with
-          # no listener. Stranding a finding is the precise failure the handoff
-          # was built to fix; the collector would have re-created it one level up.
-          #
-          # Dropping (3) produces the same suppression on timing alone, with no
-          # human involved: a superseded first attempt outranks the corrected
-          # review that replaced it.
+          # "looks fine to me" on a code line reads as the reviewer's opinion.
+          # Stranding a finding is the precise failure the handoff was built to
+          # fix; the collector would have re-created it one level up.
           BODY="$(tools/collect-review-comment.sh --marker '<!-- reviewer: judge -->' \
                     --since "$SINCE" --repo "$REPO" --pr "$PR")"
 
@@ -385,21 +517,27 @@ jobs:
 
             # NARROW CARVE-OUT: the supply-chain guard.
             #
-            # An agent runner may decline to run when a pull request's workflow
-            # files differ from the default branch — a sound rule, since a pull
-            # request that edits CI should not get a reviewer running under the
-            # edited CI. But it exits 0, so the check reports SUCCESS and the
-            # detector above reads "green run, no comment" as a lost review.
-            # That produced five identical issues in one day for one benign,
-            # expected cause.
+            # INHERITED, and honest about it. Some provider runners decline to run
+            # when a pull request's workflow files differ from the default branch
+            # — a sound rule, since a pull request that edits CI should not get a
+            # reviewer running under the edited CI. They exit 0, so the check
+            # reports SUCCESS and the detector above reads "green run, no
+            # comment" as a lost review. That produced five identical issues in
+            # one day for one benign, expected cause.
+            #
+            # tools/run-agent.sh has no such guard of its own; whether it trips
+            # depends on the provider behind the adapter. So on a workflow-editing
+            # pull request this step cannot tell a declined run from a lost
+            # review, and the notice says exactly that.
             #
             # A known, explained skip is not a lost review, so this does not
             # file an issue. It is also NOT A PASS: the guard fires precisely on
             # workflow-editing pull requests, which are the ones where a second
-            # pair of eyes matters most, and BOTH reviewers run the same way, so
-            # a trip silences both. There is no surviving reviewer to defer to.
-            # So it says so ON THE PULL REQUEST, where the person merging will
-            # see it, instead of in a run log nobody opens.
+            # pair of eyes matters most. And it is NOT SYMMETRIC: the other
+            # reviewer runs on its own credential and may still post, so the
+            # notice never claims both reviewers are silenced. It says so ON THE
+            # PULL REQUEST, where the person merging will see it, instead of
+            # in a run log nobody opens.
             #
             # Deliberately narrow. Every other "green run, no comment" still
             # files an issue — that path is what catches a genuinely lost
@@ -411,33 +549,41 @@ jobs:
             if [ -n "$WORKFLOW_FILES" ]; then
               echo "::warning::Automated review SKIPPED by the supply-chain guard (this PR edits workflow files). Not a lost review."
               {
-                echo "## Automated review skipped"
+                echo "## The judge-role review was skipped"
                 echo
-                echo "No automated review ran on this pull request, and none is coming."
-                echo
-                echo "The agent runner declines to run when a pull request changes workflow"
-                echo "files, so that a reviewer never executes under the CI the same pull"
-                echo "request is editing. This pull request changes:"
+                echo "The judge-role reviewer posted nothing, and this pull request changes workflow"
+                echo "files:"
                 echo
                 echo "$WORKFLOW_FILES" | tr ',' '\n' | sed 's/^ */    /'
                 echo
-                echo "**Both reviewers are affected** — \`review\` and \`challenge-review\` run the"
-                echo "same way, so neither produced an opinion. The green check above means the"
-                echo "job exited cleanly, not that anything was reviewed."
+                echo "Some provider runners decline to run when a pull request edits workflow files,"
+                echo "so that a reviewer never executes under the CI the same pull request is editing."
+                echo "The harness itself has no such guard, so this may also be a review that was lost."
+                echo "Either way: **the judge-role reviewer produced no opinion.** The green check above"
+                echo "means the job exited cleanly, not that anything was reviewed."
                 echo
-                echo "Workflow changes are exactly where a human should look. Read the diff"
-                echo "before merging."
+                echo "The challenge-role reviewer runs after this one on its own credential and may"
+                echo "still post. Check the comments below before assuming nobody looked."
+                echo
+                echo "Workflow changes are exactly where a human should look. Read the diff before"
+                echo "merging. $RERUN_ADVICE"
               } > "$WORK/review-skipped-body.md"
 
               gh pr comment "$PR" --repo "$REPO" --body-file "$WORK/review-skipped-body.md" \
                 || echo "::warning::Could not post the review-skipped notice to PR #$PR."
+              echo "skipped_reason=supply-chain" >> "$GITHUB_OUTPUT"
               exit 0
             fi
 
             TITLE="[review-lost] Automated review posted nothing on PR #$PR"
+            # Dedupe against EVERY lost-review wording for this pull request, not
+            # only this step's own title: the challenge job files a differently
+            # worded `[review-lost]` for the same pull request. Client-side and
+            # anchored — GitHub's search tokenizes `#$PR` and would match PR #96
+            # against PR #963; the trailing `$` keeps that anchor.
             OPEN="$(gh issue list --repo "$REPO" --state open --limit 200 \
                       --json title --jq '.[].title' \
-                    | grep -cFx "$TITLE" || true)"
+                    | grep -cE "^\[review-lost\] .* on PR #$PR\$" || true)"
             if [ "$OPEN" != "0" ]; then
               echo "A lost-review issue for #$PR is already open - not filing another."
               exit 0
@@ -454,12 +600,14 @@ jobs:
                 echo
               fi
               echo "The automatic review of **PR #$PR** - _${PR_TITLE}_ (\`$PR_AUTHOR\`, \`$HEAD_REF\`) -"
-              echo "ran and reported success, but posted no comment. Whatever it found, clean or"
+              echo "ran to completion (exit 0) but posted no comment. Whatever it found, clean or"
               echo "blocking, is not visible anywhere: not on the pull request, not to"
               echo "\`$PR_AUTHOR\`, not to the steward."
               echo
-              echo "This is a review-pipeline failure, not a content finding. Re-run the review"
-              echo "and confirm it posts this time before treating the pull request as reviewed."
+              echo "This is a review-pipeline failure, not a content finding. Open the review run"
+              echo "below and read why — the review is often in the log, written and never posted."
+              echo "Then re-run the reviewers and confirm a \`<!-- reviewer: judge -->\` comment lands"
+              echo "this time before treating the pull request as reviewed. $RERUN_ADVICE"
               echo
               echo "- Pull request: $SERVER/$REPO/pull/$PR"
               echo "- Review run: $RUN_URL"
@@ -507,6 +655,9 @@ jobs:
     timeout-minutes: 45
     outputs:
       ran: ${{ steps.gate.outputs.run }}
+      # Same contract as the review job's: empty unless a known benign cause
+      # silenced THIS reviewer and was explained on the pull request.
+      skipped_reason: ${{ steps.lost.outputs.skipped_reason }}
     steps:
       # PINNED TO THE REVIEWED COMMIT, in all three jobs.
       #
@@ -592,16 +743,26 @@ jobs:
             --head "${{ github.event.pull_request.head.sha }}" \
             --out .review-artifacts/diff.patch
 
+      # Same id/exit-code/log contract as reviewer A's step, for the same reason:
+      # a reviewer that died wrote nothing, and the step below must know that.
       - name: Reviewer B (challenge role)
+        id: reviewer
         if: steps.gate.outputs.run == 'true'
         env:
           CHALLENGE_API_KEY: ${{ secrets.CHALLENGE_API_KEY }}
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          LOG="${RUNNER_TEMP:-$(mktemp -d)}/reviewer-challenge.log"
+          echo "log=$LOG" >> "$GITHUB_OUTPUT"
+          set +e
           tools/run-agent.sh reviewer --role challenge \
             --prompt-file .agents/prompts/review-challenge.md \
-            --timeout 2400
+            --timeout 2400 2>&1 | tee "$LOG"
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
 
       # -----------------------------------------------------------------------
       # Report a lost CHALLENGE review — and go red for it.
@@ -621,12 +782,11 @@ jobs:
       # every benign cause that silences the challenge review — a fork, an
       # absent optional credential — sets run=false and is already explained
       # by the gate, so firing here for those would be a false alarm on every
-      # such pull request. The supply-chain guard (a PR editing workflow
-      # files) silences BOTH reviewers and reviewer A's check already posts
-      # the both-affected notice on the pull request, so that case exits
-      # quietly here too.
+      # such pull request. A reviewer that DIED is handled first and files
+      # nothing — see the same branch in reviewer A's step.
       # -----------------------------------------------------------------------
       - name: Report a lost challenge review
+        id: lost
         # NOT always(): a cancelled run posts nothing on purpose, and saying
         # "the review may have been lost" about a deliberate cancellation
         # trains the reader to ignore the one warning that matters.
@@ -642,6 +802,9 @@ jobs:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           SINCE: ${{ steps.jobstart.outputs.iso }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REVIEW_OUTCOME: ${{ steps.reviewer.outcome }}
+          REVIEW_RC: ${{ steps.reviewer.outputs.rc }}
+          REVIEW_LOG: ${{ steps.reviewer.outputs.log }}
         run: |
           set -euo pipefail
 
@@ -652,12 +815,62 @@ jobs:
             WORK="$(mktemp -d)"
           fi
 
+          RERUN_ADVICE="To re-run the reviewers, mark this pull request as a draft and ready for review again. That toggle is the only re-run trigger: a push starts nothing, and re-running this workflow run replays the original event payload, so it reviews the commit that ran first."
+
+          # THE REVIEWER DIED — same rule as reviewer A's step: not a lost review,
+          # nothing to recover, a notice on the pull request and no issue. The job
+          # is already red from the step that failed; this step exits 0.
+          if [ "${REVIEW_OUTCOME:-}" = "failure" ] || { [ -n "${REVIEW_RC:-}" ] && [ "${REVIEW_RC:-0}" != "0" ]; }; then
+            RC="${REVIEW_RC:-unknown}"
+            QUOTA_LINE=""
+            if [ -n "${REVIEW_LOG:-}" ] && [ -r "$REVIEW_LOG" ]; then
+              QUOTA_LINE="$(grep -m1 -oiE '[^\\"]*('"$REVIEW_QUOTA_WORDINGS"')[^\\"]*' "$REVIEW_LOG" || true)"
+            fi
+            {
+              echo "## The challenge-role review did not run"
+              echo
+              echo "The **challenge-role** reviewer ended with an error (exit code \`$RC\`) before it"
+              echo "wrote anything. There are no findings in its log to recover."
+              echo
+              if [ -n "$QUOTA_LINE" ]; then
+                echo "> The run log names the cause:"
+                echo "> \`${QUOTA_LINE}\`"
+                echo
+                echo "A spent allowance refuses a re-run the same way until it resets. Waiting is the"
+                echo "answer, not another run. See \`docs/runbooks/multi-model-review.md\`, \"A spent"
+                echo "model allowance\"."
+              else
+                echo "The log does not say which of two causes it was: the model refused the request"
+                echo "because its allowance is spent, or the runner process stopped. A spent allowance"
+                echo "refuses a re-run until it resets; a stopped runner does not."
+              fi
+              echo
+              echo "**This pull request was reviewed once, not twice.** The judge-role review above,"
+              echo "if it posted, stands on its own — read it. A finding only the missing reviewer"
+              echo "would have raised is gone."
+              echo
+              echo "**No issue was opened for this, deliberately.** A reviewer that never ran leaves"
+              echo "nothing to investigate, and an issue per pull request for it holds up every merge"
+              echo "until a human closes it."
+              echo
+              echo "**Before merging:** read the diff yourself, or mark this pull request as a"
+              echo "draft and ready for review again once the reviewer can run. $RERUN_ADVICE"
+              echo
+              echo "- Review run: $RUN_URL"
+            } > "$WORK/challenge-unavailable-body.md"
+            gh pr comment "$PR" --repo "$REPO" --body-file "$WORK/challenge-unavailable-body.md" \
+              || echo "::warning::Could not post the review-unavailable notice to PR #$PR."
+            echo "::warning::The challenge-role reviewer FAILED (exit $RC) before writing a review on PR #$PR. Reported on the pull request; no issue filed."
+            echo "skipped_reason=reviewer-failed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # THE SAME collector as reviewer A's check — literally the same
           # program, tools/collect-review-comment.sh, never a second copy:
-          # both comment homes slurped then merged, filtered by time window,
-          # THIS reviewer's marker, and explicit chronological order. The
-          # marker is the only reliable discriminator — both roles post from
-          # the same account.
+          # all three comment homes slurped then merged, filtered by time window
+          # and THIS reviewer's marker, every marked item kept in chronological
+          # order. The marker is the only reliable discriminator — both roles
+          # post from the same account.
           BODY="$(tools/collect-review-comment.sh --marker '<!-- reviewer: challenge -->' \
                     --since "$SINCE" --repo "$REPO" --pr "$PR")"
 
@@ -668,20 +881,44 @@ jobs:
 
           echo "::warning::The challenge reviewer ran and posted nothing - the second opinion may have been lost. See $RUN_URL"
 
-          # The supply-chain guard silences BOTH reviewers; reviewer A's check
-          # owns that notice and has already posted it on the pull request.
+          # The supply-chain carve-out, for this reviewer. NOT "reviewer A already
+          # said so": the guard is not symmetric, and reviewer A may have posted
+          # normally. This reviewer says its own piece on the pull request.
           WORKFLOW_FILES="$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
                               --jq '[.[] | select(.filename | startswith(".github/workflows/"))
                                         | .filename] | join(", ")' 2>/dev/null || true)"
           if [ -n "$WORKFLOW_FILES" ]; then
-            echo "Skipped by the supply-chain guard (workflow files changed) - reviewer A's check already said so on the pull request."
+            {
+              echo "## The challenge-role review was skipped"
+              echo
+              echo "The challenge-role reviewer posted nothing, and this pull request changes"
+              echo "workflow files:"
+              echo
+              echo "$WORKFLOW_FILES" | tr ',' '\n' | sed 's/^ */    /'
+              echo
+              echo "Some provider runners decline to run when a pull request edits workflow files,"
+              echo "so that a reviewer never executes under the CI the same pull request is editing."
+              echo "The harness itself has no such guard, so this may also be a review that was lost."
+              echo "Either way: **the challenge-role reviewer produced no opinion.** The judge-role"
+              echo "review above, if it posted, stands on its own — read it."
+              echo
+              echo "Workflow changes are exactly where a human should look. Read the diff before"
+              echo "merging. $RERUN_ADVICE"
+            } > "$WORK/challenge-skipped-body.md"
+            gh pr comment "$PR" --repo "$REPO" --body-file "$WORK/challenge-skipped-body.md" \
+              || echo "::warning::Could not post the review-skipped notice to PR #$PR."
+            echo "Skipped by the supply-chain guard (workflow files changed) - said so on the pull request."
+            echo "skipped_reason=supply-chain" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           TITLE="[review-lost] The challenge review posted nothing on PR #$PR"
+          # Dedupe against EVERY lost-review wording for this pull request — the
+          # review job files a differently worded one and runs first. Anchored,
+          # client-side, for the same reason as there.
           OPEN="$(gh issue list --repo "$REPO" --state open --limit 200 \
                     --json title --jq '.[].title' \
-                  | grep -cFx "$TITLE" || true)"
+                  | grep -cE "^\[review-lost\] .* on PR #$PR\$" || true)"
           if [ "$OPEN" = "0" ]; then
             {
               if [ "$TOKEN_TRIGGERS" != "true" ]; then
@@ -694,14 +931,15 @@ jobs:
                 echo
               fi
               echo "The challenge review of **PR #$PR** - _${PR_TITLE}_ (\`$PR_AUTHOR\`, \`$HEAD_REF\`) -"
-              echo "ran with its credential present and posted nothing. The pull request now shows"
-              echo "one review where the process promises two, and nothing on it says so — the"
+              echo "ran to completion with its credential present and posted nothing. The pull request"
+              echo "now shows one review where the process promises two, and nothing on it says so — the"
               echo "referee will report the missing half, but a missing SECOND opinion looks"
               echo "exactly like a deliberately degraded run unless this issue names the"
               echo "difference: the credential was there, the reviewer ran, the review is lost."
               echo
-              echo "This is a review-pipeline failure, not a content finding. Re-run the review"
-              echo "workflow and confirm a \`<!-- reviewer: challenge -->\` comment lands this time."
+              echo "This is a review-pipeline failure, not a content finding. Open the review run"
+              echo "below and read why. Then re-run the reviewers and confirm a"
+              echo "\`<!-- reviewer: challenge -->\` comment lands this time. $RERUN_ADVICE"
               echo
               echo "- Pull request: $SERVER/$REPO/pull/$PR"
               echo "- Review run: $RUN_URL"
@@ -715,7 +953,7 @@ jobs:
               --body-file "$WORK/challenge-lost-body.md"
             echo "Filed a lost-review issue for the challenge review on PR #$PR."
           else
-            echo "A lost-review issue for the challenge review on #$PR is already open - not filing another."
+            echo "A lost-review issue for #$PR is already open - not filing another."
           fi
 
           # A run that lost a review is not a success. Exiting non-zero is the
@@ -771,6 +1009,16 @@ jobs:
       HEAD_REF: ${{ github.event.pull_request.head.ref }}
       SINCE: ${{ needs.review.outputs.since }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      # Why a reviewer may be missing WITHOUT its review being lost. Read by the
+      # collector's notice before it calls one missing review a loss: a skip a
+      # reviewer explained on the pull request, a reviewer that was never
+      # enabled, or a job that DIED (`failure`/`cancelled`) and so wrote nothing.
+      JUDGE_ENABLED: ${{ needs.review.outputs.harness_enabled }}
+      CHALLENGE_RAN: ${{ needs.challenge-review.outputs.ran }}
+      REVIEW_SKIPPED: ${{ needs.review.outputs.skipped_reason }}
+      CHALLENGE_SKIPPED: ${{ needs.challenge-review.outputs.skipped_reason }}
+      REVIEW_RESULT: ${{ needs.review.result }}
+      CHALLENGE_RESULT: ${{ needs.challenge-review.result }}
     steps:
       # PINNED TO THE REVIEWED COMMIT, in all three jobs.
       #
@@ -803,6 +1051,7 @@ jobs:
           #
           # Used only as the fallback below: the main path keeps `--slurp`, which
           # merges pages before filtering (see the note on it further down).
+          # Every marked item is kept and joined — never `| last`.
           fetch_review_bodies() {
             local role marker out ep
             for role in judge challenge; do
@@ -812,7 +1061,7 @@ jobs:
               for ep in issues pulls; do
                 gh api "repos/$REPO/$ep/$PR/comments" --paginate \
                   --jq "[.[] | select(.created_at >= \"$SINCE\")
-                             | select(.body | contains(\"$marker\")) | .body] | last // empty" \
+                             | select(.body | contains(\"$marker\")) | .body] | join(\"\n\n---\n\n\")" \
                   >> "$out" 2>/dev/null || true
               done
             done
@@ -835,19 +1084,18 @@ jobs:
           fi
 
           # ------------------------------------------------------------------
-          # TWO separate lessons live in these six lines. Both are invisible
+          # THREE separate lessons live in these lines. Each is invisible
           # until the exact moment the collector has to be right.
           #
-          # 1. A COMMENT ON A PULL REQUEST HAS TWO HOMES. A top-level
-          #    conversation comment and an inline comment on a code line live on
+          # 1. A REVIEW HAS THREE HOMES. A top-level conversation comment, an
+          #    inline comment on a code line, and a review submission live on
           #    DIFFERENT API endpoints. Reading only one produced a run that
           #    announced "the second review is not on this pull request" about a
           #    review that had been sitting there the whole time, and told the
-          #    reader to treat the pull request as single-reviewed. They return
-          #    the same shape, so merging is trivial — there is no excuse for
-          #    reading one. And never report a thing as missing until you have
-          #    looked everywhere it can legitimately be: the not-available notice
-          #    below says where it looked.
+          #    reader to treat the pull request as single-reviewed. Never report
+          #    a thing as missing until you have looked everywhere it can
+          #    legitimately be: the not-available notice below says where it
+          #    looked.
           #
           # 2. SLURP BEFORE YOU FILTER. `--paginate` with a per-item `--jq`
           #    filter applies the filter ONCE PER PAGE and emits one JSON array
@@ -856,34 +1104,98 @@ jobs:
           #    first; the `add` below flattens the array-of-arrays back into a
           #    flat comment list. This is invisible until a thread passes 100
           #    comments, which is exactly when you need the collector to be right.
+          #
+          # 3. KEEP EVERY ITEM — never `| last`. A reviewer that posts its
+          #    findings as several inline comments has posted several items, and
+          #    "the newest one" drops all but one of them. An item that is on the
+          #    pull request but not in the collected body is a finding the
+          #    referee never sees and the handoff never names.
           # ------------------------------------------------------------------
           gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
             > .review-artifacts/conversation.json
           gh api "repos/$REPO/pulls/$PR/comments" --paginate --slurp \
             > .review-artifacts/inline.json
+          gh api "repos/$REPO/pulls/$PR/reviews" --paginate --slurp \
+            > .review-artifacts/reviews.json
 
-          # Sorted, not merely merged. Both selections below end in `last`, and the
-          # merged list is a concatenation of two endpoints — so without this, a
-          # role that posted twice (a retry after a transient posting failure is
-          # the ordinary cause) is resolved by WHICH ENDPOINT its comments landed
-          # on rather than by which came second. Sorting once here fixes both
-          # selections; sorting in neither is how the handoff collector above
-          # came to prefer a stale review over the one that replaced it.
-          jq --arg since "$SINCE" -s '
-            [ .[] | (if (.[0] | type) == "array" then add else . end) ] | add
-            | [ .[] | select(.created_at >= $since) ] | sort_by(.created_at)
-          ' .review-artifacts/conversation.json .review-artifacts/inline.json \
-            > .review-artifacts/all.json
-
-          # Reviewer B self-identifies with a marker line its prompt requires.
-          # Anything else from this run is reviewer A. Splitting on a marker rather than on ordering
+          # One flat record per item, sorted by time, not merely merged. The
+          # merged list is a concatenation of three endpoints, and concatenation
+          # order is not chronological: without the sort an inline finding lands
+          # after every conversation comment whatever time it was written, and
+          # the rendered review reads out of order.
+          #
+          # Reviewer B self-identifies with a marker line its prompt requires,
+          # and so does reviewer A. Splitting on a marker rather than on ordering
           # means a retry or an extra comment cannot silently swap the two, and
           # status chatter from the same bot account is not mistaken for a
-          # review.
-          jq -r '[.[] | select(.body | contains("<!-- reviewer: challenge -->"))] | last | .body // ""' \
-            .review-artifacts/all.json > .review-artifacts/challenge.md
-          jq -r '[.[] | select(.body | contains("<!-- reviewer: judge -->"))] | last | .body // ""' \
-            .review-artifacts/all.json > .review-artifacts/judge.md
+          # review. An inline comment that carries no marker itself but belongs
+          # to a review submission whose body does is that role's too.
+          #
+          # NO time-split fallback for unmarked items. Upstream assigned an
+          # unmarked bot item by whether it came before or after the second
+          # reviewer's job started (read from the jobs API — never the run's
+          # created_at, which is the same value in every job). Here every notice
+          # this workflow itself posts comes from the same account as the
+          # reviews, so a time split would count the notice that says a review
+          # is missing AS that review. Unmarked items are dropped.
+          jq --arg since "$SINCE" -s '
+            def flat(x): [ x[] | (if length > 0 and (.[0] | type) == "array" then add else . end) ] | add // [];
+            def role(b):
+              if (b // "" | contains("<!-- reviewer: judge -->")) then "judge"
+              elif (b // "" | contains("<!-- reviewer: challenge -->")) then "challenge"
+              else null end;
+            ( flat([.[0]])
+              | map(select((.created_at // "") >= $since))
+              | map({ts: .created_at, kind: "comment", path: null, line: null,
+                     id, html_url, review_id: null, body: (.body // "")})
+            ) + (
+              flat([.[1]])
+              | map(select((.created_at // "") >= $since))
+              | map({ts: .created_at, kind: "inline", path, line: (.line // .original_line),
+                     id, html_url, review_id: .pull_request_review_id, body: (.body // "")})
+            ) + (
+              flat([.[2]])
+              | map(select((.submitted_at // "") >= $since))
+              | map({ts: .submitted_at, kind: "review", path: null, line: null,
+                     id, html_url, review_id: .id, body: (.body // "")})
+            )
+            | . as $all
+            | [ $all[] | select(.kind == "review" and role(.body) != null)
+                       | {review_id, reviewer: role(.body)} ] as $marked_reviews
+            | [ $all[]
+                | . as $it
+                | . + {reviewer: (role(.body)
+                                  // (if .kind == "inline" and .review_id != null then
+                                        ([ $marked_reviews[] | select(.review_id == $it.review_id) | .reviewer ] | first)
+                                      else null end))}
+                | select(.reviewer != null) ]
+            | sort_by(.ts)
+          ' .review-artifacts/conversation.json .review-artifacts/inline.json .review-artifacts/reviews.json \
+            > .review-artifacts/all.json
+
+          # Every inline finding, kept for the steward handoff to name and
+          # resolve once it has fixed it.
+          jq '[ .[] | select(.kind == "inline") | {reviewer, id, html_url, path, line} ]' \
+            .review-artifacts/all.json > .review-artifacts/inline-threads.json
+
+          # Render one role's items into one body: an inline finding gets its
+          # `path:line` header so the referee and the handoff can still cite it;
+          # everything else renders as posted. Joined in jq, in time order.
+          render_role() {
+            jq -r --arg who "$1" '
+              [ .[] | select(.reviewer == $who) ]
+              | map(
+                  if .kind == "inline" and .path != null and .line != null then
+                    "**`" + .path + ":" + (.line | tostring) + "`**\n\n" + .body
+                  else
+                    .body
+                  end
+                )
+              | join("\n\n---\n\n")
+            ' .review-artifacts/all.json
+          }
+          render_role challenge > .review-artifacts/challenge.md
+          render_role judge     > .review-artifacts/judge.md
 
           JUDGE_BYTES=$(wc -c < .review-artifacts/judge.md)
           CHALLENGE_BYTES=$(wc -c < .review-artifacts/challenge.md)
@@ -939,7 +1251,22 @@ jobs:
           # a reason to stay quiet. Say WHICH one is missing, on the pull
           # request, so a green check never reads as "reviewed twice" when it
           # was reviewed once.
+          #
+          # A MISSING REVIEW IS NOT ALWAYS A LOST REVIEW, and the notice must
+          # say which. A reviewer that was skipped for a cause it explained on
+          # the pull request, or whose job DIED before it wrote anything, has no
+          # review to have lost. Saying "nothing to compare" then reads as
+          # "nobody reviewed this" — which was false: a full review from the
+          # other role was sitting on the pull request. So the single-missing
+          # cases say the other review is real, and say why this one is not.
           if [ "$JUDGE_BYTES" -le 1 ] || [ "$CHALLENGE_BYTES" -le 1 ]; then
+            # Which reviewer wrote nothing, when exactly one did. Read by the
+            # job-log step below to name the cause once, and by the handoff.
+            if [ "$JUDGE_BYTES" -le 1 ] && [ "$CHALLENGE_BYTES" -gt 1 ]; then
+              echo "lost_reviewer=judge" >> "$GITHUB_OUTPUT"
+            elif [ "$CHALLENGE_BYTES" -le 1 ] && [ "$JUDGE_BYTES" -gt 1 ]; then
+              echo "lost_reviewer=challenge" >> "$GITHUB_OUTPUT"
+            fi
             # A WHOLE SENTENCE PER CASE, never a noun spliced into a fixed one.
             # The both-missing case used to render "**BOTH reviews** is not on
             # this pull request" under a log line reading "found only one review",
@@ -948,18 +1275,47 @@ jobs:
             # notice whose entire job is to say how many reviews were lost. This
             # is the only thing telling a reader that a green check does not mean
             # "reviewed twice", so it has to be right about the count.
+            ONE="Treat this pull request as having had **one reviewer**, not two."
             if [ "$JUDGE_BYTES" -le 1 ] && [ "$CHALLENGE_BYTES" -le 1 ]; then
               SENTENCE="**Neither review** reached this pull request, so there is nothing to compare."
               REMAINS="Treat this pull request as having had **no automated review at all**. Whatever the two reviewers would have caught, nobody caught."
               LOG="neither review reached this PR"
             elif [ "$CHALLENGE_BYTES" -le 1 ]; then
-              SENTENCE="**The challenge-role review** did not reach this pull request, so there is nothing to compare."
-              REMAINS="Treat this pull request as having had **one reviewer**, not two. Whatever the missing reviewer would have caught, nobody caught."
-              LOG="the challenge-role review did not reach this PR"
+              if [ -n "${CHALLENGE_SKIPPED:-}" ]; then
+                SENTENCE="**The challenge-role reviewer was skipped** (\`${CHALLENGE_SKIPPED}\`), and it explained that in its own comment above. This is not a lost review. The judge-role review above is real — read it."
+                REMAINS="$ONE"
+                LOG="the challenge-role reviewer was skipped (${CHALLENGE_SKIPPED}); the judge-role review is present"
+              elif [ "${CHALLENGE_RAN:-}" != "true" ]; then
+                SENTENCE="**The challenge-role reviewer did not run** — no challenge credential is configured, or this pull request cannot reach it. This is not a lost review. The judge-role review above is real — read it."
+                REMAINS="$ONE"
+                LOG="the challenge-role reviewer did not run (no credential); the judge-role review is present"
+              elif [ "${CHALLENGE_RESULT:-}" = "failure" ] || [ "${CHALLENGE_RESULT:-}" = "cancelled" ]; then
+                SENTENCE="**The challenge-role reviewer's job ended \`${CHALLENGE_RESULT}\`** before it wrote anything. There are no findings in its log to recover, and this is not a lost review — nothing was written. The judge-role review above is real — read it."
+                REMAINS="$ONE"
+                LOG="the challenge-role reviewer's job ended ${CHALLENGE_RESULT}; the judge-role review is present"
+              else
+                SENTENCE="**The challenge-role review** did not reach this pull request, so there are not two reviews to compare. The judge-role review above stands on its own — read it."
+                REMAINS="$ONE Whatever the missing reviewer would have caught, nobody caught."
+                LOG="the challenge-role review did not reach this PR"
+              fi
             else
-              SENTENCE="**The judge-role review** did not reach this pull request, so there is nothing to compare."
-              REMAINS="Treat this pull request as having had **one reviewer**, not two. Whatever the missing reviewer would have caught, nobody caught."
-              LOG="the judge-role review did not reach this PR"
+              if [ -n "${REVIEW_SKIPPED:-}" ]; then
+                SENTENCE="**The judge-role reviewer was skipped** (\`${REVIEW_SKIPPED}\`), and it explained that in its own comment above. This is not a lost review. The challenge-role review above is real — read it."
+                REMAINS="$ONE"
+                LOG="the judge-role reviewer was skipped (${REVIEW_SKIPPED}); the challenge-role review is present"
+              elif [ "${JUDGE_ENABLED:-}" != "true" ]; then
+                SENTENCE="**The judge-role reviewer is not enabled** — no verified provider is configured for it yet (run \`tools/init.sh\`). This is not a lost review. The challenge-role review above is real — read it."
+                REMAINS="$ONE"
+                LOG="the judge-role reviewer is not enabled; the challenge-role review is present"
+              elif [ "${REVIEW_RESULT:-}" = "failure" ] || [ "${REVIEW_RESULT:-}" = "cancelled" ]; then
+                SENTENCE="**The judge-role reviewer's job ended \`${REVIEW_RESULT}\`** before it wrote anything. There are no findings in its log to recover, and this is not a lost review — nothing was written. The challenge-role review above is real — read it."
+                REMAINS="$ONE"
+                LOG="the judge-role reviewer's job ended ${REVIEW_RESULT}; the challenge-role review is present"
+              else
+                SENTENCE="**The judge-role review** did not reach this pull request, so there are not two reviews to compare. The challenge-role review above stands on its own — read it."
+                REMAINS="$ONE Whatever the missing reviewer would have caught, nobody caught."
+                LOG="the judge-role review did not reach this PR"
+              fi
             fi
             echo "::warning::Reviewer comparison unavailable - ${LOG}."
             {
@@ -971,8 +1327,10 @@ jobs:
               echo
               echo "${REMAINS}"
               echo
-              echo "Both comment endpoints were searched, so this is not a collector looking in"
-              echo "the wrong place."
+              echo "All three comment endpoints were searched, so this is not a collector looking"
+              echo "in the wrong place. To re-run the reviewers, mark this pull request as a"
+              echo "draft and ready for review again — a push starts nothing, and re-running the"
+              echo "workflow run replays the original event, so it reviews the commit that ran first."
               echo
               echo "- Run: $RUN_URL"
             } > .review-artifacts/referee-comment.md
@@ -980,6 +1338,72 @@ jobs:
           else
             echo "skip_agent=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # ---------------------------------------------------------------------
+      # Read the lost reviewer's job log ONCE, here, and hand the result down.
+      #
+      # A dead runner and a spent allowance end a reviewer job identically, and
+      # they have opposite remedies: waiting fixes one and not the other. The
+      # only thing that tells them apart is the reviewer's own job log, which
+      # states the refusal. Two independent fetches of the same log can
+      # disagree — the first one raced the endpoint — so it is fetched once and
+      # every consumer reads the same line.
+      #
+      # `gh api` first, `curl -sSfL` second: the logs endpoint answers 302 to a
+      # short-lived blob URL and gh has returned nothing for it. Retried,
+      # because the endpoint lags the job by a few seconds. Best-effort: an
+      # empty result means "the log did not say", never a failure.
+      # ---------------------------------------------------------------------
+      - name: Read the lost reviewer's job log once
+        id: lostlog
+        if: ${{ !cancelled() && steps.collect.outputs.lost_reviewer != '' }}
+        env:
+          LOST_REVIEWER: ${{ steps.collect.outputs.lost_reviewer }}
+        run: |
+          set -uo pipefail
+          QUOTA_LINE=""
+          case "${LOST_REVIEWER:-}" in
+              judge)     LOST_JOB_NAME="review" ;;
+              challenge) LOST_JOB_NAME="challenge-review" ;;
+              *)         LOST_JOB_NAME="" ;;
+          esac
+          if [ -n "$LOST_JOB_NAME" ]; then
+            LOST_JOB_ID="$(gh api "repos/$REPO/actions/runs/${GITHUB_RUN_ID:-}/jobs" \
+              --jq ".jobs[] | select(.name == \"$LOST_JOB_NAME\") | .id" 2>/dev/null || true)"
+            if [ -n "$LOST_JOB_ID" ]; then
+              ATTEMPTS="${LOG_FETCH_ATTEMPTS:-6}"
+              SLEEP_S="${LOG_FETCH_SLEEP:-10}"
+              TRY=1
+              while [ "$TRY" -le "$ATTEMPTS" ]; do
+                LOG_TEXT="$(gh api "repos/$REPO/actions/jobs/$LOST_JOB_ID/logs" 2>/dev/null || true)"
+                if [ -z "$LOG_TEXT" ] && [ -n "${GH_TOKEN:-}" ]; then
+                  LOG_TEXT="$(curl -sSfL \
+                      -H "Authorization: Bearer $GH_TOKEN" \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "X-GitHub-Api-Version: 2022-11-28" \
+                      "${GITHUB_API_URL:-https://api.github.com}/repos/$REPO/actions/jobs/$LOST_JOB_ID/logs" \
+                      2>/dev/null || true)"
+                fi
+                if [ -n "$LOG_TEXT" ]; then
+                  QUOTA_LINE="$(printf '%s' "$LOG_TEXT" \
+                    | grep -m1 -oiE '[^\\"]*('"$REVIEW_QUOTA_WORDINGS"')[^\\"]*' || true)"
+                  break
+                fi
+                TRY=$((TRY + 1))
+                [ "$TRY" -le "$ATTEMPTS" ] && sleep "$SLEEP_S"
+              done
+            fi
+          fi
+          if [ -n "$QUOTA_LINE" ]; then
+            echo "The $LOST_REVIEWER job log names a spent allowance: $QUOTA_LINE"
+          else
+            echo "No quota cause read from the ${LOST_REVIEWER:-none} job log."
+          fi
+          {
+            echo "quota_line<<QUOTA_EOF"
+            echo "$QUOTA_LINE"
+            echo "QUOTA_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       # The referee settles disagreements by reading the code, not by picking a
       # reviewer it trusts. That only works if it can SEE the code, so the diff
@@ -1245,15 +1669,21 @@ jobs:
           TOKEN_TRIGGERS: ${{ secrets.STEWARD_HANDOFF_PAT != '' }}
           # THE TOKEN IS THE SWITCH, and this is the off position.
           #
-          # The `followup` branch below files an issue that must NOT wake the steward. It
-          # gets this token rather than the one above, for the exact reason the one above
-          # exists: GitHub does not start workflow runs from events created with
-          # GITHUB_TOKEN. Swapping this for the PAT would silently wake the steward for
-          # precisely the findings the referee just ruled it should not be woken for.
+          # The `followup` branch below files an issue that must NOT wake the steward, and
+          # the `mark` branch labels and comments without waking it. They get this token
+          # rather than the one above, for the exact reason the one above exists: GitHub
+          # does not start workflow runs from events created with GITHUB_TOKEN. Swapping
+          # this for the PAT would silently wake the steward for precisely the findings
+          # the referee just ruled it should not be woken for.
           GH_TOKEN_INERT: ${{ secrets.GITHUB_TOKEN }}
           # Whether the collector actually ran. Load-bearing: see the branch below that
           # separates "looked and found nothing" from "could not look".
           COLLECT_OUTCOME: ${{ steps.collect.outcome }}
+          # Which reviewer wrote nothing, and what its job log said about why. Read
+          # by the spent-allowance carve-out in the decision script. The log was
+          # read ONCE, in the step above; this step never fetches it again.
+          LOST_REVIEWER: ${{ steps.collect.outputs.lost_reviewer }}
+          QUOTA_LINE_FROM_LOG: ${{ steps.lostlog.outputs.quota_line }}
         run: |
           set -euo pipefail
 
@@ -1274,22 +1704,71 @@ jobs:
             *) echo "PR #$PR is human-authored ($PR_AUTHOR, $HEAD_REF) and was reviewed - no handoff."; exit 0 ;;
           esac
 
-          # The decision — which reviews landed, and what the referee ruled — lives in
-          # tools/review-handoff-decide.sh. It DECIDES; this step ACTS. That split is what
-          # lets the decision be exercised on its own with crafted inputs, instead of only
-          # by carving a step body out of YAML.
+          # The reviews and the referee take minutes, and a human can merge — or
+          # close — inside that window. Upstream, four open handoff issues asked
+          # an agent to apply findings and push to a branch that no longer
+          # existed. "Filed after merge" makes the INSTRUCTION stale, not the
+          # findings. So the pull request's state is read FIRST and handed to the
+          # decision. An UNREADABLE state reads as open — this step's standing
+          # rule is that a missing input must never read as "nothing to do".
+          PR_STATE="UNREADABLE"
+          MERGED_AT=""
+          if STATE_LINE="$(gh pr view "$PR" --repo "$REPO" --json state,mergedAt \
+                              --jq '.state + " " + (.mergedAt // "")' 2>/dev/null)"; then
+            read -r PR_STATE MERGED_AT <<<"$STATE_LINE"
+            PR_STATE="${PR_STATE:-UNREADABLE}"
+          fi
+
+          # The decision — which reviews landed, what the referee ruled, whether the
+          # pull request can still take a push, and whether a missing reviewer's log names
+          # a spent allowance — lives in tools/review-handoff-decide.sh. It DECIDES; this
+          # step ACTS. That split is what lets the decision be exercised on its own with
+          # crafted inputs, instead of only by carving a step body out of YAML.
           #
           # `.` and not `$(...)`: the script prints KEY=VALUE lines, so sourcing them sets
-          # DECISION, REVIEWS_PRESENT, REVIEWS_LANDED, VERDICT and VERDICT_RECOGNISED here.
+          # DECISION, REVIEWS_PRESENT, REVIEWS_LANDED, VERDICT, VERDICT_RECOGNISED,
+          # PR_GONE and REAIM_WORD here.
           DECIDE="$BODY_DIR/handoff-decision.env"
           tools/review-handoff-decide.sh \
             --judge .review-artifacts/judge.md \
             --challenge .review-artifacts/challenge.md \
             --verdict .review-artifacts/referee-verdict.txt \
-            --collector-outcome "$COLLECT_OUTCOME" > "$DECIDE"
+            --collector-outcome "$COLLECT_OUTCOME" \
+            --merged-at "$MERGED_AT" --pr-state "$PR_STATE" \
+            --lost-reviewer "${LOST_REVIEWER:-}" --quota-line "${QUOTA_LINE_FROM_LOG:-}" > "$DECIDE"
           # shellcheck disable=SC1090
           . "$DECIDE"
-          echo "Handoff decision: $DECISION (present='$REVIEWS_PRESENT', landed=$REVIEWS_LANDED, verdict='$VERDICT', recognised=$VERDICT_RECOGNISED)"
+          echo "Handoff decision: $DECISION (present='$REVIEWS_PRESENT', landed=$REVIEWS_LANDED, verdict='$VERDICT', recognised=$VERDICT_RECOGNISED, pr_gone='$PR_GONE')"
+
+          # Every body below embeds the findings themselves. A body that only linked to
+          # the pull request cost one agent session per issue just to read them, and the
+          # link went stale the moment the pull request's comments were edited.
+          FINDINGS="$BODY_DIR/findings.md"
+          if [ -s .review-artifacts/referee-comment.md ]; then
+            {
+              echo "<details><summary><b>The findings, as the referee sorted them</b></summary>"
+              echo
+              cat .review-artifacts/referee-comment.md
+              echo
+              echo "</details>"
+            } > "$FINDINGS"
+          else
+            {
+              echo "> [!WARNING]"
+              echo "> The referee's comparison **could not be read** on this run, so the findings are"
+              echo "> not repeated here. Read them on the pull request itself."
+            } > "$FINDINGS"
+          fi
+          KEEP_LINE='**Do not edit this body** — comment instead, so the filed record survives.'
+
+          # Every inline finding, listed so the fixer can resolve its thread once it is
+          # fixed. Best-effort: the collector may not have written the file, and jq may
+          # be missing on the runner — neither may cost the handoff.
+          THREADS=""
+          if [ -s .review-artifacts/inline-threads.json ] && command -v jq >/dev/null 2>&1; then
+            THREADS="$(jq -r '.[] | "- `" + ((.path // "?") + ":" + ((.line // "?") | tostring)) + "` — " + (.html_url // "") + " (thread " + ((.id // "?") | tostring) + ", " + (.reviewer // "?") + " role)"' \
+                         .review-artifacts/inline-threads.json 2>/dev/null || true)"
+          fi
 
           case "$DECISION" in
             none)
@@ -1297,47 +1776,6 @@ jobs:
               # owns that and has already filed for it; a second issue from here would be
               # a duplicate pointing at the same cause.
               echo "No review reached PR #$PR - the lost-review check owns this, not the handoff."
-              exit 0
-              ;;
-            followup)
-              # The referee ruled that nothing here has to be fixed before merge.
-              #
-              # The findings are still REAL — dropping them is the stranded-finding failure
-              # this whole machinery exists to prevent, arriving through the front door
-              # this time. So they are filed for later, with the INERT token, and nothing
-              # is woken. The pull request is left alone for its author to merge.
-              FOLLOWUP_TITLE="[review-followup] Non-blocking findings on PR #$PR"
-              OPEN="$(GH_TOKEN="$GH_TOKEN_INERT" gh issue list --repo "$REPO" --state open --limit 200 \
-                        --json title --jq '.[].title' \
-                      | grep -cFx "$FOLLOWUP_TITLE" || true)"
-              if [ "$OPEN" != "0" ]; then
-                echo "A follow-up issue for #$PR is already open - not filing another."
-                exit 0
-              fi
-              {
-                echo "The automatic reviews of **PR #$PR** - _${PR_TITLE}_ - raised findings, and the"
-                echo "referee ruled that **none of them has to be fixed before that pull request merges**."
-                echo
-                echo "So no agent was woken and the pull request was left alone. This issue exists so"
-                echo "the findings are not lost: they are worth doing, just not now."
-                echo
-                echo "**Task:** read the reviews on PR #$PR, decide which suggestions are worth"
-                echo "keeping, and do them here - or close this issue saying why not. Reviews"
-                echo "posted: **$REVIEWS_PRESENT**, plus the referee's comparison."
-                echo
-                echo "- Pull request: $SERVER/$REPO/pull/$PR"
-                echo "- Review run: $RUN_URL"
-                echo
-                echo "Filed automatically by \`review.yml\`, with \`GITHUB_TOKEN\` deliberately, so"
-                echo "opening it does not wake the steward."
-              } > "$BODY_DIR/review-followup-body.md"
-
-              GH_TOKEN="$GH_TOKEN_INERT" gh issue create --repo "$REPO" --title "$FOLLOWUP_TITLE" \
-                --body-file "$BODY_DIR/review-followup-body.md" --label agent-report \
-              || GH_TOKEN="$GH_TOKEN_INERT" gh issue create --repo "$REPO" --title "$FOLLOWUP_TITLE" \
-                --body-file "$BODY_DIR/review-followup-body.md"
-
-              echo "Referee ruled non-blocking on #$PR - filed a follow-up issue, woke nobody."
               exit 0
               ;;
             collector-failed)
@@ -1355,7 +1793,9 @@ jobs:
                 echo
                 echo "**This is not a verdict on the change.** Any reviews above still stand and"
                 echo "may contain blocking findings — nothing is acting on them. Read them"
-                echo "yourself before merging, or re-run the review workflow."
+                echo "yourself before merging, or re-run the reviewers by marking this pull request"
+                echo "as a draft and ready for review again (a push starts nothing, and re-running"
+                echo "the workflow run replays the original event)."
                 echo
                 echo "- Run: $RUN_URL"
               } > "$BODY_DIR/handoff-broken.md"
@@ -1363,63 +1803,218 @@ jobs:
                 || echo "::error::Could not even post the broken-handoff notice to PR #$PR."
               exit 0
               ;;
+            quota-skip)
+              # No verdict, because one reviewer never ran and its own job log says the
+              # allowance is spent. There are no findings to recover from that job, so
+              # there is nothing to hand to the steward — and an issue per pull request
+              # for a spent quota held up every merge for a day. Notice, no issue.
+              {
+                echo "## The steward was not woken, and no issue was filed"
+                echo
+                echo "There is no referee merge verdict on this pull request, because the"
+                echo "**${LOST_REVIEWER}-role** reviewer never ran. Its own job log says why:"
+                echo
+                echo "> \`${QUOTA_LINE_FROM_LOG}\`"
+                echo
+                echo "That is a spent allowance, not a lost review and not a dead runner. There are no"
+                echo "findings to recover from that job, so there is nothing to hand to the steward."
+                echo "A spent allowance refuses a re-run the same way until it resets. Waiting is the"
+                echo "answer, not another run."
+                echo
+                echo "**This pull request was reviewed once, not twice.** The review that did run is"
+                echo "posted above and stands on its own. Read it. A finding only the missing reviewer"
+                echo "would have raised is gone."
+                echo
+                echo "**To get the second opinion back:** once the reviewer can run, mark this pull"
+                echo "request as a draft and ready for review again. That toggle is the only re-run"
+                echo "trigger — a push starts nothing, and re-running the workflow run replays the"
+                echo "original event, so it reviews the commit that ran first."
+                echo
+                echo "- Run: $RUN_URL"
+              } > "$BODY_DIR/handoff-skipped-body.md"
+              gh pr comment "$PR" --repo "$REPO" --body-file "$BODY_DIR/handoff-skipped-body.md" \
+                || GH_TOKEN="$GH_TOKEN_INERT" gh pr comment "$PR" --repo "$REPO" \
+                     --body-file "$BODY_DIR/handoff-skipped-body.md"
+              echo "::warning::No verdict on PR #$PR because the ${LOST_REVIEWER}-role allowance is spent - posted a notice, filed no issue and did not wake the steward."
+              exit 0
+              ;;
           esac
 
           # -------------------------------------------------------------------
-          # The reviews and the referee take minutes, and a human can merge —
-          # or close — inside that window. Upstream, four open handoff issues
-          # asked an agent to apply findings and push to a branch that no
-          # longer existed; one was filed nineteen minutes after its pull
-          # request merged, another eleven. "Filed after merge" makes the
-          # INSTRUCTION stale, not the findings: a finding can still be true of
-          # the base branch after the merge. So a merged or closed pull request
-          # gets a RE-AIMED follow-up — judge each finding against the current
-          # base branch, land what still applies as a NEW pull request — filed
-          # with the INERT token, deliberately: waking the steward would only
-          # send it at a branch that is gone.
+          # NON-BLOCKING on an OPEN pull request: MARK it, file nothing.
           #
-          # An UNREADABLE state falls through to the normal handoff below —
-          # this step's standing rule is that a missing input must never read
-          # as "nothing to do".
+          # The findings are still REAL — dropping them is the stranded-finding failure
+          # this whole machinery exists to prevent, arriving through the front door. But
+          # an issue filed now is stale on arrival: the author usually fixes these on the
+          # branch within hours. So the pull request is labelled, the findings are posted
+          # on it under a heading the author can act on, and THE MERGE DECIDES: the
+          # merge-time sweep (docs/runbooks/review-followup-sweep.md) files the issue
+          # only if the label survived. Label and comment with the INERT token.
+          #
+          # If the label cannot be added there is no merge-time catch, so the follow-up is
+          # filed at once instead — never dropped.
           # -------------------------------------------------------------------
-          PR_STATE="$(gh pr view "$PR" --repo "$REPO" --json state --jq .state 2>/dev/null || echo UNREADABLE)"
-          if [ "$PR_STATE" = "MERGED" ] || [ "$PR_STATE" = "CLOSED" ]; then
-            MERGED_TITLE="[review-followup] Blocking findings on $PR_STATE PR #$PR"
+          if [ "$DECISION" = "mark" ]; then
+            gh label create review-followup-pending --repo "$REPO" --color FBCA04 \
+              --description "Non-blocking review findings the author clears before merge, or the sweep files at merge" \
+              >/dev/null 2>&1 || true
+            if GH_TOKEN="$GH_TOKEN_INERT" gh pr edit "$PR" --repo "$REPO" \
+                 --add-label review-followup-pending; then
+              {
+                echo "### Review follow-up: clear these before you merge"
+                echo
+                echo "The automatic reviews of this pull request raised findings, and the referee ruled"
+                echo "that **none of them has to be fixed before it merges**. Nothing was woken and no"
+                echo "issue was filed. This pull request now carries the label \`review-followup-pending\`."
+                echo
+                echo "- **Fix them here, then remove the label before you merge.** Nothing is filed and"
+                echo "  the loop ends. This is the cheap path, and the usual one."
+                echo "- **Leave the label on.** When this merges, the merge-time sweep files a"
+                echo "  \`[review-followup]\` issue against the base branch carrying the findings below,"
+                echo "  and somebody reads them later at a higher cost."
+                echo "- **Disagree with a finding?** Say so here and remove the label. A finding can be"
+                echo "  wrong, and writing down why is a valid outcome."
+                echo
+                echo "Reviews posted: **$REVIEWS_PRESENT**. Review run: $RUN_URL"
+                echo
+                cat "$FINDINGS"
+              } > "$BODY_DIR/review-followup-marker.md"
+              GH_TOKEN="$GH_TOKEN_INERT" gh pr comment "$PR" --repo "$REPO" \
+                --body-file "$BODY_DIR/review-followup-marker.md"
+              echo "Referee ruled non-blocking on open PR #$PR - marked it and filed nothing. The merge decides."
+              exit 0
+            fi
+            echo "::warning::Could not mark PR #$PR with review-followup-pending - filing the follow-up issue now instead, so the findings are not lost."
+            DECISION="followup"
+          fi
+
+          if [ "$DECISION" = "followup" ]; then
+            # Either the pull request is already merged or closed — so there is no merge
+            # left to catch it — or marking it failed. File now, with the INERT token:
+            # GitHub does not start workflow runs from GITHUB_TOKEN events, and the steward
+            # wakes on `issues.opened`. The token IS the switch.
+            if [ -n "$PR_GONE" ]; then
+              FOLLOWUP_TITLE="[review-followup] Non-blocking findings on $PR_GONE PR #$PR"
+            else
+              FOLLOWUP_TITLE="[review-followup] Non-blocking findings on PR #$PR"
+            fi
             OPEN="$(GH_TOKEN="$GH_TOKEN_INERT" gh issue list --repo "$REPO" --state open --limit 200 \
                       --json title --jq '.[].title' \
-                    | grep -cFx "$MERGED_TITLE" || true)"
+                    | grep -cFx "$FOLLOWUP_TITLE" || true)"
             if [ "$OPEN" != "0" ]; then
-              echo "A re-aimed follow-up for the $PR_STATE #$PR is already open - not filing another."
+              echo "A follow-up issue for #$PR is already open - not filing another."
               exit 0
             fi
             {
-              echo "The automatic reviews of **PR #$PR** - _${PR_TITLE}_ - raised findings the"
-              echo "referee ruled must be addressed, but the pull request is **$PR_STATE** and its"
-              echo "branch \`$HEAD_REF\` is gone — there is nothing to push to, so **this is NOT a"
-              echo "steward handoff and no agent has been woken.**"
+              echo "The automatic reviews of **PR #$PR** - _${PR_TITLE}_ - raised findings, and the"
+              echo "referee ruled that **none of them had to be fixed before that pull request merged**."
               echo
-              echo "A finding can still be true of the base branch after a merge. \"Filed after"
-              echo "merge\" makes the instruction stale, not the finding."
+              if [ -n "$PR_GONE" ]; then
+                echo "That pull request was already $PR_GONE when this ran${MERGED_AT:+ (merged \`$MERGED_AT\`)}, so"
+                echo "the findings are aimed at the base branch rather than at its branch."
+              else
+                echo "This pull request could not be labelled, so the merge-time sweep cannot pick it"
+                echo "up. Filed here instead rather than dropped."
+              fi
               echo
-              echo "**Task:** read the reviews on PR #$PR, judge each finding against the CURRENT"
-              echo "base branch, land whatever still applies as a **new** pull request, and close"
-              echo "this issue saying what was dropped and why."
+              echo "**Task:** decide which findings below are still true of the base branch, fix those,"
+              echo "and close this saying why for anything that no longer applies. A finding only one"
+              echo "reviewer raised is still a finding. Reviews posted: **$REVIEWS_PRESENT**."
               echo
               echo "- Pull request: $SERVER/$REPO/pull/$PR"
               echo "- Review run: $RUN_URL"
               echo
+              cat "$FINDINGS"
+              echo
               echo "Filed automatically by \`review.yml\`, with \`GITHUB_TOKEN\` deliberately, so"
-              echo "opening it wakes nobody at a branch that no longer exists."
-            } > "$BODY_DIR/review-followup-merged-body.md"
+              echo "opening it does not wake the steward. $KEEP_LINE"
+            } > "$BODY_DIR/review-followup-body.md"
 
+            gh label create agent-report --color BFD4F2 \
+              --description "Filed by the agent harness" 2>/dev/null || true
+            if GH_TOKEN="$GH_TOKEN_INERT" gh issue create --repo "$REPO" --title "$FOLLOWUP_TITLE" \
+                 --body-file "$BODY_DIR/review-followup-body.md" --label agent-report \
+               || GH_TOKEN="$GH_TOKEN_INERT" gh issue create --repo "$REPO" --title "$FOLLOWUP_TITLE" \
+                 --body-file "$BODY_DIR/review-followup-body.md"; then
+              echo "Referee ruled non-blocking on #$PR - filed a follow-up issue, woke nobody."
+              exit 0
+            fi
+            echo "::error::Could not file the follow-up issue for #$PR. Posting it as a PR comment so the findings are not lost."
+            GH_TOKEN="$GH_TOKEN_INERT" gh pr comment "$PR" --repo "$REPO" \
+              --body-file "$BODY_DIR/review-followup-body.md"
+            exit 0
+          fi
+
+          # -------------------------------------------------------------------
+          # The verdict wakes an agent, but the pull request is MERGED or CLOSED and
+          # its branch is gone — there is nothing to push to. A finding can still be
+          # true of the base branch after a merge, so the findings get a RE-AIMED
+          # follow-up: judge each against the current base branch, land what still
+          # applies as a NEW pull request. Filed with the INERT token, deliberately:
+          # waking the steward would only send it at a branch that is gone.
+          #
+          # The title states the verdict actually read. It used to say "Blocking
+          # findings" whatever the verdict was, and an issue filed that way was closed
+          # with "there is nothing to land".
+          # -------------------------------------------------------------------
+          if [ "$DECISION" = "reaim" ]; then
+            MERGED_TITLE="[review-followup] $REAIM_WORD findings on $PR_GONE PR #$PR"
+            OPEN="$(GH_TOKEN="$GH_TOKEN_INERT" gh issue list --repo "$REPO" --state open --limit 200 \
+                      --json title --jq '.[].title' \
+                    | grep -cFx "$MERGED_TITLE" || true)"
+            if [ "$OPEN" != "0" ]; then
+              echo "A re-aimed follow-up for the $PR_GONE #$PR is already open - not filing another."
+              exit 0
+            fi
+            {
+              echo "The automatic reviews of **PR #$PR** - _${PR_TITLE}_ - raised findings, but the"
+              echo "pull request is **$PR_GONE** and its branch \`$HEAD_REF\` is gone — there is nothing"
+              echo "to push to, so **this is NOT a steward handoff and no agent has been woken.**"
+              echo
+              case "$VERDICT" in
+                blocking)
+                  echo "The referee's merge verdict was **blocking**: at least one finding had to be"
+                  echo "fixed before this pull request merged. It merged anyway, so those findings may"
+                  echo "now be true of the base branch."
+                  ;;
+                undecided)
+                  echo "The referee's merge verdict was **undecided** — it could not tell whether"
+                  echo "anything here blocks. Read the findings before assuming there is work here."
+                  ;;
+                *)
+                  echo "> [!NOTE]"
+                  echo "> **The referee left no usable merge verdict** (\`${VERDICT:-<empty>}\`), so this"
+                  echo "> was filed by the fail-safe rather than by a ruling. Read the findings before"
+                  echo "> assuming there is work here — there may be none."
+                  ;;
+              esac
+              echo
+              echo "A finding can still be true of the base branch after a merge. \"Filed after"
+              echo "merge\" makes the instruction stale, not the finding."
+              echo
+              echo "**Task:** judge each finding below against the CURRENT base branch, land whatever"
+              echo "still applies as a **new** pull request, and close this issue saying what was"
+              echo "dropped and why."
+              echo
+              echo "- Pull request: $SERVER/$REPO/pull/$PR"
+              echo "- Review run: $RUN_URL"
+              echo
+              cat "$FINDINGS"
+              echo
+              echo "Filed automatically by \`review.yml\`, with \`GITHUB_TOKEN\` deliberately, so"
+              echo "opening it wakes nobody at a branch that no longer exists. $KEEP_LINE"
+            } > "$BODY_DIR/review-reaim-body.md"
+
+            gh label create agent-report --color BFD4F2 \
+              --description "Filed by the agent harness" 2>/dev/null || true
             GH_TOKEN="$GH_TOKEN_INERT" gh issue create --repo "$REPO" --title "$MERGED_TITLE" \
-              --body-file "$BODY_DIR/review-followup-merged-body.md" --label agent-report \
+              --body-file "$BODY_DIR/review-reaim-body.md" --label agent-report \
             || GH_TOKEN="$GH_TOKEN_INERT" gh issue create --repo "$REPO" --title "$MERGED_TITLE" \
-              --body-file "$BODY_DIR/review-followup-merged-body.md" \
+              --body-file "$BODY_DIR/review-reaim-body.md" \
             || GH_TOKEN="$GH_TOKEN_INERT" gh pr comment "$PR" --repo "$REPO" \
-              --body-file "$BODY_DIR/review-followup-merged-body.md"
+              --body-file "$BODY_DIR/review-reaim-body.md"
 
-            echo "PR #$PR is $PR_STATE - filed a re-aimed follow-up instead of a steward handoff."
+            echo "PR #$PR is $PR_GONE - filed a re-aimed follow-up instead of a steward handoff."
             exit 0
           fi
 
@@ -1482,6 +2077,13 @@ jobs:
                 echo "> issue was filed by the fail-safe rather than by a ruling. That is a defect in"
                 echo "> the referee worth reporting. Read the reviews before assuming there is work"
                 echo "> here — there may be none."
+                if [ -n "${LOST_REVIEWER:-}" ]; then
+                  echo ">"
+                  echo "> One reviewer (the ${LOST_REVIEWER} role) wrote nothing, and its job log did"
+                  echo "> not name a cause — so the cause is unknown, and this handoff is filed rather"
+                  echo "> than skipped. Had the log named a spent allowance, nothing would have been"
+                  echo "> filed."
+                fi
                 ;;
             esac
             echo
@@ -1490,10 +2092,10 @@ jobs:
             echo "comment whose sender is a Bot. Opening an issue is the one path that reaches"
             echo "the steward without weakening that loop guard."
             echo
-            echo "**Task:** read the reviews on PR #$PR, apply the findings that are correct,"
-            echo "and push to \`$HEAD_REF\`. Reply on the pull request explaining anything you"
-            echo "decline and why - a finding can be wrong, and disagreeing with it in writing"
-            echo "is a valid outcome. Do not merge (\`AGENTS.md\` guardrail 2)."
+            echo "**Task:** apply the findings below that are correct, and push to \`$HEAD_REF\`."
+            echo "Reply on the pull request explaining anything you decline and why - a finding"
+            echo "can be wrong, and disagreeing with it in writing is a valid outcome. Do not"
+            echo "merge (\`AGENTS.md\` guardrail 2)."
             echo
             echo "**Every review is already on the pull request before this issue is filed.**"
             echo "This ran after both reviewers and the referee, so nothing is still coming."
@@ -1508,9 +2110,22 @@ jobs:
               echo "> this issue would not have been filed at all and its findings would have"
               echo "> been lost."
             fi
+            if [ -n "$THREADS" ]; then
+              echo
+              echo "**Inline review threads to resolve.** Each finding below also exists as an open"
+              echo "review thread on the pull request. Fix it, then resolve that thread (mark it"
+              echo "resolved on the pull request, or with the GraphQL \`resolveReviewThread\`"
+              echo "mutation) so it stops sitting open once it is fixed."
+              echo
+              echo "$THREADS"
+            fi
             echo
             echo "- Pull request: $SERVER/$REPO/pull/$PR"
             echo "- Review run: $RUN_URL"
+            echo
+            cat "$FINDINGS"
+            echo
+            echo "$KEEP_LINE"
           } > "$BODY_DIR/steward-handoff-body.md"
 
           if [ "$TOKEN_TRIGGERS" != "true" ]; then

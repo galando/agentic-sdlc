@@ -82,9 +82,27 @@ test told it to return is worth nothing.
 | Ratchet guards / harness guards | A floor, threshold, exclude, freeze store, or a load-bearing string inside an agent workflow was changed | Almost always: put it back. These gates have exactly one job, which is to fail when the gauntlet itself is weakened. Editing the guard to match the change is the thing they exist to prevent. |
 | Diff-scoped mutation check | The tests execute your new code without asserting on it | Read the surviving mutants, add the assertions that kill them. |
 | Nightly mutation run | The same, over the whole codebase | Open the report artifact, find surviving mutants, add the killing assertions. Treat as S2. |
-| Nightly dependency scan | A dependency has a known advisory at or above the threshold | Upgrade the dependency. If no fix exists, escalate with the advisory id and a written exposure assessment. |
+| Nightly dependency scan | A dependency has a known advisory at or above the threshold | Upgrade the dependency. If no fix exists, escalate with the advisory id and a written exposure assessment. Do not dismiss a dependency finding on the score it prints: a scanner may compare several score versions separately and print only one, so a line shown as 7.1, or with no score at all, can be what failed the build. |
 | Nightly live external API contract tests | An upstream provider changed its response shape | Not a merge blocker, but it *is* a production risk. Investigate before the data goes stale. |
 | Nightly flaky-test detection | A test is nondeterministic | Fix the test, not the schedule. A flaky test means some share of every other gate's green runs was luck. |
+
+### Accepted exceptions — a red gate the operator has decided may stay red
+
+A red gate is not automatically an open problem. When the operator decides a gate may
+stay red for a stated reason — an advisory with no fix and a written exposure
+assessment, a scan that cannot run until a key is granted — the decision is recorded
+here, and the chief of staff's daily brief reports that gate **as accepted**, naming the
+issue that tracks it, instead of as failing (`agent-modes.md`, "The nightly gates have a
+reader"). Adding a row is a human decision in a pull request; it never lowers a floor
+and never edits the gate.
+
+**Every advisory ID is written in full; a shortened ID is read as unassessed.** The
+tracker issue is found by searching for the gate's `[nightly]` title, never by a number
+written here — the number goes stale while the gate stays red.
+
+| Gate | Accepted until | Advisory / reason, in full | Exposure assessment |
+|---|---|---|---|
+| _(none currently accepted)_ | — | — | — |
 
 ### When a check hangs `in_progress`
 

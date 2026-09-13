@@ -110,6 +110,8 @@ else in the gauntlet does.
 
 | Gate | Job | What a failure means |
 |---|---|---|
+| **Default-branch watch** — re-runs the FAST suite against the default branch's HEAD every four hours | `watch-main` (`main-watch.yml`) | Two independently green pull requests broke the default branch together, and nothing re-tested it after the merges. Every other gate reads one pull request's own diff; that reasoning holds for one pull request at a time, not for two. Red here means the default branch itself is broken now, whatever every merged pull request said |
+| **Fleet heartbeat** — every enabled scheduled agent has written a ledger entry since its last due slot | `watch-fleet-heartbeat` (`fleet-heartbeat.yml`) | The scheduler stopped, the runner label points at nothing, the provider refused every run, or the agents' own model budget is spent — and the agents that would normally notice are the ones that stopped. A **broken watch** (an unreadable ledger branch, a schedule it cannot parse) is red too, never a quiet green, because a fault must not be mistaken for a healthy fleet |
 | **CI health watch** — self-hosted runner liveness + hosted-minutes allowance | `watch-ci-health` | CI itself is degraded. A runner **offline** means the queue has stopped draining, and no other check will go red to tell you — that silence is the whole reason this exists. **Minutes** at or above the threshold is a countdown: at 100% every hosted job dies within seconds with no runner assigned, which reads as a mystery fault rather than the predictable state it is. A `::warning::` on a **green** run is neither — that is a could-not-check, and it means the watch is blind, not that something is wrong |
 
 Three properties of that job are load-bearing and easy to undo:
@@ -367,8 +369,14 @@ does not run is the exact failure this directory was built to prevent:
 Worked examples in this repository: `review-collector.bats` (runs the workflow's real `jq`
 programs against crafted comment fixtures), `steward-handoff-closure.bats` (runs the
 workflow's real JavaScript against a stubbed API), `referee-diff-pin.bats` (runs the real
-fetch script against a stubbed `gh`), and `referee-missing-review-notice.bats` (runs the
-real notice block and reads what it rendered).
+fetch script against a stubbed `gh`), `referee-missing-review-notice.bats` (runs the
+real notice block and reads what it rendered), `notifier-findings.bats` (runs the shared
+notifier's real JavaScript and proves a repeat finding adds no comment), and
+`steward-pr-open.bats` (runs the real pull-request-open step against a `gh` whose lookup
+fails, and proves nothing is opened). The review follow-up sweep
+(`tools/review-followup-sweep.sh`, `tests/review-followup-sweep.bats`) and the fleet
+heartbeat (`tools/check-heartbeat.sh`, `tests/check-heartbeat.bats`) follow the other
+shape: a tested script and a thin workflow, so "it did NOT file" is an assertion.
 
 Prefer extracting the logic into `tools/` when it is big enough to deserve a name — a
 script is easier to test than a step body, and the guard then needs no extraction at all.

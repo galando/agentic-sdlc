@@ -365,3 +365,46 @@ refresh_clone() { # after seeding more branches
   [ "$status" -eq 0 ]
   [[ "$output" == *"deferred:      1"* ]]
 }
+
+@test "two --prefix flags sweep both fleets' branches; a branch under neither is untouched" {
+  make_branch agent/fix-a-20260820 200 "fix(q): first fleet's work"
+  make_branch other/fix-b-20260820 200 "fix(r): second fleet's work"
+  make_branch feature/human-wip 200 "wip: a person's working branch"
+  refresh_clone
+  run_sweep --prefix agent/ --prefix other/
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"sweeping: agent/ other/"* ]]
+  [[ "$output" == *"opened   agent/fix-a-20260820"* ]]
+  [[ "$output" == *"opened   other/fix-b-20260820"* ]]
+  [ "$(grep -c "gh pr create" "$GH_STUB_DIR/calls.log")" -eq 2 ]
+  # The human's branch matches no prefix: never looked up, never opened.
+  ! grep -q "feature/human-wip" "$GH_STUB_DIR/calls.log"
+  [[ "$output" != *"feature/human-wip"* ]]
+}
+
+@test "one --prefix still works exactly as before, and the default is agent/" {
+  make_branch agent/fix-c-20260820 200 "fix(s): one fleet's work"
+  make_branch other/fix-d-20260820 200 "fix(t): the other fleet's work"
+  refresh_clone
+  run_sweep --prefix agent/
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"opened   agent/fix-c-20260820"* ]]
+  [[ "$output" != *"other/fix-d-20260820"* ]]
+  [ "$(grep -c "gh pr create" "$GH_STUB_DIR/calls.log")" -eq 1 ]
+  # No --prefix at all means agent/ alone — the workflow's default before the
+  # flag became repeatable.
+  : > "$GH_STUB_DIR/calls.log"
+  run_sweep
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"sweeping: agent/"* ]]
+  [[ "$output" != *"other/fix-d-20260820"* ]]
+  [ "$(grep -c "gh pr create" "$GH_STUB_DIR/calls.log")" -eq 1 ]
+}
+
+@test "an overlapping prefix pair considers each branch once — never a second pull request" {
+  make_branch agent/fix-e-20260820 200 "fix(u): overlap work"
+  refresh_clone
+  run_sweep --prefix agent/ --prefix agent/fix-
+  [ "$status" -eq 0 ]
+  [ "$(grep -c "gh pr create" "$GH_STUB_DIR/calls.log")" -eq 1 ]
+}

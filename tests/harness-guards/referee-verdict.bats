@@ -401,7 +401,12 @@ verdict_path() {
   # guard that breaks when someone adds or removes a backtick teaches people to delete it.
   run grep -qiE '`?blocking`? and `?undecided`? both wake' "$PROMPT"
   [ "$status" -eq 0 ]
-  run grep -qiE '`?non-blocking`? files a follow-up' "$PROMPT"
+  run grep -qiE '`?non-blocking`? wakes nobody' "$PROMPT"
+  [ "$status" -eq 0 ]
+  # And it says what non-blocking DOES: marks an open pull request, files on a merged one.
+  run grep -q 'review-followup-pending' "$PROMPT"
+  [ "$status" -eq 0 ]
+  run grep -qi 'the merge decides' "$PROMPT"
   [ "$status" -eq 0 ]
 }
 

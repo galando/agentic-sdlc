@@ -1,0 +1,64 @@
+# .github/dependabot.yml — keep the lockfiles moving without a human.
+#
+# Why this exists: the nightly dependency CVE gate (gate 16) runs against an
+# UNCHANGED lockfile, so it goes red the day a new advisory is published, not the
+# day anyone changes anything — and on a repository whose scheduled agents are
+# still shipped off, nothing then moves the lockfile except a person. The
+# template's own nightly sat red for eleven days on two transitive dev
+# dependencies whose fixes were one `npm audit fix` away. A weekly grouped bump
+# proposes that fix as a pull request; the gauntlet and the two reviews judge it;
+# a human merges it — the same loop as every other change.
+#
+# Dependabot and the dependency-steward agent are not rivals: the bot proposes
+# version bumps mechanically, the agent reads what the bumps mean (a changelog, a
+# breaking change, a transitive advisory the bot cannot reach) and writes it down.
+#
+# Paths target the bundled example; tools/adopt-layout.sh re-points them at
+# backend/ and frontend/ when the example is retired. Delete a stanza whose
+# ecosystem your product does not use — a directory Dependabot cannot find is a
+# warning in the repository's Insights tab, never a failed check.
+version: 2
+
+updates:
+  - package-ecosystem: "maven"
+    directory: "/examples/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    # Minor and patch bumps travel together; a major bump gets its own pull
+    # request so a breaking change is reviewed on its own.
+    groups:
+      java-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "npm"
+    directory: "/examples/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    groups:
+      actions-deps:
+        patterns:
+          - "*"

@@ -20,14 +20,28 @@ permission, not a promise. **Proof it works:**
 [agentic-sdlc-demo](https://github.com/galando/agentic-sdlc-demo), a real
 product adopted from this template with the adoption logged step by step.
 
-## Four doors in
+## One command in
+
+From inside **any** git repository — a fresh one, or one with years of code in it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/galando/agentic-sdlc/main/tools/bootstrap.sh | bash -s -- --product "My Product"
+```
+
+No questions. It installs the harness beside your files (never over them), answers the
+interview with printed defaults, verifies with the shipped checkers, and ends with the
+four things only you can do: commit and push, add one secret, tick one GitHub setting,
+open issue #1. Nothing is pushed and nothing leaves your machine. `--dry-run` shows the
+plan first; re-running it is safe. (`tools/bootstrap.sh --help` for `--provider`,
+`--source`, `--ref`.)
+
+Other ways in, same destination:
 
 | You are… | Do this |
 |---|---|
-| **Starting a new repo** | Click **Use this template**, then run `tools/adopt.sh` — one resumable command that walks the whole adoption and never acts without your yes. Target: first merged agent loop in ~30 minutes. |
-| **Bringing an existing repo** | From a template clone: `tools/upgrade.sh --install /path/to/your-repo`. Copies the harness in, never overwrites your files, and stamps a manifest so future template releases are a computable three-way merge. |
+| **Starting from the template** | Click **Use this template**, clone, run `tools/bootstrap.sh --product "My Product"`. Then `tools/adopt.sh` when you want the guided walk through the GitHub-side steps — it never acts without your yes. |
 | **Sending your agent** | Hand Claude Code / Codex this repo and say *"read `ONBOARDING.md` and adopt this."* `profiles/` has ready answer files — a platform team can publish one internal profile so every team adopts with a single command. |
-| **Just looking** | Open in a devcontainer/Codespace: `tools/demo-local.sh` runs the ~650-test suite, the adoption map, and a dry-run agent command — three minutes, offline, zero credentials. |
+| **Just looking** | Open in a devcontainer/Codespace: `tools/demo-local.sh` runs the ~900-test suite, the adoption map, and a dry-run agent command — three minutes, offline, zero credentials. |
 
 Not ready to hand over write access? Set `mode: observe` in
 `.agents/config.yml`: the whole fleet runs report-only for a trial week —
@@ -47,16 +61,21 @@ because observe runs simply never receive a write token.
   with **ratcheted floors calibrated to *your* codebase**, never someone
   else's. Floors ship as loud `unset` sentinels until `tools/measure-floors.sh`
   measures *your* baseline; from then on they only move up.
-- **Eleven scheduled agents** (health, quality, audit, chief-of-staff,
+- **Twelve scheduled agents** (health, quality, audit, chief-of-staff,
   challenger, docs freshness, backlog groomer, test gap, dependency steward,
-  code hygiene, release drafter) — all shipped **off**, enabled one at a time
-  when you're ready.
+  code hygiene, release drafter, and an opt-in merger that merges only under a
+  written bar you control) — all shipped **off**, enabled one at a time when
+  you're ready.
+- **Three watches that look where nothing else looks**: the default branch
+  after merges, the agent fleet from *outside* it, and CI's own runners and
+  minutes — each scheduled, each alerting through one tracking issue that names
+  what it found and stays quiet when the findings have not changed.
 - **A second brain** (`docs/knowledge/`): agents propose distilled lessons as
   cards, a human merges them, and every future session reads the 80-line
   index first. History (ledgers), knowledge (cards), and steering
   (`agent-modes.md`) are three memory tiers separated by *write permission* —
   the template's signature idea.
-- **~650 tests that test the machine itself**: 129 incident-derived lessons
+- **~900 tests that test the machine itself**: 176 incident-derived lessons
   pinned so they cannot be lost quietly, plus executable guards on the
   agents' own plumbing.
 - **Provider-neutral by construction**: models are addressed by role (judge /
@@ -81,7 +100,7 @@ because observe runs simply never receive a write token.
 
 ## Turning on the routines
 
-The eleven scheduled agents ship disabled — nobody should meet this system as eleven
+The twelve scheduled agents ship disabled — nobody should meet this system as twelve
 crons and an alert firehose. Dry-run each one first
 (`tools/run-agent.sh <agent> --dry-run` prints the exact command and invokes
 nothing), then flip its `enabled: true` in `.agents/config.yml`, one at a
@@ -101,8 +120,10 @@ prints the map with your position on it.
 
 ## When to use something else
 
-Solo prototyping doesn't need a gauntlet. If you want unattended merges, this
-is deliberately the wrong tool — the human merge *is* the design. If you only
+Solo prototyping doesn't need a gauntlet. If you want unattended merges with no
+written bar, this is deliberately the wrong tool — the human merge *is* the
+default, and the opt-in merger only ever merges what a human-written bar in
+`agent-modes.md` allows. If you only
 want spec discipline or dependency bumps, a spec tool or Renovate alone is
 lighter. This template is for teams who want autonomous agents doing real
 work *and* a mechanical reason to trust every change that lands.

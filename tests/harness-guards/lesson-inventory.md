@@ -1,6 +1,6 @@
 # Lesson inventory
 
-_Captured 2026-08-05 against source head `9589c5c65a0baca02a9436b3f472929531e91a88`. 129 entries: 98 `regex`, 8 `literal`, 23 `semantic-manual`._
+_Captured 2026-08-05 against source head `9589c5c65a0baca02a9436b3f472929531e91a88`. 176 entries: 98 `regex`, 55 `literal`, 23 `semantic-manual`._
 
 _Addendum 2026-08-12: eight `literal` entries were added — three for the second brain
 (Part A of PR #18's design; spec at `.temper/specs/second-brain-and-sdlc-extension/`) and five for the SDLC-extension
@@ -1065,3 +1065,451 @@ _10 entries: 9 mechanical, 1 semantic-manual._
 - **Pin kind:** `literal` — `human can read and decide about. **You never tag, publish, or otherwise perform a`
 
 - **Lesson:** Every other agent in this fleet is barred from merging its own work; the release drafter's equivalent boundary is that it drafts and a human tags. Losing this line is the one way this agent's job description could silently expand into the one irreversible action nothing else in the fleet is allowed to take either.
+
+## Addendum 2026-09-13 — the 0.5.0 upstream sync
+
+_Forward-looking `literal` pins on live tree content, added with the lessons the running system learned between 2026-08-20 and 2026-09-13 (CHANGELOG 0.5.0). Like the 2026-08-12 addendum they guard against a FUTURE regression and are not evidence about the original extraction._
+
+## `.github/workflows/nightly-alert.yml` → `.github/workflows/nightly-alert.yml`
+
+### `notifier-findings-line`
+
+- **Source:** `.github/workflows/nightly-alert.yml:169`
+
+- **Pin kind:** `literal` — `const findingsLine = \`**What this run found:** ${findings}\`;`
+
+- **Lesson:** A tracking issue that gains a byte-identical comment every run cannot tell an accepted red from a new finding; the template's own nightly dependency scan sat red for eleven days that way. Callers that can say what they found pass it as `findings`, and this line is the one the body carries and the dedupe below compares.
+
+
+### `notifier-unchanged-findings-no-comment`
+
+- **Source:** `.github/workflows/nightly-alert.yml:219`
+
+- **Pin kind:** `literal` — `unchanged = (last || '').split('\n').includes(findingsLine);`
+
+- **Lesson:** The dedupe compares this run's findings line with the LAST comment on the thread, exactly, and adds nothing when they match: the one run whose findings changed must not be buried under identical comments. Comparing against the whole body, or fuzzily, would either never match or hide a real change.
+
+
+### `notifier-empty-findings-never-dedupes`
+
+- **Source:** `.github/workflows/nightly-alert.yml:211`
+
+- **Pin kind:** `literal` — `if (findings) {`
+
+- **Lesson:** An empty findings line means the caller could not say what it found, so every run is news and nothing may be deduped against it. Deduping on emptiness would silence every caller that passes no findings after its first failure.
+
+
+### `notifier-stale-cadence-retitled`
+
+- **Source:** `.github/workflows/nightly-alert.yml:161`
+
+- **Pin kind:** `literal` — `brought in line, otherwise the title keeps the old word forever`
+
+- **Lesson:** A caller whose cadence word changes must find the thread it was already commenting on and retitle it, or the title keeps the old word while every comment under it reads the new one, and the old thread stays open with nobody commenting on it.
+
+## `.github/workflows/nightly.yml` → `.github/workflows/nightly.yml`
+
+### `nightly-notifier-fires-on-cancelled`
+
+- **Source:** `.github/workflows/nightly.yml:473`
+
+- **Pin kind:** `literal` — `'cancelled' IS listed, and only because this workflow sets`
+
+- **Lesson:** With cancel-in-progress: false a cancelled result can only mean the job hit its own timeout wall, and a gate that hangs past its budget is as red as one that fails. The two settings are a pair: listing cancelled under cancel-in-progress: true would page on every superseded run.
+
+
+### `nightly-dependency-scan-names-advisories`
+
+- **Source:** `.github/workflows/nightly.yml:538`
+
+- **Pin kind:** `literal` — `findings: ${{ needs.nightly-dependency-scan.outputs.findings }}`
+
+- **Lesson:** The dependency gate's own UNALLOWLISTED / STALE lines are the findings the alert names, so a red issue says which advisory rather than that something is red — and the same advisory on a later night adds no comment.
+
+## `.github/workflows/secret-scan.yml` → `.github/workflows/secret-scan.yml`
+
+### `secret-scan-upload-off-never-move-home`
+
+- **Source:** `.github/workflows/secret-scan.yml:67`
+
+- **Pin kind:** `literal` — `GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false`
+
+- **Lesson:** On a self-hosted runner the workspace is not under HOME, so a clean scan failed its own artifact upload. The first fix moved HOME, which made git refuse the checkout and gitleaks scan zero bytes while reporting no leaks — the one failure this gate cannot have. Turning the upload off is the fix; a HOME override here must never come back.
+
+## `.github/workflows/fleet-heartbeat.yml` → `.github/workflows/fleet-heartbeat.yml`
+
+### `fleet-heartbeat-hosted-runner-literally`
+
+- **Source:** `.github/workflows/fleet-heartbeat.yml:56`
+
+- **Pin kind:** `literal` — `    runs-on: ubuntu-latest`
+
+- **Lesson:** The fleet is watched from OUTSIDE it, on the hosted runner, because a scheduler or runner that stops every agent at once cannot make the agents' own watcher ring report anything. Routing this job through a *_RUNNER variable would schedule the watchdog onto the thing it watches.
+
+
+### `fleet-heartbeat-broken-watch-is-not-overdue-agents`
+
+- **Source:** `.github/workflows/fleet-heartbeat.yml:117`
+
+- **Pin kind:** `literal` — `this is NOT a report of overdue agents`
+
+- **Lesson:** A watch that cannot read the ledger or parse a schedule has checked nothing, and reporting that as a healthy fleet is the exact failure it exists to end. The broken watch is a separate issue and a red job, worded so a reader does not go looking for a dead agent.
+
+## `.github/workflows/main-watch.yml` → `.github/workflows/main-watch.yml`
+
+### `main-watch-cancelled-is-red`
+
+- **Source:** `.github/workflows/main-watch.yml:117`
+
+- **Pin kind:** `literal` — `needs.watch-main.result == 'failure' || needs.watch-main.result == 'cancelled'`
+
+- **Lesson:** Two independently green pull requests broke the default branch together and nothing re-tested it after the merges. This watch re-runs the FAST suite against HEAD on a schedule, and with cancel-in-progress: false a cancelled result can only mean the suite hung past its budget, which is as red as a failure.
+
+## `tools/bootstrap.sh` → `tools/bootstrap.sh`
+
+### `bootstrap-never-reads-stdin`
+
+- **Source:** `tools/bootstrap.sh:147`
+
+- **Pin kind:** `literal` — `bash "$TARGET/tools/init.sh" --defaults </dev/null`
+
+- **Lesson:** The one-command adoption may itself be running from a pipe (curl | bash), where stdin IS the script text. The interview's yes/no offers must therefore never read stdin, or a line of the script would be taken as an answer to an rm -rf offer.
+
+## `tools/adopt-layout.sh` → `tools/adopt-layout.sh`
+
+### `dependabot-repointed-by-adopt-layout`
+
+- **Source:** `tools/adopt-layout.sh:73`
+
+- **Pin kind:** `literal` — `"$ROOT/.github/dependabot.yml" \`
+
+- **Lesson:** Dependabot's directories sit outside .github/workflows, so a layout sweep scoped to the workflows leaves the bot bumping example paths that no longer exist. The nightly CVE gate depends on the lockfile moving without a human, which is what the bot is for.
+
+## `.github/workflows/review-followup-sweep.yml` → `.github/workflows/review-followup-sweep.yml`
+
+### `review-followup-sweep-token-is-the-switch`
+
+- **Source:** `.github/workflows/review-followup-sweep.yml:73`
+
+- **Pin kind:** `literal` — `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`
+
+- **Lesson:** An issue opened with GITHUB_TOKEN starts no workflow, so the follow-up issue the sweep files wakes nobody. That is the design: the findings were ruled non-blocking and survived a merge, so they are a backlog item for the groomer, never a steward handoff. A PAT here would wake the steward for exactly the findings it was ruled not to act on.
+
+
+### `review-followup-sweep-one-group`
+
+- **Source:** `.github/workflows/review-followup-sweep.yml:48`
+
+- **Pin kind:** `literal` — `group: review-followup-sweep`
+
+- **Lesson:** The sweep's dedupe is check-then-create with no lock. Two runs in parallel (a close event and the daily scan) would both see no open issue and both file one, so every run shares one concurrency group.
+
+
+### `review-followup-sweep-gates-nothing-hosted`
+
+- **Source:** `.github/workflows/review-followup-sweep.yml:56`
+
+- **Pin kind:** `literal` — `runs-on: ubuntu-latest`
+
+- **Lesson:** The sweep gates nothing, so it must never sit ahead of the pull-request gates in a self-hosted queue; it runs on the hosted runner rather than through PR_RUNNER.
+
+## `tools/review-followup-sweep.sh` → `tools/review-followup-sweep.sh`
+
+### `review-followup-sweep-loop-reads-a-file`
+
+- **Source:** `tools/review-followup-sweep.sh:367`
+
+- **Pin kind:** `literal` — `done < "$LIST"`
+
+- **Lesson:** A loop fed by a pipe runs in a subshell, and a FAILED flag set inside it never reaches the exit code: a scan that could not file one issue would report success. Reading the list from a file keeps the flag in the main shell.
+
+
+### `review-followup-sweep-unreadable-labels-files`
+
+- **Source:** `tools/review-followup-sweep.sh:307`
+
+- **Pin kind:** `literal` — `"LABELS:" +`
+
+- **Lesson:** An unreadable pull request must be distinguishable from one whose label was cleared: both would otherwise read as an empty label list and the sweep would stay quiet. The prefix makes the unreadable case visible, and the sweep FILES in that case rather than assuming the label was cleared.
+
+
+### `review-followup-sweep-failed-list-is-not-a-backstop`
+
+- **Source:** `tools/review-followup-sweep.sh:354`
+
+- **Pin kind:** `literal` — `::error::Could not list closed pull requests carrying`
+
+- **Lesson:** The daily scan exists because a merge made with GITHUB_TOKEN starts no run. A scan whose only input failed and that then reports success is not a backstop; it exits 1 and files nothing.
+
+
+### `review-followup-sweep-author-by-type`
+
+- **Source:** `tools/review-followup-sweep.sh:151`
+
+- **Pin kind:** `literal` — `(.user.type // "") == "Bot"`
+
+- **Lesson:** The referee comparison the sweep embeds is found by the author's account TYPE and the referee's fixed heading, never by a login: a login can be renamed and re-registered, and the template cannot know an adopter's bot account names.
+
+## `.github/workflows/steward.yml` → `.github/workflows/steward.yml`
+
+### `steward-close-keys-on-account-type`
+
+- **Source:** `.github/workflows/steward.yml:476`
+
+- **Pin kind:** `literal` — `c => c.author && c.author.type === 'Bot');`
+
+- **Lesson:** A finished handoff run pushes to the pull request's existing branch and often loses its closing reply, so commits on that branch are the third outcome signal. The CLOSE keys on the commit's resolved GitHub account type, never on the git author name: the first version matched the name, and the close path was dead in production while a stub that also matched the name could not see it.
+
+
+### `steward-commit-signal-scoped-to-handoff`
+
+- **Source:** `.github/workflows/steward.yml:439`
+
+- **Pin kind:** `literal` — `const prRef = issueTitle.startsWith('[steward-handoff]')`
+
+- **Lesson:** A [review-lost] issue is also titled with a pull request number, and a commit on that branch is somebody else's work. Counting commits as the steward's outcome is scoped to handoff issues only, or a human's push would close an issue nobody meant to close.
+
+
+### `steward-pr-lookup-exit-status-decides`
+
+- **Source:** `.github/workflows/steward.yml:315`
+
+- **Pin kind:** `literal` — `|| LOOKUP_RC=$?`
+
+- **Lesson:** A failed does-a-pull-request-exist lookup and a genuine no-pull-request answer are both an empty string inside $(...). Acting on the wrong one opens a duplicate. The lookup's exit status decides, never its output, and a failure opens nothing and names the sweep as the repair.
+
+## `.github/workflows/parked-branch-sweep.yml` → `.github/workflows/parked-branch-sweep.yml`
+
+### `parked-sweep-prefix-explicit-and-tight`
+
+- **Source:** `.github/workflows/parked-branch-sweep.yml:117`
+
+- **Pin kind:** `literal` — `--prefix agent/`
+
+- **Lesson:** The prefix is repeatable so an adapter that names branches differently can be swept too, and it must stay tight: a broad prefix would also sweep a human's interactive session branches and open pull requests for work nobody finished.
+
+## `tools/sweep-parked-branches.sh` → `tools/sweep-parked-branches.sh`
+
+### `parked-sweep-one-for-each-ref-over-all-patterns`
+
+- **Source:** `tools/sweep-parked-branches.sh:422`
+
+- **Pin kind:** `literal` — `"${PATTERNS[@]}"`
+
+- **Lesson:** All prefixes go into one for-each-ref call so an overlapping pair (agent/ and agent/fix-) lists a ref once; one call per prefix would sweep the same branch twice and open a second pull request, which is the first of the sweep's three nevers.
+
+## `tools/ledger.sh` → `tools/ledger.sh`
+
+### `ledger-not-done-needs-a-named-stop`
+
+- **Source:** `tools/ledger.sh:225`
+
+- **Pin kind:** `literal` — `not_done reason must be one of guardrail, cap, operator-only, blocked-by:#N, not-reproducible or clock`
+
+- **Lesson:** An agent never punts: work inside its rights and caps is done in this run, and anything left undone names one of six fixed stops. A prompt cannot enforce that, so the ledger write refuses an entry whose stop is 'later', 'next run' or 'a human decides'. Losing this gate lets punts back into the ledger, where the chief of staff reads them as decisions.
+
+
+### `ledger-validate-only-costs-no-clone`
+
+- **Source:** `tools/ledger.sh:232`
+
+- **Pin kind:** `literal` — `entry is valid (not written)`
+
+- **Lesson:** Every ledger harness validates an entry without a network clone through this one contract line; the not_done, ping and fix_verified gates all sit before it. A validate-only that cloned would make every test of the gates a network test.
+
+
+### `ledger-same-day-narrative-appends`
+
+- **Source:** `tools/ledger.sh:326`
+
+- **Pin kind:** `literal` — `## Run %d — %sZ`
+
+- **Lesson:** Two runs by the same agent on one date share one narrative path; a copy deleted the first run's evidence while both JSONL lines still pointed at it. The second run appends under a numbered heading, and the number counts that date's entries that carry a narrative, so a run with none does not advance it.
+
+## `docs/runbooks/agent-routines.md` → `docs/runbooks/agent-routines.md`
+
+### `ping-never-a-second-ledger-entry`
+
+- **Source:** `docs/runbooks/agent-routines.md:309`
+
+- **Pin kind:** `literal` — `never append a second entry to carry`
+
+- **Lesson:** The run summary is sent after the ledger append, so its message id does not exist at write time; ping.summary records intent only. The template's own rule asked for the id, and upstream three agents obeyed it by writing a second entry every day, spending their one deliverable on bookkeeping and pushing a real run out of every sibling's read window.
+
+## `docs/runbooks/agent-modes.md` → `docs/runbooks/agent-modes.md`
+
+### `second-pull-request-is-never-a-guardrail-stop`
+
+- **Source:** `docs/runbooks/agent-modes.md:349`
+
+- **Pin kind:** `literal` — `is not a valid \`not_done\` reason for a second pull`
+
+- **Lesson:** The branch a session starts on never caps how many pull requests it may open; a second pull request needs a second agent/ branch, and creating one is ordinary work. Upstream a quality agent left its second fix slot empty twice with reason 'guardrail' because its session started on a platform-assigned branch — the correct instruction existed one clause away from where it was looking.
+
+
+### `parked-row-done-test`
+
+- **Source:** `docs/runbooks/agent-modes.md:85`
+
+- **Pin kind:** `literal` — `A row is deleted by whoever notices it is done`
+
+- **Lesson:** 'Done' means the work the row names is finished, never that its issue is closed: a pull request can land half a fix and say so, the merge closes the issue anyway, and a later run deletes the row on the strength of the closed issue. Two days later the work existed nowhere.
+
+
+### `never-edit-a-machine-filed-body`
+
+- **Source:** `docs/runbooks/agent-modes.md:741`
+
+- **Pin kind:** `literal` — `Never edit a machine-filed issue body. Comment instead.`
+
+- **Lesson:** GitHub keeps no readable history of a body edit. The filed body is the record of what the machine saw; an agent's reasoning goes in a comment, where both survive. Three closing agents overwrote filed bodies upstream before this rule existed.
+
+
+### `band-checklist-is-seven-checks`
+
+- **Source:** `docs/runbooks/agent-modes.md:555`
+
+- **Pin kind:** `literal` — `check seven things about it`
+
+- **Lesson:** The band checklist grew from four checks to seven as upstream kept scoring working fixes as failed: a band must say what a working fix would read, name the served state and require the deciding step to have completed, and name the deciding job and check it could have run in the window. A job that did not run is unscoreable, never a refutation.
+
+## `.agents/prompts/merger.md` → `.agents/prompts/merger.md`
+
+### `merger-never-arms-auto-merge`
+
+- **Source:** `.agents/prompts/merger.md:49`
+
+- **Pin kind:** `literal` — `Never arm the host's auto-merge`
+
+- **Lesson:** Auto-merge would merge with no verdict read, no post-merge checks read, and no hold brake — every guard the merger exists to apply. The merger merges one pull request at a time, itself, and reads the default branch's own checks before the next.
+
+
+### `merger-never-replays-over-a-lock`
+
+- **Source:** `.agents/prompts/merger.md:41`
+
+- **Pin kind:** `literal` — `Never replay your commit over`
+
+- **Lesson:** The merger's lock is decided by a rejected push on the ledger branch. ledger.sh may replay its commit because each agent appends to its own file; a lock file has no such property, and a replay would let two merger sessions run at once.
+
+## `.agents/prompts/chief-of-staff.md` → `.agents/prompts/chief-of-staff.md`
+
+### `chief-of-staff-finds-the-tracker-by-search`
+
+- **Source:** `.agents/prompts/chief-of-staff.md:50`
+
+- **Pin kind:** `literal` — `find the tracker by searching`
+
+- **Lesson:** A tracker number written into a runbook closed twice upstream while the runbook kept naming it, and the daily brief reported a red gate as an open problem when it was an accepted exception. The reader checks the accepted-exception list first, finds the open tracker by search, and reads the latest scheduled run's own conclusion.
+
+## `.github/agent-temper-headless.md` → `.github/agent-temper-headless.md`
+
+### `headless-never-deletes-evidence-to-pass-a-gate`
+
+- **Source:** `.github/agent-temper-headless.md:131`
+
+- **Pin kind:** `literal` — `Never delete or clear evidence to pass a gate.`
+
+- **Lesson:** A fix run that finds and fixes its own critical finding must mark the finding resolved so the gate stops counting it; the row stays as the record of what was found. Without a resolve verb the run parks. Deleting evidence to get green is the one move that makes the gate meaningless.
+
+## `AGENTS.md` → `AGENTS.md`
+
+### `secret-never-in-argv`
+
+- **Source:** `AGENTS.md:82`
+
+- **Pin kind:** `literal` — `Never pass a secret as a command-line argument`
+
+- **Lesson:** A key in argv is readable by every process on the box, and a session's permission classifier can refuse a command that carries one — upstream it refused the challenge recipe outright. Secrets reach a script through the environment.
+
+## `.github/workflows/review.yml` → `.github/workflows/review.yml`
+
+### `review-quota-wordings-defined-once`
+
+- **Source:** `.github/workflows/review.yml:92`
+
+- **Pin kind:** `literal` — `REVIEW_QUOTA_WORDINGS:`
+
+- **Lesson:** The alternation of provider refusal wordings is read by three steps; a wording missing from one copy made a notice call the cause unknown while the log stated it. One workflow-level definition, no copies.
+
+
+### `reviewer-exit-status-is-read`
+
+- **Source:** `.github/workflows/review.yml:347`
+
+- **Pin kind:** `literal` — `REVIEW_OUTCOME: ${{ steps.reviewer.outcome }}`
+
+- **Lesson:** A reviewer that failed wrote no review; one that succeeded and posted nothing wrote one and lost it. Same symptom, opposite answers: the first posts a notice and files nothing, the second files a lost-review issue. Without the step id and its outcome the workflow could only ever give the second answer.
+
+
+### `review-skip-reason-exported-not-inferred`
+
+- **Source:** `.github/workflows/review.yml:116`
+
+- **Pin kind:** `literal` — `skipped_reason: ${{ steps.lost.outputs.skipped_reason }}`
+
+- **Lesson:** A skipped reviewer is not a lost review, and a skip is not symmetric. The review job exports why it went quiet and the referee reads that, instead of inferring a lost review from an empty body and calling a real second review 'nothing to compare'.
+
+
+### `review-lost-dedupe-anchored-across-wordings`
+
+- **Source:** `.github/workflows/review.yml:586`
+
+- **Pin kind:** `literal` — `grep -cE "^\[review-lost\] .* on PR #$PR\$"`
+
+- **Lesson:** Both lost-review steps dedupe on one anchored regex over every wording for the pull request, client-side: GitHub's search tokenises '#96' and would match PR #963, and a grep on the step's own title lets the two steps file twice for the same pull request.
+
+
+### `review-collector-third-home-formal-reviews`
+
+- **Source:** `.github/workflows/review.yml:1118`
+
+- **Pin kind:** `literal` — `pulls/$PR/reviews" --paginate --slurp`
+
+- **Lesson:** A review can land as a conversation comment, an inline comment, or a formal review body. Three inline findings went in and one came out upstream because the collector read one shape and kept the last item. All three endpoints are read and every marked item is kept.
+
+
+### `review-collector-keeps-every-item`
+
+- **Source:** `.github/workflows/review.yml:1194`
+
+- **Pin kind:** `literal` — `join("\n\n---\n\n")`
+
+- **Lesson:** Every marked item a reviewer posted is joined into the review, never '| last': a posting path that splits findings across comments must not lose all but one, and the referee, the verdict, the handoff and the sweep all read this one text.
+
+
+### `review-lost-log-read-once`
+
+- **Source:** `.github/workflows/review.yml:1357`
+
+- **Pin kind:** `literal` — `Read the lost reviewer's job log once`
+
+- **Lesson:** Two steps that each fetch the same job log can disagree, and the first fetch raced the endpoint. One fetch, in its own step, published as an output both consumers read; a curl -L fallback because the logs endpoint answers 302, and a retry because it lags the job.
+
+
+### `review-nonblocking-marks-the-pull-request`
+
+- **Source:** `.github/workflows/review.yml:1864`
+
+- **Pin kind:** `literal` — `### Review follow-up: clear these before you merge`
+
+- **Lesson:** Filing an issue at review time for every non-blocking finding produced 166 issues in a month upstream, most against pull requests that merged hours later with the finding already fixed. The open pull request is labelled and told; the merge-time sweep files only if the label survives.
+
+
+### `review-filed-bodies-embed-findings-and-say-do-not-edit`
+
+- **Source:** `.github/workflows/review.yml:1762`
+
+- **Pin kind:** `literal` — `**Do not edit this body** — comment instead, so the filed record survives.`
+
+- **Lesson:** A body that only linked to the pull request cost one agent session per issue to read, and three filed records were lost to edits. Every filed body embeds the referee comparison and says the body is the record.
+
+## `tools/review-handoff-decide.sh` → `tools/review-handoff-decide.sh`
+
+### `handoff-quota-skip-needs-all-four-conditions`
+
+- **Source:** `tools/review-handoff-decide.sh:233`
+
+- **Pin kind:** `literal` — `DECISION="quota-skip"`
+
+- **Lesson:** A spent allowance must not file a steward handoff, but only when all four hold: no verdict, exactly one reviewer missing, its log names a quota refusal, the pull request still open. Any lookup failure falls through and the handoff IS filed — a missed carve-out must never swallow a real one.

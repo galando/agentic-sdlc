@@ -1,0 +1,117 @@
+# Review follow-up sweep — decide, at merge time, whether a non-blocking review
+# finding still deserves an issue.
+#
+# review.yml files nothing for a non-blocking verdict while the pull request is
+# open. It labels the pull request `review-followup-pending` and posts the
+# findings there. This workflow reads that label once the pull request closes:
+#
+#   merged, still labelled  -> one `[review-followup]` issue, findings embedded
+#   merged, label cleared   -> nothing; the author fixed it before merging
+#   closed unmerged         -> close any open follow-up; the label stays, so a
+#                              reopen-then-merge is still caught
+#
+# All the logic lives in tools/review-followup-sweep.sh, tested by
+# tests/review-followup-sweep.bats with `gh` stubbed. This file only schedules
+# it and routes a failed run into the standard alert path. Runbook:
+# docs/runbooks/review-followup-sweep.md.
+#
+# WHAT IT IS NOT. Not a required check: it does not run on a pull request's own
+# pushes, so requiring it blocks every pull request forever. It never merges,
+# never pushes, never wakes an agent.
+name: review-followup-sweep
+
+on:
+  pull_request:
+    types: [closed]
+  schedule:
+    # Daily, off the contended top of the hour, and ahead of the backlog
+    # groomer's 09:19 slot (.agents/config.yml) so anything this files is in
+    # the queue the groomer reads on the same morning. This is the backstop: a
+    # merge performed with GITHUB_TOKEN starts no workflow run, and a fork's
+    # pull_request run holds a read-only token, so the event path alone can
+    # miss a merge.
+    - cron: '37 8 * * *'
+  workflow_dispatch:
+
+# nightly-alert.yml's contract: every caller declares contents: read and
+# issues: write at workflow level. pull-requests: write is for `gh pr edit
+# --remove-label`.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+# ONE group for every run, event and schedule alike. The dedupe in the script is
+# check-then-create with no lock: a merge event and the daily scan working the
+# same pull request at once would both see no open issue and both file.
+concurrency:
+  group: review-followup-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    # Plain ubuntu-latest, never the PR_RUNNER repository variable. This job
+    # gates nothing, so it must not sit ahead of the pull-request gates in a
+    # self-hosted queue.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      rc: ${{ steps.sweep.outputs.rc }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      # GITHUB_TOKEN on purpose, never a PAT. GitHub starts no workflow run from
+      # an event this token creates, and steward.yml wakes on `issues.opened`
+      # unconditionally. The token IS the switch that keeps these issues inert.
+      # Values reach the script through env, never spliced into the command.
+      - name: Sweep
+        id: sweep
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BASE: ${{ github.event.repository.default_branch }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+        # 2>&1 through tee, exit code from PIPESTATUS: the log must carry the
+        # script's own error lines, and tee must not launder its exit code.
+        run: |
+          set -uo pipefail
+          ARGS=()
+          [ -n "$BASE" ] && ARGS+=(--base "$BASE")
+          if [ "$EVENT" = "pull_request" ]; then
+            ARGS+=(--pr "$PR_NUMBER" --merged "$PR_MERGED")
+          else
+            ARGS+=(--scan --limit 50 --days 14)
+          fi
+          tools/review-followup-sweep.sh "${ARGS[@]}" 2>&1 | tee sweep.log
+          echo "rc=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+  # A sweep that could not record a finding is a finding lost quietly — the one
+  # outcome this workflow exists to prevent. nightly-alert opens or updates ONE
+  # tracking issue per gate, so a cause that persists updates the same issue
+  # instead of filing a new one every day.
+  #
+  # Scheduled and hand runs only. A fork's pull_request run holds a read-only
+  # token, so its filing fails by design and the daily scan repairs it; alerting
+  # on that would page on every fork merge. The scan is the run that must not fail.
+  notify-sweep:
+    if: ${{ always() && github.event_name != 'pull_request' && needs.sweep.outputs.rc != '0' && needs.sweep.result != 'skipped' }}
+    needs: [sweep]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      gate: 'Review follow-up sweep'
+      cadence: 'sweep'
+      severity: 'S2'
+      what_red_means: >-
+        A merged pull request still carried review findings and the sweep could not
+        file the follow-up issue, could not close a stale one, or could not list the
+        pull requests it should have checked. The label is left in place so the next
+        run retries; read the run's log for the pull request number, then file or
+        close the issue by hand if it keeps failing.
+      runbook: 'docs/runbooks/review-followup-sweep.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}

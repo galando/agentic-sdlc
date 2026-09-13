@@ -22,18 +22,24 @@
 #                 because it does not know the adopter's bot account. The marker is the
 #                 portable form of the same filter, and it is strictly better: every role
 #                 posts from the same account, so a login cannot tell two reviews apart.
-#   3. ORDER    — newest by `created_at`. Two endpoints are read and merged, and
-#                 concatenation order is NOT chronological: `last` over a merged list
-#                 returns the last INLINE comment whenever any exists, whatever its time.
+#   3. ORDER    — chronological, explicitly sorted. Three endpoints are read and merged,
+#                 and concatenation order is NOT chronological: without the sort every
+#                 inline finding lands after every conversation comment whatever its time.
 #
 # Drop (2) and the lost-review detector below it is disarmed in both directions at once:
 # any unrelated human comment in the window makes the body non-empty, so a review that
-# posted nothing looks like a review that posted; and a human "looks fine to me" outranks
-# the reviewer's blocking findings, so this reviewer reads as having posted a clean review
-# and its real findings are stranded. That second direction is the exact failure the
-# handoff was built to fix — the collector would have re-created it one level up.
+# posted nothing looks like a review that posted; and a human "looks fine to me" reads as
+# the reviewer's opinion, so this reviewer reads as having posted a clean review and its
+# real findings are stranded. That second direction is the exact failure the handoff was
+# built to fix — the collector would have re-created it one level up.
 #
-# Drop (3) and the same suppression happens on timing alone, with no human involved.
+# AND EVERY MARKED ITEM IS KEPT — never `| last`. A review has three shapes: a top-level
+# conversation comment, an inline comment on a code line, and a review submission, each
+# on its own endpoint. A reviewer that posts its findings as several inline comments has
+# posted several items, and "the newest one" threw away all but one of them: an item that
+# is on the pull request but not in the collected body is a finding the referee never
+# sees and the handoff never names. Items are rendered in time order, an inline item
+# headed by its `path:line`, joined with `---`.
 # ---------------------------------------------------------------------------
 #
 # Hand-written, like `ci-health-watch.bats`. `pins.json` entry
@@ -55,6 +61,20 @@ comment() { # created_at, body
   jq -nc --arg t "$1" --arg b "$2" '{created_at: $t, body: $b}'
 }
 
+# An inline comment on a code line, shaped like the pulls/N/comments endpoint returns it.
+inline() { # created_at, body, path, line, [review_id], [id]
+  jq -nc --arg t "$1" --arg b "$2" --arg p "$3" --argjson l "$4" \
+         --argjson r "${5:-null}" --argjson i "${6:-1}" \
+     '{created_at: $t, body: $b, path: $p, line: $l, pull_request_review_id: $r, id: $i,
+       html_url: ("https://e.invalid/pr/12#discussion_r" + ($i | tostring))}'
+}
+
+# A review submission, shaped like the pulls/N/reviews endpoint returns it.
+review() { # submitted_at, body, id
+  jq -nc --arg t "$1" --arg b "$2" --argjson i "$3" \
+     '{submitted_at: $t, body: $b, id: $i, html_url: ("https://e.invalid/pr/12#pullrequestreview-" + ($i | tostring))}'
+}
+
 setup() {
   FIX="$(mktemp -d)"
   export FIX
@@ -74,8 +94,8 @@ teardown() { rm -rf "$FIX"; }
 # checks below prove the workflow actually invokes it for both roles.
 COLLECTOR="$REPO_ROOT/tools/collect-review-comment.sh"
 
-run_handoff() { # conversation-page-file inline-page-file
-  "$COLLECTOR" --marker '<!-- reviewer: judge -->' --since "$SINCE" --from-files "$1" "$2"
+run_handoff() { # conversation-page-file inline-page-file [reviews-page-file]
+  "$COLLECTOR" --marker '<!-- reviewer: judge -->' --since "$SINCE" --from-files "$@"
 }
 
 @test "review collector: the shared collector exists and the workflow calls it for BOTH roles" {
@@ -116,20 +136,84 @@ BLOCKING: the migration drops a column with no backfill.")" > "$FIX/c1.json"
   [[ "$output" != *"looks fine to me"* ]]
 }
 
-@test "review collector: the newest REVIEW wins, by time and not by which endpoint it came from" {
-  # Two reviews from the same run — a retry after a transient posting failure is the
-  # ordinary cause. The later one is the one that counts. Concatenation order puts every
-  # inline comment after every conversation comment regardless of time, so without an
-  # explicit sort the SUPERSEDED review wins whenever it happens to be the inline one.
+@test "review collector: EVERY marked item is kept, in time order, not the newest by endpoint" {
+  # Two marked items from the same run. Both are kept — `| last` used to drop the earlier
+  # one, and when a reviewer posts its findings as several items, that is every finding
+  # but one. Concatenation order puts every inline comment after every conversation
+  # comment regardless of time, so the explicit sort is what makes the rendered review
+  # read in the order it was written.
   page "$(comment "2026-08-05T10:20:00Z" "<!-- reviewer: judge -->
-No issues found - the second, corrected review.")" > "$FIX/c1.json"
+Second item, posted later.")" > "$FIX/c1.json"
   page "$(comment "2026-08-05T10:05:00Z" "<!-- reviewer: judge -->
-BLOCKING: stale first attempt.")" > "$FIX/c2.json"
+BLOCKING: first item, posted earlier.")" > "$FIX/c2.json"
 
   run run_handoff "$FIX/c1.json" "$FIX/c2.json"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"corrected review"* ]]
-  [[ "$output" != *"stale first attempt"* ]]
+  [[ "$output" == *"first item, posted earlier"* ]]
+  [[ "$output" == *"Second item, posted later"* ]]
+  # Earlier first, whichever endpoint it came from.
+  first="${output%%Second item*}"
+  [[ "$first" == *"first item, posted earlier"* ]]
+  # Joined with a separator line, so the referee can tell where one item ends.
+  [[ "$output" == *$'\n\n---\n\n'* ]]
+}
+
+@test "review collector: no '| last' anywhere in the collector or the referee's render" {
+  # The construct itself. Whatever else changes, taking one item out of many is the bug.
+  # Comment lines are excluded — the notes explaining WHY it is banned quote it.
+  run grep -nE '^[^#]*\|[[:space:]]*last([[:space:]]|$)' "$COLLECTOR"
+  [ "$status" -ne 0 ]
+  run grep -nE '^[^#]*\|[[:space:]]*last([[:space:]]|$)' "$REVIEW"
+  if [ "$status" -eq 0 ]; then
+    echo "# '| last' still in review.yml:"; echo "$output" | sed 's/^/#   /'; false
+  fi
+}
+
+@test "review collector: three shapes — conversation, inline with path:line, and a review submission" {
+  # The fixture the lesson asks for: three marked items, one of them inline on a code
+  # line. All three must come back, the inline one headed by its path:line so the
+  # referee and the handoff can still cite it.
+  page "$(comment "2026-08-05T10:05:00Z" "<!-- reviewer: judge -->
+Summary: two findings, one blocking.")" > "$FIX/c1.json"
+  page "$(inline "2026-08-05T10:06:00Z" "<!-- reviewer: judge -->
+BLOCKING: the error is dropped here." "src/a.js" 10 77 501)" > "$FIX/c2.json"
+  page "$(review "2026-08-05T10:07:00Z" "<!-- reviewer: judge -->
+Review submission: overall the change is sound." 77)" > "$FIX/c3.json"
+
+  run run_handoff "$FIX/c1.json" "$FIX/c2.json" "$FIX/c3.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Summary: two findings"* ]]
+  [[ "$output" == *"the error is dropped here"* ]]
+  [[ "$output" == *"Review submission: overall"* ]]
+  [[ "$output" == *'**`src/a.js:10`**'* ]]
+  # Two separators for three items.
+  [ "$(printf '%s\n' "$output" | grep -c '^---$')" -eq 2 ]
+}
+
+@test "review collector: an unmarked inline comment inherits the marker of its review submission" {
+  # A model that submits a review with the marker in the summary body and forgets it on
+  # each inline comment has still posted those findings as that role. The submission id
+  # links them; the time-split fallback upstream used is deliberately NOT here, because
+  # the workflow's own notices come from the same account as the reviews.
+  page "" > "$FIX/c1.json"
+  page "$(inline "2026-08-05T10:06:00Z" "Drops the error." "src/a.js" 10 77 501),$(inline "2026-08-05T10:06:30Z" "Orphan inline, no submission, no marker." "src/b.js" 3 null 502)" > "$FIX/c2.json"
+  page "$(review "2026-08-05T10:07:00Z" "<!-- reviewer: judge -->
+Two inline findings below." 77)" > "$FIX/c3.json"
+
+  run run_handoff "$FIX/c1.json" "$FIX/c2.json" "$FIX/c3.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Drops the error."* ]]
+  [[ "$output" == *'**`src/a.js:10`**'* ]]
+  [[ "$output" != *"Orphan inline"* ]]
+}
+
+@test "review collector: the third file is optional, and the two-file call still works" {
+  page "$(comment "2026-08-05T10:05:00Z" "<!-- reviewer: judge -->
+Only a conversation comment.")" > "$FIX/c1.json"
+  page "" > "$FIX/c2.json"
+  run run_handoff "$FIX/c1.json" "$FIX/c2.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Only a conversation comment"* ]]
 }
 
 @test "review collector: a review posted BEFORE this run's job start is out of scope" {
@@ -157,17 +241,15 @@ BLOCKING: found only on the inline endpoint.")" > "$FIX/c2.json"
   [[ "$output" == *"inline endpoint"* ]]
 }
 
-@test "review collector: both endpoints are queried, in the shared collector and in the referee" {
-  # Two endpoints x two collector homes. A collector that drops back to one endpoint is
-  # the single-home bug returning — whichever file it returns in.
-  run grep -cE 'gh api "repos/\$REPO/issues/\$PR/comments" --paginate --slurp' "$REVIEW"
-  [ "$output" -eq 1 ]
-  run grep -cE 'gh api "repos/\$REPO/pulls/\$PR/comments"' "$REVIEW"
-  [ "$output" -eq 1 ]
-  run grep -cE 'gh api "repos/\$REPO/issues/\$PR/comments" --paginate --slurp' "$COLLECTOR"
-  [ "$output" -eq 1 ]
-  run grep -cE 'gh api "repos/\$REPO/pulls/\$PR/comments"' "$COLLECTOR"
-  [ "$output" -eq 1 ]
+@test "review collector: all THREE endpoints are queried, in the shared collector and in the referee" {
+  # Three endpoints x two collector homes. A collector that drops back to fewer is the
+  # single-home bug returning — whichever file it returns in.
+  for ep in 'issues/\$PR/comments' 'pulls/\$PR/comments' 'pulls/\$PR/reviews'; do
+    run grep -cE "gh api \"repos/\\\$REPO/$ep\" +--paginate --slurp" "$REVIEW"
+    [ "$output" -eq 1 ] || { echo "review.yml: $ep queried $output times"; return 1; }
+    run grep -cE "gh api \"repos/\\\$REPO/$ep\" +--paginate --slurp" "$COLLECTOR"
+    [ "$output" -eq 1 ] || { echo "collector: $ep queried $output times"; return 1; }
+  done
 }
 
 @test "review collector: selection is by positive role marker, never by exclusion" {
@@ -176,17 +258,106 @@ BLOCKING: found only on the inline endpoint.")" > "$FIX/c2.json"
   # takes the marker as an argument and matches it POSITIVELY; the workflow must pass a
   # positive marker at each call site, and the referee's inline collector keeps its own
   # positive selects.
-  run grep -c 'select(.body | contains($marker))' "$COLLECTOR"
-  [ "$output" -eq 1 ]
-  run grep -c 'select(.body | contains("<!-- reviewer: judge -->"))' "$REVIEW"
+  run grep -c 'contains($marker)' "$COLLECTOR"
   [ "$output" -ge 1 ]
-  run grep -c 'select(.body | contains("<!-- reviewer: challenge -->"))' "$REVIEW"
+  run grep -c 'contains("<!-- reviewer: judge -->")' "$REVIEW"
+  [ "$output" -ge 1 ]
+  run grep -c 'contains("<!-- reviewer: challenge -->")' "$REVIEW"
   [ "$output" -ge 1 ]
   # No negated marker test anywhere: that is the exclusion shape.
-  run grep -cE 'contains\("<!-- reviewer:[^"]*"\)[[:space:]]*\|[[:space:]]*not' "$REVIEW"
+  run grep -cE 'contains\("<!-- reviewer:[^"]*"\)\)?[[:space:]]*\|[[:space:]]*not' "$REVIEW"
   [ "$output" -eq 0 ]
-  run grep -cE 'contains\(\$marker\)[[:space:]]*\|[[:space:]]*not' "$COLLECTOR"
+  run grep -cE 'contains\(\$marker\)\)?[[:space:]]*\|[[:space:]]*not' "$COLLECTOR"
   [ "$output" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# THE REFEREE'S OWN COLLECTOR MUST AGREE WITH THE SHARED SCRIPT. The referee keeps an
+# inline jq (its flatten is a pinned string, and it also needs the record list for the
+# inline-thread inventory). Two programs drift, so these extract the referee's programs
+# out of the workflow and run them against the same fixtures the script gets — the
+# rendered body must be identical, and the thread inventory must list the inline item.
+# ---------------------------------------------------------------------------
+
+# The jq program between `jq --arg since "$SINCE" -s '` and the closing `' file...` line,
+# in the "Collect both reviews" step.
+extract_referee_records_jq() {
+  awk '
+    /^      - name: Collect both reviews/ { instep = 1; next }
+    instep && /^      - name:/ { exit }
+    instep && /^          jq --arg since "\$SINCE" -s .$/ { inside = 1; next }
+    inside && /^          . \.review-artifacts\/conversation\.json/ { exit }
+    inside { print }
+  ' "$REVIEW"
+}
+
+# The body of render_role()'s jq program.
+extract_referee_render_jq() {
+  awk '
+    /^          render_role\(\) \{/ { infn = 1; next }
+    infn && /^            jq -r --arg who "\$1" .$/ { inside = 1; next }
+    inside && /^            . \.review-artifacts\/all\.json/ { exit }
+    inside { print }
+  ' "$REVIEW"
+}
+
+@test "referee collector: the programs can be extracted (otherwise the equivalence test is vacuous)" {
+  records="$(extract_referee_records_jq)"
+  [ -n "$records" ]
+  [[ "$records" == *"then add else . end"* ]]
+  render="$(extract_referee_render_jq)"
+  [ -n "$render" ]
+  [[ "$render" == *'join("\n\n---\n\n")'* ]]
+}
+
+@test "referee collector: renders the SAME body as the shared script for the three-shape fixture" {
+  page "$(comment "2026-08-05T10:05:00Z" "<!-- reviewer: judge -->
+Summary: two findings, one blocking.")" > "$FIX/c1.json"
+  page "$(inline "2026-08-05T10:06:00Z" "<!-- reviewer: judge -->
+BLOCKING: the error is dropped here." "src/a.js" 10 77 501),$(inline "2026-08-05T10:06:30Z" "Unmarked, inherits from submission 77." "src/c.js" 4 77 503),$(comment "2026-08-05T10:08:00Z" "<!-- reviewer: challenge -->
+The challenge role's own inline note, no path.")" > "$FIX/c2.json"
+  page "$(review "2026-08-05T10:07:00Z" "<!-- reviewer: judge -->
+Review submission: overall the change is sound." 77)" > "$FIX/c3.json"
+
+  extract_referee_records_jq > "$FIX/records.jq"
+  extract_referee_render_jq  > "$FIX/render.jq"
+  jq --arg since "$SINCE" -s -f "$FIX/records.jq" "$FIX/c1.json" "$FIX/c2.json" "$FIX/c3.json" > "$FIX/all.json"
+  jq -r --arg who judge -f "$FIX/render.jq" "$FIX/all.json" > "$FIX/referee-judge.md"
+  jq -r --arg who challenge -f "$FIX/render.jq" "$FIX/all.json" > "$FIX/referee-challenge.md"
+
+  run_handoff "$FIX/c1.json" "$FIX/c2.json" "$FIX/c3.json" > "$FIX/script-judge.md"
+  "$COLLECTOR" --marker '<!-- reviewer: challenge -->' --since "$SINCE" \
+    --from-files "$FIX/c1.json" "$FIX/c2.json" "$FIX/c3.json" > "$FIX/script-challenge.md"
+
+  diff "$FIX/referee-judge.md" "$FIX/script-judge.md"
+  diff "$FIX/referee-challenge.md" "$FIX/script-challenge.md"
+  # And the bodies are what the fixture promises: every item, the inherited one included.
+  grep -q 'src/a.js:10' "$FIX/referee-judge.md"
+  grep -q 'inherits from submission 77' "$FIX/referee-judge.md"
+  grep -q 'Review submission: overall' "$FIX/referee-judge.md"
+  grep -q "challenge role's own" "$FIX/referee-challenge.md"
+  ! grep -q "challenge role's own" "$FIX/referee-judge.md"
+}
+
+@test "referee collector: the inline-thread inventory names every inline item with its role" {
+  page "" > "$FIX/c1.json"
+  page "$(inline "2026-08-05T10:06:00Z" "<!-- reviewer: judge -->
+BLOCKING: the error is dropped here." "src/a.js" 10 null 501),$(inline "2026-08-05T10:09:00Z" "<!-- reviewer: challenge -->
+Also this." "src/b.js" 2 null 502)" > "$FIX/c2.json"
+  page "" > "$FIX/c3.json"
+
+  extract_referee_records_jq > "$FIX/records.jq"
+  jq --arg since "$SINCE" -s -f "$FIX/records.jq" "$FIX/c1.json" "$FIX/c2.json" "$FIX/c3.json" > "$FIX/all.json"
+  # The same program the workflow runs to write inline-threads.json.
+  threads_jq="$(grep -oE "jq '\[ \.\[\] \| select\(\.kind == \"inline\"\)[^']*'" "$REVIEW" | head -n1 | sed "s/^jq '//; s/'$//")"
+  [ -n "$threads_jq" ]
+  run jq -c "$threads_jq" "$FIX/all.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"reviewer":"judge"'* ]]
+  [[ "$output" == *'"reviewer":"challenge"'* ]]
+  [[ "$output" == *'"path":"src/a.js"'* ]]
+  [[ "$output" == *'"line":10'* ]]
+  [[ "$output" == *'"id":502'* ]]
 }
 
 @test "review collector: the referee's own collector still slurps before it filters" {

@@ -195,6 +195,15 @@ ledger:
       schedule: "53 9 1 * *"          # monthly, the 1st; also runnable via workflow_dispatch
       enabled: false
       max-age-hours: 760              # ~31 days plus scheduler drift margin
+    - id: merger
+      prompt: .agents/prompts/merger.md
+      role: judge
+      schedule: "47 12,18 * * *"      # twice daily. OPT-IN: the only agent allowed to merge,
+      enabled: false                  # and only under the written bar in agent-modes.md
+                                      # ("Mode: merger"). Human-merge stays the default;
+                                      # enabling this is an operator decision recorded there.
+                                      # Last in the list on purpose: enabled, it becomes
+                                      # health's ring predecessor in place of release.
 
 # The spec-artifact contract version that tools/spec-pipeline/validate.sh enforces.
 spec_contract: 1

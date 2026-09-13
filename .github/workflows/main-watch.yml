@@ -1,0 +1,132 @@
+# The default-branch watch — re-tests what already merged, on a schedule.
+#
+# Every other gate reads ONE pull request's own diff. That reasoning holds for
+# one pull request at a time, not for two: two independently green pull
+# requests can break the default branch the moment both land, because neither
+# run ever saw the other's code, and nothing re-tests the branch afterwards.
+# Upstream that happened for real — the default branch sat red for close to
+# two hours until an unrelated merge inherited the failure by luck.
+#
+# This closes the blind spot the cheapest way: the FAST tier's own checks run
+# against the default branch's HEAD every four hours, instead of on every push
+# (real per-merge runner cost) or by requiring branches to be up to date before
+# merge (a re-run of every open pull request whenever the branch moves). A
+# four-hourly schedule bounds the blind window to about four hours. Hourly was
+# rejected upstream: the notifier pages on every red run, so an hourly schedule
+# against a red branch is 24 pages a day.
+#
+# Scope is deliberately the FAST tier: the harness suite, the workflow lint,
+# and the example stacks' unit runs when the stacks exist. Integration,
+# mutation, browser and dependency gates already run nightly (nightly.yml) and
+# are not duplicated here.
+#
+# NEVER A REQUIRED STATUS CHECK: it does not run on pull requests.
+#
+# `cancel-in-progress: false` and the notifier's `cancelled` clause are a pair:
+# with no supersede possible, a cancelled result can only mean the job hit its
+# own timeout-minutes wall, and a suite that hangs is as red as one that fails.
+name: main-watch
+
+on:
+  schedule:
+    # Odd minute: the top of the hour is the most contended scheduler slot.
+    - cron: '7 */4 * * *'
+  workflow_dispatch:
+
+# `issues: write` is what the notifier needs, and a reusable workflow cannot hold
+# more permission than its caller (nightly-alert.yml's header says why).
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: main-watch
+  cancel-in-progress: false
+
+jobs:
+  stacks:
+    runs-on: ${{ vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.detect.outputs.backend }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Detect present stacks
+        id: detect
+        run: |
+          [ -f examples/backend/pom.xml ]       && echo "backend=true"  >> "$GITHUB_OUTPUT" || echo "backend=false"  >> "$GITHUB_OUTPUT"
+          [ -f examples/frontend/package.json ] && echo "frontend=true" >> "$GITHUB_OUTPUT" || echo "frontend=false" >> "$GITHUB_OUTPUT"
+
+  watch-main:
+    needs: stacks
+    runs-on: ${{ vars.NIGHTLY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout the default branch's HEAD
+        uses: actions/checkout@v5
+
+      - name: Install the shell test runner and the workflow linter
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bats shellcheck
+          bash <(curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) latest /usr/local/bin >/dev/null
+
+      - name: Install node (the behavioural guards execute workflow JavaScript)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: The harness suite — the tests and the guards, both halves
+        run: |
+          bats tests/
+          bats tests/harness-guards/
+
+      - name: Workflow lint
+        run: actionlint .github/workflows/*.yml
+
+      - name: Set up the backend toolchain
+        if: needs.stacks.outputs.backend == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '24'
+          cache: 'maven'
+
+      - name: Backend unit tests
+        if: needs.stacks.outputs.backend == 'true'
+        working-directory: ./examples/backend
+        run: mvn -B test
+
+      - name: Set up the frontend toolchain
+        if: needs.stacks.outputs.frontend == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: examples/frontend/package-lock.json
+
+      - name: Frontend unit tests
+        if: needs.stacks.outputs.frontend == 'true'
+        working-directory: ./examples/frontend
+        run: |
+          npm ci
+          npm run test:coverage -- --run
+
+  notify-main-watch:
+    if: ${{ always() && (needs.watch-main.result == 'failure' || needs.watch-main.result == 'cancelled') }}
+    needs: [watch-main]
+    uses: ./.github/workflows/nightly-alert.yml
+    with:
+      gate: 'Default-branch FAST suite'
+      cadence: 'main-watch'
+      severity: 'S2'
+      what_red_means: >-
+        The default branch itself is broken NOW, whatever every merged pull request's own run
+        said. Usually two pull requests that were each green alone and wrong together; sometimes
+        a job that hung past its budget (a cancelled result here can only mean that — nothing
+        supersedes this run). Read the failing step, then open the fix as a pull request like
+        any other change. Until it lands, every new pull request is being tested on a broken base.
+      runbook: 'docs/runbooks/qa-procedures.md'
+    secrets:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}

@@ -965,13 +965,16 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 
 # WHY: The tracking issue title is a fixed prefix plus the gate name, which is what makes the 
 # WHY: open-or-update lookup work. Change the shape of the title and every recurring failure 
-# WHY: starts a new thread instead of joining the existing one.
+# WHY: starts a new thread instead of joining the existing one. (2026-09-13: the fixed prefix 
+# WHY: became the `cadence` input, defaulting to nightly, because callers that do not run 
+# WHY: nightly were filing issues that said so; the shape — one prefix word, then the gate 
+# WHY: name, then 'is failing' — is what the lookup and the retitle both depend on.)
 @test "pin[notifier-issue-title-per-gate]: .github/workflows/nightly-alert.yml" {
-  run grep -E -q -- \\\[nightly\\\]\ \\\$\\\{gate\\\}\ is\ failing "$REPO_ROOT/.github/workflows/nightly-alert.yml"
+  run grep -E -q -- \\\[\\\$\\\{cadence\\\}\\\]\ \\\$\\\{gate\\\}\ is\ failing "$REPO_ROOT/.github/workflows/nightly-alert.yml"
   if [ "$status" -ne 0 ]; then
     echo "PIN LOST: notifier-issue-title-per-gate"
     echo "  source: .github/workflows/nightly-alert.yml:100"
-    echo "  why:    The tracking issue title is a fixed prefix plus the gate name, which is what makes the open-or-update lookup work. Change the shape of the title and every recurring failure starts a new thread instead of joining the existing one."
+    echo "  why:    The tracking issue title is a fixed prefix plus the gate name, which is what makes the open-or-update lookup work. Change the shape of the title and every recurring failure starts a new thread instead of joining the existing one. (2026-09-13: the fixed prefix became the \`cadence\` input, defaulting to nightly, because callers that do not run nightly were filing issues that said so; the shape — one prefix word, then the gate name, then 'is failing' — is what the lookup and the retitle both depend on.)"
     echo "  Restore the string in .github/workflows/nightly-alert.yml. Do NOT weaken the pin."
     false
   fi
@@ -1569,6 +1572,688 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     echo "  source: .github/workflows/pr-mutation.yml:156"
     echo "  why:    The diff scope is per file, not per hunk, so a comment-only or annotation-only Java change puts a class in scope that yields zero mutants — and PIT fails the entire build on its own No-mutations-found error before the 20-mutant sampling step can rule. A required gate then goes red for a Javadoc edit. Zero mutants is below the sample floor by definition: the run converts exactly that one PIT error into an announced skip, and every other failure stays a failure."
     echo "  Restore the string in .github/workflows/pr-mutation.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A tracking issue that gains a byte-identical comment every run cannot tell an accepted 
+# WHY: red from a new finding; the template's own nightly dependency scan sat red for eleven 
+# WHY: days that way. Callers that can say what they found pass it as `findings`, and this line 
+# WHY: is the one the body carries and the dedupe below compares.
+@test "pin[notifier-findings-line]: .github/workflows/nightly-alert.yml" {
+  run grep -F -q -- const\ findingsLine\ =\ \`\*\*What\ this\ run\ found:\*\*\ \$\{findings\}\`\; "$REPO_ROOT/.github/workflows/nightly-alert.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: notifier-findings-line"
+    echo "  source: .github/workflows/nightly-alert.yml:169"
+    echo "  why:    A tracking issue that gains a byte-identical comment every run cannot tell an accepted red from a new finding; the template's own nightly dependency scan sat red for eleven days that way. Callers that can say what they found pass it as \`findings\`, and this line is the one the body carries and the dedupe below compares."
+    echo "  Restore the string in .github/workflows/nightly-alert.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The dedupe compares this run's findings line with the LAST comment on the thread, 
+# WHY: exactly, and adds nothing when they match: the one run whose findings changed must not be 
+# WHY: buried under identical comments. Comparing against the whole body, or fuzzily, would 
+# WHY: either never match or hide a real change.
+@test "pin[notifier-unchanged-findings-no-comment]: .github/workflows/nightly-alert.yml" {
+  run grep -F -q -- unchanged\ =\ \(last\ \|\|\ \'\'\).split\(\'\\n\'\).includes\(findingsLine\)\; "$REPO_ROOT/.github/workflows/nightly-alert.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: notifier-unchanged-findings-no-comment"
+    echo "  source: .github/workflows/nightly-alert.yml:219"
+    echo "  why:    The dedupe compares this run's findings line with the LAST comment on the thread, exactly, and adds nothing when they match: the one run whose findings changed must not be buried under identical comments. Comparing against the whole body, or fuzzily, would either never match or hide a real change."
+    echo "  Restore the string in .github/workflows/nightly-alert.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: An empty findings line means the caller could not say what it found, so every run is news 
+# WHY: and nothing may be deduped against it. Deduping on emptiness would silence every caller 
+# WHY: that passes no findings after its first failure.
+@test "pin[notifier-empty-findings-never-dedupes]: .github/workflows/nightly-alert.yml" {
+  run grep -F -q -- if\ \(findings\)\ \{ "$REPO_ROOT/.github/workflows/nightly-alert.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: notifier-empty-findings-never-dedupes"
+    echo "  source: .github/workflows/nightly-alert.yml:211"
+    echo "  why:    An empty findings line means the caller could not say what it found, so every run is news and nothing may be deduped against it. Deduping on emptiness would silence every caller that passes no findings after its first failure."
+    echo "  Restore the string in .github/workflows/nightly-alert.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A caller whose cadence word changes must find the thread it was already commenting on and 
+# WHY: retitle it, or the title keeps the old word while every comment under it reads the new 
+# WHY: one, and the old thread stays open with nobody commenting on it.
+@test "pin[notifier-stale-cadence-retitled]: .github/workflows/nightly-alert.yml" {
+  run grep -F -q -- brought\ in\ line\,\ otherwise\ the\ title\ keeps\ the\ old\ word\ forever "$REPO_ROOT/.github/workflows/nightly-alert.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: notifier-stale-cadence-retitled"
+    echo "  source: .github/workflows/nightly-alert.yml:161"
+    echo "  why:    A caller whose cadence word changes must find the thread it was already commenting on and retitle it, or the title keeps the old word while every comment under it reads the new one, and the old thread stays open with nobody commenting on it."
+    echo "  Restore the string in .github/workflows/nightly-alert.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: With cancel-in-progress: false a cancelled result can only mean the job hit its own 
+# WHY: timeout wall, and a gate that hangs past its budget is as red as one that fails. The two 
+# WHY: settings are a pair: listing cancelled under cancel-in-progress: true would page on every 
+# WHY: superseded run.
+@test "pin[nightly-notifier-fires-on-cancelled]: .github/workflows/nightly.yml" {
+  run grep -F -q -- \'cancelled\'\ IS\ listed\,\ and\ only\ because\ this\ workflow\ sets "$REPO_ROOT/.github/workflows/nightly.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: nightly-notifier-fires-on-cancelled"
+    echo "  source: .github/workflows/nightly.yml:473"
+    echo "  why:    With cancel-in-progress: false a cancelled result can only mean the job hit its own timeout wall, and a gate that hangs past its budget is as red as one that fails. The two settings are a pair: listing cancelled under cancel-in-progress: true would page on every superseded run."
+    echo "  Restore the string in .github/workflows/nightly.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The dependency gate's own UNALLOWLISTED / STALE lines are the findings the alert names, 
+# WHY: so a red issue says which advisory rather than that something is red — and the same 
+# WHY: advisory on a later night adds no comment.
+@test "pin[nightly-dependency-scan-names-advisories]: .github/workflows/nightly.yml" {
+  run grep -F -q -- findings:\ \$\{\{\ needs.nightly-dependency-scan.outputs.findings\ \}\} "$REPO_ROOT/.github/workflows/nightly.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: nightly-dependency-scan-names-advisories"
+    echo "  source: .github/workflows/nightly.yml:538"
+    echo "  why:    The dependency gate's own UNALLOWLISTED / STALE lines are the findings the alert names, so a red issue says which advisory rather than that something is red — and the same advisory on a later night adds no comment."
+    echo "  Restore the string in .github/workflows/nightly.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: On a self-hosted runner the workspace is not under HOME, so a clean scan failed its own 
+# WHY: artifact upload. The first fix moved HOME, which made git refuse the checkout and 
+# WHY: gitleaks scan zero bytes while reporting no leaks — the one failure this gate cannot 
+# WHY: have. Turning the upload off is the fix; a HOME override here must never come back.
+@test "pin[secret-scan-upload-off-never-move-home]: .github/workflows/secret-scan.yml" {
+  run grep -F -q -- GITLEAKS_ENABLE_UPLOAD_ARTIFACT:\ false "$REPO_ROOT/.github/workflows/secret-scan.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: secret-scan-upload-off-never-move-home"
+    echo "  source: .github/workflows/secret-scan.yml:67"
+    echo "  why:    On a self-hosted runner the workspace is not under HOME, so a clean scan failed its own artifact upload. The first fix moved HOME, which made git refuse the checkout and gitleaks scan zero bytes while reporting no leaks — the one failure this gate cannot have. Turning the upload off is the fix; a HOME override here must never come back."
+    echo "  Restore the string in .github/workflows/secret-scan.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The fleet is watched from OUTSIDE it, on the hosted runner, because a scheduler or runner 
+# WHY: that stops every agent at once cannot make the agents' own watcher ring report anything. 
+# WHY: Routing this job through a *_RUNNER variable would schedule the watchdog onto the thing 
+# WHY: it watches.
+@test "pin[fleet-heartbeat-hosted-runner-literally]: .github/workflows/fleet-heartbeat.yml" {
+  run grep -F -q -- \ \ \ \ runs-on:\ ubuntu-latest "$REPO_ROOT/.github/workflows/fleet-heartbeat.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: fleet-heartbeat-hosted-runner-literally"
+    echo "  source: .github/workflows/fleet-heartbeat.yml:56"
+    echo "  why:    The fleet is watched from OUTSIDE it, on the hosted runner, because a scheduler or runner that stops every agent at once cannot make the agents' own watcher ring report anything. Routing this job through a *_RUNNER variable would schedule the watchdog onto the thing it watches."
+    echo "  Restore the string in .github/workflows/fleet-heartbeat.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A watch that cannot read the ledger or parse a schedule has checked nothing, and 
+# WHY: reporting that as a healthy fleet is the exact failure it exists to end. The broken watch 
+# WHY: is a separate issue and a red job, worded so a reader does not go looking for a dead 
+# WHY: agent.
+@test "pin[fleet-heartbeat-broken-watch-is-not-overdue-agents]: .github/workflows/fleet-heartbeat.yml" {
+  run grep -F -q -- this\ is\ NOT\ a\ report\ of\ overdue\ agents "$REPO_ROOT/.github/workflows/fleet-heartbeat.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: fleet-heartbeat-broken-watch-is-not-overdue-agents"
+    echo "  source: .github/workflows/fleet-heartbeat.yml:117"
+    echo "  why:    A watch that cannot read the ledger or parse a schedule has checked nothing, and reporting that as a healthy fleet is the exact failure it exists to end. The broken watch is a separate issue and a red job, worded so a reader does not go looking for a dead agent."
+    echo "  Restore the string in .github/workflows/fleet-heartbeat.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Two independently green pull requests broke the default branch together and nothing 
+# WHY: re-tested it after the merges. This watch re-runs the FAST suite against HEAD on a 
+# WHY: schedule, and with cancel-in-progress: false a cancelled result can only mean the suite 
+# WHY: hung past its budget, which is as red as a failure.
+@test "pin[main-watch-cancelled-is-red]: .github/workflows/main-watch.yml" {
+  run grep -F -q -- needs.watch-main.result\ ==\ \'failure\'\ \|\|\ needs.watch-main.result\ ==\ \'cancelled\' "$REPO_ROOT/.github/workflows/main-watch.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: main-watch-cancelled-is-red"
+    echo "  source: .github/workflows/main-watch.yml:117"
+    echo "  why:    Two independently green pull requests broke the default branch together and nothing re-tested it after the merges. This watch re-runs the FAST suite against HEAD on a schedule, and with cancel-in-progress: false a cancelled result can only mean the suite hung past its budget, which is as red as a failure."
+    echo "  Restore the string in .github/workflows/main-watch.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The one-command adoption may itself be running from a pipe (curl | bash), where stdin IS 
+# WHY: the script text. The interview's yes/no offers must therefore never read stdin, or a line 
+# WHY: of the script would be taken as an answer to an rm -rf offer.
+@test "pin[bootstrap-never-reads-stdin]: tools/bootstrap.sh" {
+  run grep -F -q -- bash\ \"\$TARGET/tools/init.sh\"\ --defaults\ \</dev/null "$REPO_ROOT/tools/bootstrap.sh"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: bootstrap-never-reads-stdin"
+    echo "  source: tools/bootstrap.sh:147"
+    echo "  why:    The one-command adoption may itself be running from a pipe (curl | bash), where stdin IS the script text. The interview's yes/no offers must therefore never read stdin, or a line of the script would be taken as an answer to an rm -rf offer."
+    echo "  Restore the string in tools/bootstrap.sh. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Dependabot's directories sit outside .github/workflows, so a layout sweep scoped to the 
+# WHY: workflows leaves the bot bumping example paths that no longer exist. The nightly CVE gate 
+# WHY: depends on the lockfile moving without a human, which is what the bot is for.
+@test "pin[dependabot-repointed-by-adopt-layout]: tools/adopt-layout.sh" {
+  run grep -F -q -- \"\$ROOT/.github/dependabot.yml\"\ \\ "$REPO_ROOT/tools/adopt-layout.sh"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: dependabot-repointed-by-adopt-layout"
+    echo "  source: tools/adopt-layout.sh:73"
+    echo "  why:    Dependabot's directories sit outside .github/workflows, so a layout sweep scoped to the workflows leaves the bot bumping example paths that no longer exist. The nightly CVE gate depends on the lockfile moving without a human, which is what the bot is for."
+    echo "  Restore the string in tools/adopt-layout.sh. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: An issue opened with GITHUB_TOKEN starts no workflow, so the follow-up issue the sweep 
+# WHY: files wakes nobody. That is the design: the findings were ruled non-blocking and survived 
+# WHY: a merge, so they are a backlog item for the groomer, never a steward handoff. A PAT here 
+# WHY: would wake the steward for exactly the findings it was ruled not to act on.
+@test "pin[review-followup-sweep-token-is-the-switch]: .github/workflows/review-followup-sweep.yml" {
+  run grep -F -q -- GH_TOKEN:\ \$\{\{\ secrets.GITHUB_TOKEN\ \}\} "$REPO_ROOT/.github/workflows/review-followup-sweep.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-followup-sweep-token-is-the-switch"
+    echo "  source: .github/workflows/review-followup-sweep.yml:73"
+    echo "  why:    An issue opened with GITHUB_TOKEN starts no workflow, so the follow-up issue the sweep files wakes nobody. That is the design: the findings were ruled non-blocking and survived a merge, so they are a backlog item for the groomer, never a steward handoff. A PAT here would wake the steward for exactly the findings it was ruled not to act on."
+    echo "  Restore the string in .github/workflows/review-followup-sweep.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The sweep's dedupe is check-then-create with no lock. Two runs in parallel (a close event 
+# WHY: and the daily scan) would both see no open issue and both file one, so every run shares 
+# WHY: one concurrency group.
+@test "pin[review-followup-sweep-one-group]: .github/workflows/review-followup-sweep.yml" {
+  run grep -F -q -- group:\ review-followup-sweep "$REPO_ROOT/.github/workflows/review-followup-sweep.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-followup-sweep-one-group"
+    echo "  source: .github/workflows/review-followup-sweep.yml:48"
+    echo "  why:    The sweep's dedupe is check-then-create with no lock. Two runs in parallel (a close event and the daily scan) would both see no open issue and both file one, so every run shares one concurrency group."
+    echo "  Restore the string in .github/workflows/review-followup-sweep.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The sweep gates nothing, so it must never sit ahead of the pull-request gates in a 
+# WHY: self-hosted queue; it runs on the hosted runner rather than through PR_RUNNER.
+@test "pin[review-followup-sweep-gates-nothing-hosted]: .github/workflows/review-followup-sweep.yml" {
+  run grep -F -q -- runs-on:\ ubuntu-latest "$REPO_ROOT/.github/workflows/review-followup-sweep.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-followup-sweep-gates-nothing-hosted"
+    echo "  source: .github/workflows/review-followup-sweep.yml:56"
+    echo "  why:    The sweep gates nothing, so it must never sit ahead of the pull-request gates in a self-hosted queue; it runs on the hosted runner rather than through PR_RUNNER."
+    echo "  Restore the string in .github/workflows/review-followup-sweep.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A loop fed by a pipe runs in a subshell, and a FAILED flag set inside it never reaches 
+# WHY: the exit code: a scan that could not file one issue would report success. Reading the 
+# WHY: list from a file keeps the flag in the main shell.
+@test "pin[review-followup-sweep-loop-reads-a-file]: tools/review-followup-sweep.sh" {
+  run grep -F -q -- done\ \<\ \"\$LIST\" "$REPO_ROOT/tools/review-followup-sweep.sh"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-followup-sweep-loop-reads-a-file"
+    echo "  source: tools/review-followup-sweep.sh:367"
+    echo "  why:    A loop fed by a pipe runs in a subshell, and a FAILED flag set inside it never reaches the exit code: a scan that could not file one issue would report success. Reading the list from a file keeps the flag in the main shell."
+    echo "  Restore the string in tools/review-followup-sweep.sh. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: An unreadable pull request must be distinguishable from one whose label was cleared: both 
+# WHY: would otherwise read as an empty label list and the sweep would stay quiet. The prefix 
+# WHY: makes the unreadable case visible, and the sweep FILES in that case rather than assuming 
+# WHY: the label was cleared.
+@test "pin[review-followup-sweep-unreadable-labels-files]: tools/review-followup-sweep.sh" {
+  run grep -F -q -- \"LABELS:\"\ + "$REPO_ROOT/tools/review-followup-sweep.sh"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-followup-sweep-unreadable-labels-files"
+    echo "  source: tools/review-followup-sweep.sh:307"
+    echo "  why:    An unreadable pull request must be distinguishable from one whose label was cleared: both would otherwise read as an empty label list and the sweep would stay quiet. The prefix makes the unreadable case visible, and the sweep FILES in that case rather than assuming the label was cleared."
+    echo "  Restore the string in tools/review-followup-sweep.sh. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The daily scan exists because a merge made with GITHUB_TOKEN starts no run. A scan whose 
+# WHY: only input failed and that then reports success is not a backstop; it exits 1 and files 
+# WHY: nothing.
+@test "pin[review-followup-sweep-failed-list-is-not-a-backstop]: tools/review-followup-sweep.sh" {
+  run grep -F -q -- ::error::Could\ not\ list\ closed\ pull\ requests\ carrying "$REPO_ROOT/tools/review-followup-sweep.sh"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-followup-sweep-failed-list-is-not-a-backstop"
+    echo "  source: tools/review-followup-sweep.sh:354"
+    echo "  why:    The daily scan exists because a merge made with GITHUB_TOKEN starts no run. A scan whose only input failed and that then reports success is not a backstop; it exits 1 and files nothing."
+    echo "  Restore the string in tools/review-followup-sweep.sh. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The referee comparison the sweep embeds is found by the author's account TYPE and the 
+# WHY: referee's fixed heading, never by a login: a login can be renamed and re-registered, and 
+# WHY: the template cannot know an adopter's bot account names.
+@test "pin[review-followup-sweep-author-by-type]: tools/review-followup-sweep.sh" {
+  run grep -F -q -- \(.user.type\ //\ \"\"\)\ ==\ \"Bot\" "$REPO_ROOT/tools/review-followup-sweep.sh"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-followup-sweep-author-by-type"
+    echo "  source: tools/review-followup-sweep.sh:151"
+    echo "  why:    The referee comparison the sweep embeds is found by the author's account TYPE and the referee's fixed heading, never by a login: a login can be renamed and re-registered, and the template cannot know an adopter's bot account names."
+    echo "  Restore the string in tools/review-followup-sweep.sh. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A finished handoff run pushes to the pull request's existing branch and often loses its 
+# WHY: closing reply, so commits on that branch are the third outcome signal. The CLOSE keys on 
+# WHY: the commit's resolved GitHub account type, never on the git author name: the first 
+# WHY: version matched the name, and the close path was dead in production while a stub that 
+# WHY: also matched the name could not see it.
+@test "pin[steward-close-keys-on-account-type]: .github/workflows/steward.yml" {
+  run grep -F -q -- c\ =\>\ c.author\ \&\&\ c.author.type\ ===\ \'Bot\'\)\; "$REPO_ROOT/.github/workflows/steward.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: steward-close-keys-on-account-type"
+    echo "  source: .github/workflows/steward.yml:476"
+    echo "  why:    A finished handoff run pushes to the pull request's existing branch and often loses its closing reply, so commits on that branch are the third outcome signal. The CLOSE keys on the commit's resolved GitHub account type, never on the git author name: the first version matched the name, and the close path was dead in production while a stub that also matched the name could not see it."
+    echo "  Restore the string in .github/workflows/steward.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A [review-lost] issue is also titled with a pull request number, and a commit on that 
+# WHY: branch is somebody else's work. Counting commits as the steward's outcome is scoped to 
+# WHY: handoff issues only, or a human's push would close an issue nobody meant to close.
+@test "pin[steward-commit-signal-scoped-to-handoff]: .github/workflows/steward.yml" {
+  run grep -F -q -- const\ prRef\ =\ issueTitle.startsWith\(\'\[steward-handoff\]\'\) "$REPO_ROOT/.github/workflows/steward.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: steward-commit-signal-scoped-to-handoff"
+    echo "  source: .github/workflows/steward.yml:439"
+    echo "  why:    A [review-lost] issue is also titled with a pull request number, and a commit on that branch is somebody else's work. Counting commits as the steward's outcome is scoped to handoff issues only, or a human's push would close an issue nobody meant to close."
+    echo "  Restore the string in .github/workflows/steward.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A failed does-a-pull-request-exist lookup and a genuine no-pull-request answer are both 
+# WHY: an empty string inside $(...). Acting on the wrong one opens a duplicate. The lookup's 
+# WHY: exit status decides, never its output, and a failure opens nothing and names the sweep as 
+# WHY: the repair.
+@test "pin[steward-pr-lookup-exit-status-decides]: .github/workflows/steward.yml" {
+  run grep -F -q -- \|\|\ LOOKUP_RC=\$\? "$REPO_ROOT/.github/workflows/steward.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: steward-pr-lookup-exit-status-decides"
+    echo "  source: .github/workflows/steward.yml:315"
+    echo "  why:    A failed does-a-pull-request-exist lookup and a genuine no-pull-request answer are both an empty string inside \$(...). Acting on the wrong one opens a duplicate. The lookup's exit status decides, never its output, and a failure opens nothing and names the sweep as the repair."
+    echo "  Restore the string in .github/workflows/steward.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The prefix is repeatable so an adapter that names branches differently can be swept too, 
+# WHY: and it must stay tight: a broad prefix would also sweep a human's interactive session 
+# WHY: branches and open pull requests for work nobody finished.
+@test "pin[parked-sweep-prefix-explicit-and-tight]: .github/workflows/parked-branch-sweep.yml" {
+  run grep -F -q -- --prefix\ agent/ "$REPO_ROOT/.github/workflows/parked-branch-sweep.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: parked-sweep-prefix-explicit-and-tight"
+    echo "  source: .github/workflows/parked-branch-sweep.yml:117"
+    echo "  why:    The prefix is repeatable so an adapter that names branches differently can be swept too, and it must stay tight: a broad prefix would also sweep a human's interactive session branches and open pull requests for work nobody finished."
+    echo "  Restore the string in .github/workflows/parked-branch-sweep.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: All prefixes go into one for-each-ref call so an overlapping pair (agent/ and agent/fix-) 
+# WHY: lists a ref once; one call per prefix would sweep the same branch twice and open a second 
+# WHY: pull request, which is the first of the sweep's three nevers.
+@test "pin[parked-sweep-one-for-each-ref-over-all-patterns]: tools/sweep-parked-branches.sh" {
+  run grep -F -q -- \"\$\{PATTERNS\[@\]\}\" "$REPO_ROOT/tools/sweep-parked-branches.sh"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: parked-sweep-one-for-each-ref-over-all-patterns"
+    echo "  source: tools/sweep-parked-branches.sh:422"
+    echo "  why:    All prefixes go into one for-each-ref call so an overlapping pair (agent/ and agent/fix-) lists a ref once; one call per prefix would sweep the same branch twice and open a second pull request, which is the first of the sweep's three nevers."
+    echo "  Restore the string in tools/sweep-parked-branches.sh. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: An agent never punts: work inside its rights and caps is done in this run, and anything 
+# WHY: left undone names one of six fixed stops. A prompt cannot enforce that, so the ledger 
+# WHY: write refuses an entry whose stop is 'later', 'next run' or 'a human decides'. Losing 
+# WHY: this gate lets punts back into the ledger, where the chief of staff reads them as 
+# WHY: decisions.
+@test "pin[ledger-not-done-needs-a-named-stop]: tools/ledger.sh" {
+  run grep -F -q -- not_done\ reason\ must\ be\ one\ of\ guardrail\,\ cap\,\ operator-only\,\ blocked-by:#N\,\ not-reproducible\ or\ clock "$REPO_ROOT/tools/ledger.sh"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: ledger-not-done-needs-a-named-stop"
+    echo "  source: tools/ledger.sh:225"
+    echo "  why:    An agent never punts: work inside its rights and caps is done in this run, and anything left undone names one of six fixed stops. A prompt cannot enforce that, so the ledger write refuses an entry whose stop is 'later', 'next run' or 'a human decides'. Losing this gate lets punts back into the ledger, where the chief of staff reads them as decisions."
+    echo "  Restore the string in tools/ledger.sh. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Every ledger harness validates an entry without a network clone through this one contract 
+# WHY: line; the not_done, ping and fix_verified gates all sit before it. A validate-only that 
+# WHY: cloned would make every test of the gates a network test.
+@test "pin[ledger-validate-only-costs-no-clone]: tools/ledger.sh" {
+  run grep -F -q -- entry\ is\ valid\ \(not\ written\) "$REPO_ROOT/tools/ledger.sh"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: ledger-validate-only-costs-no-clone"
+    echo "  source: tools/ledger.sh:232"
+    echo "  why:    Every ledger harness validates an entry without a network clone through this one contract line; the not_done, ping and fix_verified gates all sit before it. A validate-only that cloned would make every test of the gates a network test."
+    echo "  Restore the string in tools/ledger.sh. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Two runs by the same agent on one date share one narrative path; a copy deleted the first 
+# WHY: run's evidence while both JSONL lines still pointed at it. The second run appends under a 
+# WHY: numbered heading, and the number counts that date's entries that carry a narrative, so a 
+# WHY: run with none does not advance it.
+@test "pin[ledger-same-day-narrative-appends]: tools/ledger.sh" {
+  run grep -F -q -- \##\ Run\ %d\ —\ %sZ "$REPO_ROOT/tools/ledger.sh"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: ledger-same-day-narrative-appends"
+    echo "  source: tools/ledger.sh:326"
+    echo "  why:    Two runs by the same agent on one date share one narrative path; a copy deleted the first run's evidence while both JSONL lines still pointed at it. The second run appends under a numbered heading, and the number counts that date's entries that carry a narrative, so a run with none does not advance it."
+    echo "  Restore the string in tools/ledger.sh. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The run summary is sent after the ledger append, so its message id does not exist at 
+# WHY: write time; ping.summary records intent only. The template's own rule asked for the id, 
+# WHY: and upstream three agents obeyed it by writing a second entry every day, spending their 
+# WHY: one deliverable on bookkeeping and pushing a real run out of every sibling's read window.
+@test "pin[ping-never-a-second-ledger-entry]: docs/runbooks/agent-routines.md" {
+  run grep -F -q -- never\ append\ a\ second\ entry\ to\ carry "$REPO_ROOT/docs/runbooks/agent-routines.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: ping-never-a-second-ledger-entry"
+    echo "  source: docs/runbooks/agent-routines.md:309"
+    echo "  why:    The run summary is sent after the ledger append, so its message id does not exist at write time; ping.summary records intent only. The template's own rule asked for the id, and upstream three agents obeyed it by writing a second entry every day, spending their one deliverable on bookkeeping and pushing a real run out of every sibling's read window."
+    echo "  Restore the string in docs/runbooks/agent-routines.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The branch a session starts on never caps how many pull requests it may open; a second 
+# WHY: pull request needs a second agent/ branch, and creating one is ordinary work. Upstream a 
+# WHY: quality agent left its second fix slot empty twice with reason 'guardrail' because its 
+# WHY: session started on a platform-assigned branch — the correct instruction existed one 
+# WHY: clause away from where it was looking.
+@test "pin[second-pull-request-is-never-a-guardrail-stop]: docs/runbooks/agent-modes.md" {
+  run grep -F -q -- is\ not\ a\ valid\ \`not_done\`\ reason\ for\ a\ second\ pull "$REPO_ROOT/docs/runbooks/agent-modes.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: second-pull-request-is-never-a-guardrail-stop"
+    echo "  source: docs/runbooks/agent-modes.md:349"
+    echo "  why:    The branch a session starts on never caps how many pull requests it may open; a second pull request needs a second agent/ branch, and creating one is ordinary work. Upstream a quality agent left its second fix slot empty twice with reason 'guardrail' because its session started on a platform-assigned branch — the correct instruction existed one clause away from where it was looking."
+    echo "  Restore the string in docs/runbooks/agent-modes.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: 'Done' means the work the row names is finished, never that its issue is closed: a pull 
+# WHY: request can land half a fix and say so, the merge closes the issue anyway, and a later 
+# WHY: run deletes the row on the strength of the closed issue. Two days later the work existed 
+# WHY: nowhere.
+@test "pin[parked-row-done-test]: docs/runbooks/agent-modes.md" {
+  run grep -F -q -- A\ row\ is\ deleted\ by\ whoever\ notices\ it\ is\ done "$REPO_ROOT/docs/runbooks/agent-modes.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: parked-row-done-test"
+    echo "  source: docs/runbooks/agent-modes.md:85"
+    echo "  why:    'Done' means the work the row names is finished, never that its issue is closed: a pull request can land half a fix and say so, the merge closes the issue anyway, and a later run deletes the row on the strength of the closed issue. Two days later the work existed nowhere."
+    echo "  Restore the string in docs/runbooks/agent-modes.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: GitHub keeps no readable history of a body edit. The filed body is the record of what the 
+# WHY: machine saw; an agent's reasoning goes in a comment, where both survive. Three closing 
+# WHY: agents overwrote filed bodies upstream before this rule existed.
+@test "pin[never-edit-a-machine-filed-body]: docs/runbooks/agent-modes.md" {
+  run grep -F -q -- Never\ edit\ a\ machine-filed\ issue\ body.\ Comment\ instead. "$REPO_ROOT/docs/runbooks/agent-modes.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: never-edit-a-machine-filed-body"
+    echo "  source: docs/runbooks/agent-modes.md:741"
+    echo "  why:    GitHub keeps no readable history of a body edit. The filed body is the record of what the machine saw; an agent's reasoning goes in a comment, where both survive. Three closing agents overwrote filed bodies upstream before this rule existed."
+    echo "  Restore the string in docs/runbooks/agent-modes.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The band checklist grew from four checks to seven as upstream kept scoring working fixes 
+# WHY: as failed: a band must say what a working fix would read, name the served state and 
+# WHY: require the deciding step to have completed, and name the deciding job and check it could 
+# WHY: have run in the window. A job that did not run is unscoreable, never a refutation.
+@test "pin[band-checklist-is-seven-checks]: docs/runbooks/agent-modes.md" {
+  run grep -F -q -- check\ seven\ things\ about\ it "$REPO_ROOT/docs/runbooks/agent-modes.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: band-checklist-is-seven-checks"
+    echo "  source: docs/runbooks/agent-modes.md:555"
+    echo "  why:    The band checklist grew from four checks to seven as upstream kept scoring working fixes as failed: a band must say what a working fix would read, name the served state and require the deciding step to have completed, and name the deciding job and check it could have run in the window. A job that did not run is unscoreable, never a refutation."
+    echo "  Restore the string in docs/runbooks/agent-modes.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Auto-merge would merge with no verdict read, no post-merge checks read, and no hold brake 
+# WHY: — every guard the merger exists to apply. The merger merges one pull request at a time, 
+# WHY: itself, and reads the default branch's own checks before the next.
+@test "pin[merger-never-arms-auto-merge]: .agents/prompts/merger.md" {
+  run grep -F -q -- Never\ arm\ the\ host\'s\ auto-merge "$REPO_ROOT/.agents/prompts/merger.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: merger-never-arms-auto-merge"
+    echo "  source: .agents/prompts/merger.md:49"
+    echo "  why:    Auto-merge would merge with no verdict read, no post-merge checks read, and no hold brake — every guard the merger exists to apply. The merger merges one pull request at a time, itself, and reads the default branch's own checks before the next."
+    echo "  Restore the string in .agents/prompts/merger.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The merger's lock is decided by a rejected push on the ledger branch. ledger.sh may 
+# WHY: replay its commit because each agent appends to its own file; a lock file has no such 
+# WHY: property, and a replay would let two merger sessions run at once.
+@test "pin[merger-never-replays-over-a-lock]: .agents/prompts/merger.md" {
+  run grep -F -q -- Never\ replay\ your\ commit\ over "$REPO_ROOT/.agents/prompts/merger.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: merger-never-replays-over-a-lock"
+    echo "  source: .agents/prompts/merger.md:41"
+    echo "  why:    The merger's lock is decided by a rejected push on the ledger branch. ledger.sh may replay its commit because each agent appends to its own file; a lock file has no such property, and a replay would let two merger sessions run at once."
+    echo "  Restore the string in .agents/prompts/merger.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A tracker number written into a runbook closed twice upstream while the runbook kept 
+# WHY: naming it, and the daily brief reported a red gate as an open problem when it was an 
+# WHY: accepted exception. The reader checks the accepted-exception list first, finds the open 
+# WHY: tracker by search, and reads the latest scheduled run's own conclusion.
+@test "pin[chief-of-staff-finds-the-tracker-by-search]: .agents/prompts/chief-of-staff.md" {
+  run grep -F -q -- find\ the\ tracker\ by\ searching "$REPO_ROOT/.agents/prompts/chief-of-staff.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: chief-of-staff-finds-the-tracker-by-search"
+    echo "  source: .agents/prompts/chief-of-staff.md:50"
+    echo "  why:    A tracker number written into a runbook closed twice upstream while the runbook kept naming it, and the daily brief reported a red gate as an open problem when it was an accepted exception. The reader checks the accepted-exception list first, finds the open tracker by search, and reads the latest scheduled run's own conclusion."
+    echo "  Restore the string in .agents/prompts/chief-of-staff.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A fix run that finds and fixes its own critical finding must mark the finding resolved so 
+# WHY: the gate stops counting it; the row stays as the record of what was found. Without a 
+# WHY: resolve verb the run parks. Deleting evidence to get green is the one move that makes the 
+# WHY: gate meaningless.
+@test "pin[headless-never-deletes-evidence-to-pass-a-gate]: .github/agent-temper-headless.md" {
+  run grep -F -q -- Never\ delete\ or\ clear\ evidence\ to\ pass\ a\ gate. "$REPO_ROOT/.github/agent-temper-headless.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: headless-never-deletes-evidence-to-pass-a-gate"
+    echo "  source: .github/agent-temper-headless.md:131"
+    echo "  why:    A fix run that finds and fixes its own critical finding must mark the finding resolved so the gate stops counting it; the row stays as the record of what was found. Without a resolve verb the run parks. Deleting evidence to get green is the one move that makes the gate meaningless."
+    echo "  Restore the string in .github/agent-temper-headless.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A key in argv is readable by every process on the box, and a session's permission 
+# WHY: classifier can refuse a command that carries one — upstream it refused the challenge 
+# WHY: recipe outright. Secrets reach a script through the environment.
+@test "pin[secret-never-in-argv]: AGENTS.md" {
+  run grep -F -q -- Never\ pass\ a\ secret\ as\ a\ command-line\ argument "$REPO_ROOT/AGENTS.md"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: secret-never-in-argv"
+    echo "  source: AGENTS.md:82"
+    echo "  why:    A key in argv is readable by every process on the box, and a session's permission classifier can refuse a command that carries one — upstream it refused the challenge recipe outright. Secrets reach a script through the environment."
+    echo "  Restore the string in AGENTS.md. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: The alternation of provider refusal wordings is read by three steps; a wording missing 
+# WHY: from one copy made a notice call the cause unknown while the log stated it. One 
+# WHY: workflow-level definition, no copies.
+@test "pin[review-quota-wordings-defined-once]: .github/workflows/review.yml" {
+  run grep -F -q -- REVIEW_QUOTA_WORDINGS: "$REPO_ROOT/.github/workflows/review.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-quota-wordings-defined-once"
+    echo "  source: .github/workflows/review.yml:92"
+    echo "  why:    The alternation of provider refusal wordings is read by three steps; a wording missing from one copy made a notice call the cause unknown while the log stated it. One workflow-level definition, no copies."
+    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A reviewer that failed wrote no review; one that succeeded and posted nothing wrote one 
+# WHY: and lost it. Same symptom, opposite answers: the first posts a notice and files nothing, 
+# WHY: the second files a lost-review issue. Without the step id and its outcome the workflow 
+# WHY: could only ever give the second answer.
+@test "pin[reviewer-exit-status-is-read]: .github/workflows/review.yml" {
+  run grep -F -q -- REVIEW_OUTCOME:\ \$\{\{\ steps.reviewer.outcome\ \}\} "$REPO_ROOT/.github/workflows/review.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: reviewer-exit-status-is-read"
+    echo "  source: .github/workflows/review.yml:347"
+    echo "  why:    A reviewer that failed wrote no review; one that succeeded and posted nothing wrote one and lost it. Same symptom, opposite answers: the first posts a notice and files nothing, the second files a lost-review issue. Without the step id and its outcome the workflow could only ever give the second answer."
+    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A skipped reviewer is not a lost review, and a skip is not symmetric. The review job 
+# WHY: exports why it went quiet and the referee reads that, instead of inferring a lost review 
+# WHY: from an empty body and calling a real second review 'nothing to compare'.
+@test "pin[review-skip-reason-exported-not-inferred]: .github/workflows/review.yml" {
+  run grep -F -q -- skipped_reason:\ \$\{\{\ steps.lost.outputs.skipped_reason\ \}\} "$REPO_ROOT/.github/workflows/review.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-skip-reason-exported-not-inferred"
+    echo "  source: .github/workflows/review.yml:116"
+    echo "  why:    A skipped reviewer is not a lost review, and a skip is not symmetric. The review job exports why it went quiet and the referee reads that, instead of inferring a lost review from an empty body and calling a real second review 'nothing to compare'."
+    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Both lost-review steps dedupe on one anchored regex over every wording for the pull 
+# WHY: request, client-side: GitHub's search tokenises '#96' and would match PR #963, and a grep 
+# WHY: on the step's own title lets the two steps file twice for the same pull request.
+@test "pin[review-lost-dedupe-anchored-across-wordings]: .github/workflows/review.yml" {
+  run grep -F -q -- grep\ -cE\ \"\^\\\[review-lost\\\]\ .\*\ on\ PR\ #\$PR\\\$\" "$REPO_ROOT/.github/workflows/review.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-lost-dedupe-anchored-across-wordings"
+    echo "  source: .github/workflows/review.yml:586"
+    echo "  why:    Both lost-review steps dedupe on one anchored regex over every wording for the pull request, client-side: GitHub's search tokenises '#96' and would match PR #963, and a grep on the step's own title lets the two steps file twice for the same pull request."
+    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A review can land as a conversation comment, an inline comment, or a formal review body. 
+# WHY: Three inline findings went in and one came out upstream because the collector read one 
+# WHY: shape and kept the last item. All three endpoints are read and every marked item is kept.
+@test "pin[review-collector-third-home-formal-reviews]: .github/workflows/review.yml" {
+  run grep -F -q -- pulls/\$PR/reviews\"\ --paginate\ --slurp "$REPO_ROOT/.github/workflows/review.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-collector-third-home-formal-reviews"
+    echo "  source: .github/workflows/review.yml:1118"
+    echo "  why:    A review can land as a conversation comment, an inline comment, or a formal review body. Three inline findings went in and one came out upstream because the collector read one shape and kept the last item. All three endpoints are read and every marked item is kept."
+    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Every marked item a reviewer posted is joined into the review, never '| last': a posting 
+# WHY: path that splits findings across comments must not lose all but one, and the referee, the 
+# WHY: verdict, the handoff and the sweep all read this one text.
+@test "pin[review-collector-keeps-every-item]: .github/workflows/review.yml" {
+  run grep -F -q -- join\(\"\\n\\n---\\n\\n\"\) "$REPO_ROOT/.github/workflows/review.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-collector-keeps-every-item"
+    echo "  source: .github/workflows/review.yml:1194"
+    echo "  why:    Every marked item a reviewer posted is joined into the review, never '| last': a posting path that splits findings across comments must not lose all but one, and the referee, the verdict, the handoff and the sweep all read this one text."
+    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Two steps that each fetch the same job log can disagree, and the first fetch raced the 
+# WHY: endpoint. One fetch, in its own step, published as an output both consumers read; a curl 
+# WHY: -L fallback because the logs endpoint answers 302, and a retry because it lags the job.
+@test "pin[review-lost-log-read-once]: .github/workflows/review.yml" {
+  run grep -F -q -- Read\ the\ lost\ reviewer\'s\ job\ log\ once "$REPO_ROOT/.github/workflows/review.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-lost-log-read-once"
+    echo "  source: .github/workflows/review.yml:1357"
+    echo "  why:    Two steps that each fetch the same job log can disagree, and the first fetch raced the endpoint. One fetch, in its own step, published as an output both consumers read; a curl -L fallback because the logs endpoint answers 302, and a retry because it lags the job."
+    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: Filing an issue at review time for every non-blocking finding produced 166 issues in a 
+# WHY: month upstream, most against pull requests that merged hours later with the finding 
+# WHY: already fixed. The open pull request is labelled and told; the merge-time sweep files 
+# WHY: only if the label survives.
+@test "pin[review-nonblocking-marks-the-pull-request]: .github/workflows/review.yml" {
+  run grep -F -q -- \###\ Review\ follow-up:\ clear\ these\ before\ you\ merge "$REPO_ROOT/.github/workflows/review.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-nonblocking-marks-the-pull-request"
+    echo "  source: .github/workflows/review.yml:1864"
+    echo "  why:    Filing an issue at review time for every non-blocking finding produced 166 issues in a month upstream, most against pull requests that merged hours later with the finding already fixed. The open pull request is labelled and told; the merge-time sweep files only if the label survives."
+    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A body that only linked to the pull request cost one agent session per issue to read, and 
+# WHY: three filed records were lost to edits. Every filed body embeds the referee comparison 
+# WHY: and says the body is the record.
+@test "pin[review-filed-bodies-embed-findings-and-say-do-not-edit]: .github/workflows/review.yml" {
+  run grep -F -q -- \*\*Do\ not\ edit\ this\ body\*\*\ —\ comment\ instead\,\ so\ the\ filed\ record\ survives. "$REPO_ROOT/.github/workflows/review.yml"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: review-filed-bodies-embed-findings-and-say-do-not-edit"
+    echo "  source: .github/workflows/review.yml:1762"
+    echo "  why:    A body that only linked to the pull request cost one agent session per issue to read, and three filed records were lost to edits. Every filed body embeds the referee comparison and says the body is the record."
+    echo "  Restore the string in .github/workflows/review.yml. Do NOT weaken the pin."
+    false
+  fi
+}
+
+# WHY: A spent allowance must not file a steward handoff, but only when all four hold: no 
+# WHY: verdict, exactly one reviewer missing, its log names a quota refusal, the pull request 
+# WHY: still open. Any lookup failure falls through and the handoff IS filed — a missed 
+# WHY: carve-out must never swallow a real one.
+@test "pin[handoff-quota-skip-needs-all-four-conditions]: tools/review-handoff-decide.sh" {
+  run grep -F -q -- DECISION=\"quota-skip\" "$REPO_ROOT/tools/review-handoff-decide.sh"
+  if [ "$status" -ne 0 ]; then
+    echo "PIN LOST: handoff-quota-skip-needs-all-four-conditions"
+    echo "  source: tools/review-handoff-decide.sh:233"
+    echo "  why:    A spent allowance must not file a steward handoff, but only when all four hold: no verdict, exactly one reviewer missing, its log names a quota refusal, the pull request still open. Any lookup failure falls through and the handoff IS filed — a missed carve-out must never swallow a real one."
+    echo "  Restore the string in tools/review-handoff-decide.sh. Do NOT weaken the pin."
     false
   fi
 }

@@ -5,6 +5,12 @@ every newly-opened issue reaches this prompt automatically.
 
 Read `AGENTS.md`, `.github/agent-temper-headless.md` and
 `docs/runbooks/agent-escalation.md` before anything else.
+You do not punt (efficiency rule 9 in `docs/runbooks/agent-routines.md`): a review
+thread you can address, you address; a red check on your own branch, you fix; what a
+guardrail or a missing right stops, you name in one comment with the exact stop. A path
+your token is refused on is parked in the parked-work table in
+`docs/runbooks/agent-modes.md` with its owner named, never dropped.
+
 
 ## What this run does
 
@@ -22,7 +28,8 @@ Read `AGENTS.md`, `.github/agent-temper-headless.md` and
    branch. A run that does neither is a silent failure — the workflow's own
    visible-outcome check treats that as a deliberate job failure, but do not rely on it:
    post something yourself as the primary behaviour.
-5. Never merge your own pull request. A human merges.
+5. Never merge your own pull request. A human merges — or the opt-in `merger`, under its
+   written bar (`AGENTS.md` guardrail 2); never you.
 
 One structured ledger line is not required here — the steward is event-driven and not
 part of `ledger.agents` — but every escalation still follows

@@ -130,8 +130,16 @@ cmd_trend() {
 
 cmd_append() {
   need_jq
+  # `--validate-only` runs every check below and returns before the clone. It is
+  # how a prompt, a test or an operator asks "would this entry be accepted?"
+  # without spending a network round-trip or writing anything.
+  local validate_only=0
+  if [ "${1:-}" = "--validate-only" ]; then
+    validate_only=1
+    shift
+  fi
   local agent="${1:-}" entry="${2:-}" narrative="${3:-}"
-  [ -n "$agent" ] && [ -n "$entry" ] || die "usage: ledger.sh append <agent> <json> [narrative-file]"
+  [ -n "$agent" ] && [ -n "$entry" ] || die "usage: ledger.sh append [--validate-only] <agent> <json> [narrative-file]"
   check_agent "$agent"
 
   # Validate BEFORE cloning anything. A malformed entry should cost nothing.
@@ -175,6 +183,55 @@ cmd_append() {
   printf '%s' "$entry" \
     | jq -e '.date | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")' >/dev/null 2>&1 \
     || die "date must be a YYYY-MM-DD string (it is interpolated into a file path)"
+
+  # `ping.summary` records the INTENT to send the run-summary — "sent" or "none" —
+  # never a message id: the entry is appended before that message goes out, so
+  # no id exists at write time (efficiency rule 4a). A failed send is an
+  # `[<agent>][UNDELIVERED PING]` issue, never a second entry.
+  if printf '%s' "$entry" | jq -e '.ping | type == "object" and has("summary")' >/dev/null 2>&1; then
+    printf '%s' "$entry" | jq -e '.ping.summary | type == "string" and test("^(sent|none)$")' >/dev/null 2>&1 \
+      || die "ping.summary must be \"sent\" or \"none\" — the intent, recorded before the send; a message id never belongs here (rule 4a)"
+  fi
+
+  # `fix_verified` verdicts are the vocabulary two other agents branch on (the
+  # groomer's close bar, the chief of staff's closed-but-unverified list), so a
+  # sixth word is refused here rather than silently ignored there. `partial`
+  # must name where the unfixed half lives; `too_early` must name when it
+  # becomes scoreable and which issue it belongs to (docs/runbooks/agent-ledgers.md).
+  if printf '%s' "$entry" | jq -e 'has("fix_verified")' >/dev/null; then
+    printf '%s' "$entry" | jq -e '.fix_verified | type == "array" and all(.[]; type == "object")' >/dev/null \
+      || die "fix_verified must be an array of {pr, metric, verdict} objects"
+    printf '%s' "$entry" | jq -e '.fix_verified | all(.[]; (.verdict | type == "string" and test("^(moved|partial|not_moved|too_early|unmergeable_state)$")))' >/dev/null \
+      || die "fix_verified verdict must be one of moved, partial, not_moved, too_early or unmergeable_state — these five are the whole list"
+    printf '%s' "$entry" | jq -e '.fix_verified | all(.[]; .verdict != "partial" or ((.follow_up | type) == "number" or .follow_up == "reopened"))' >/dev/null \
+      || die "a partial verdict must carry follow_up: the issue number holding the unfixed half, or \"reopened\""
+    printf '%s' "$entry" | jq -e '.fix_verified | all(.[]; .verdict != "too_early" or ((.recheck_after | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) and (.issue | type) == "number"))' >/dev/null \
+      || die "a too_early verdict must carry recheck_after (YYYY-MM-DD) and issue (the number it is scored for) — never carry it in pending"
+  fi
+
+  # Rule 9 (docs/runbooks/agent-routines.md, "never punt"): an agent never
+  # punts. Work it leaves undone is listed in `not_done`, and each item names a
+  # fixed stop. A prompt cannot force that, so the write refuses a reason
+  # outside the list, a missing item or next step, or a `clock` stop with no
+  # draft PR number to show the work was already pushed.
+  if printf '%s' "$entry" | jq -e 'has("not_done")' >/dev/null; then
+    printf '%s' "$entry" | jq -e '.not_done | type == "array" and all(.[]; type == "object")' >/dev/null \
+      || die "not_done must be an array of {item, reason, next} objects"
+    printf '%s' "$entry" | jq -e '.not_done | all(.[]; (.item | type == "string" and length > 0))' >/dev/null \
+      || die "every not_done item must carry a non-empty 'item'"
+    printf '%s' "$entry" | jq -e '.not_done | all(.[]; (.next | type == "string" and length > 0))' >/dev/null \
+      || die "every not_done item must carry a non-empty 'next' (the exact click, command, PR or issue)"
+    printf '%s' "$entry" | jq -e '.not_done | all(.[]; (.reason | type == "string" and test("^(guardrail|cap|operator-only|blocked-by:#[0-9]+|not-reproducible|clock)$")))' >/dev/null \
+      || die "not_done reason must be one of guardrail, cap, operator-only, blocked-by:#N, not-reproducible or clock — " \
+             "\"later\", \"next run\", \"follow-up\" and \"a human decides\" are punts, not stops (rule 9)"
+    printf '%s' "$entry" | jq -e '.not_done | all(.[]; .reason != "clock" or (.next | test("#[0-9]+")))' >/dev/null \
+      || die "a clock stop must name the draft PR number in 'next': clock is valid only with the draft PR already pushed (rule 9)"
+  fi
+
+  if [ "$validate_only" = 1 ]; then
+    echo "entry is valid (not written)"
+    return 0
+  fi
 
   local narrative_src="" narrative_rel=""
   if [ -n "$narrative" ]; then
@@ -240,7 +297,7 @@ cmd_append() {
   # The exit codes also separate the two failures the old code conflated. A rejected push
   # is NORMAL — someone appended between our fetch and ours — and is retried. Anything
   # else is not, and retrying it five times only delays a misleading message.
-  local attempt rc
+  local attempt rc run_n
   for attempt in 1 2 3 4 5; do
     rc=0
     (
@@ -251,7 +308,27 @@ cmd_append() {
       printf '%s\n' "$entry" >> "ledger/${agent}.jsonl" || exit 24
       if [ -n "$narrative_rel" ]; then
         mkdir -p "$(dirname "$narrative_rel")" || exit 25
-        cp "$narrative_src" "$narrative_rel" || exit 26
+        # One narrative path per agent per day, so a second run on the same date
+        # lands on the first run's file. Append under a `## Run N` heading instead
+        # of copying over it: a `cp` deleted the earlier run's evidence while both
+        # JSONL entries still pointed at the file.
+        #
+        # The probe sits after the `reset --hard` above so a replayed attempt sees
+        # the branch as it is and never doubles its own text. N counts this date's
+        # entries that carry a narrative — the JSONL line was appended just above,
+        # so the current entry is already in the count and the first same-day
+        # append reads "Run 2". An entry with no narrative wrote no section, so it
+        # does not advance the number.
+        if [ -s "$narrative_rel" ]; then
+          run_n="$(jq -r --arg d "$(printf '%s' "$entry" | jq -r '.date')" \
+                     'select(.date == $d and (.narrative // "") != "") | .date' "ledger/${agent}.jsonl" | wc -l | tr -d ' ')"
+          {
+            printf '\n---\n\n## Run %d — %sZ\n\n' "$run_n" "$(date -u +%H:%M)"
+            cat "$narrative_src"
+          } >> "$narrative_rel" || exit 32
+        else
+          cp "$narrative_src" "$narrative_rel" || exit 26
+        fi
         git add "$narrative_rel" || exit 27
       fi
       git add "ledger/${agent}.jsonl" || exit 28
@@ -282,6 +359,7 @@ cmd_append() {
         29) die "ledger append failed: git commit refused (exit $rc) — a hook, a signing key or a full disk. NOTHING was written to $BRANCH." ;;
         21|22) die "ledger append failed: cannot fetch or reset '$BRANCH' from origin (exit $rc). NOTHING was written." ;;
         26|27) die "ledger append failed: the narrative file could not be staged (exit $rc). NOTHING was written." ;;
+        32) die "ledger append failed: could not append the same-day narrative under its '## Run N' heading (exit $rc). NOTHING was written." ;;
         *) die "ledger append failed before push (exit $rc). NOTHING was written to $BRANCH." ;;
       esac
     fi
@@ -308,6 +386,8 @@ usage:
   ledger.sh latest                        newest entry per agent (watcher-ring check)
   ledger.sh trend <agent> <metric> [n]    a metric's series, for trend rules
   ledger.sh append <agent> <json> [file]  append one run entry (+ optional narrative)
+  ledger.sh append --validate-only <agent> <json>
+                                          run every check, write nothing, clone nothing
 
 agents: from ledger.agents[].id in .agents/config.yml (override: \$LEDGER_AGENTS)
 docs:   docs/runbooks/agent-ledgers.md

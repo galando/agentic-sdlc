@@ -12,7 +12,7 @@ One page: where to look, how to steer, how to stop. No jargon — and the few te
    tools/ledger.sh read health 14  # last 14 entries for one agent
    ```
 
-   Agent keys, daily: `health` (was production healthy?), `quality` (what problems were found or fixed?), `audit` (is the data the system produces still correct?), `chief-of-staff` (what did the fleet do, and what should change?) and `challenger` (does an independent re-derivation still agree?). Weekly and monthly: `docs` (is the documentation still true?), `groomer` (is the backlog still honest?), `testgap` (where is the weakest coverage, and can a floor rise?), `deps` (one bounded dependency upgrade), `hygiene` (dead code and duplication, one bounded pull request) and `release` (draft the notes, propose a version, never tag). The list lives in `.agents/config.yml` under `ledger.agents[]` — that one list is what every tool reads, so adding an agent there is how you add an agent.
+   Agent keys, daily: `health` (was production healthy?), `quality` (what problems were found or fixed?), `audit` (is the data the system produces still correct?), `chief-of-staff` (what did the fleet do, and what should change?) and `challenger` (does an independent re-derivation still agree?). Weekly and monthly: `docs` (is the documentation still true?), `groomer` (is the backlog still honest?), `testgap` (where is the weakest coverage, and can a floor rise?), `deps` (one bounded dependency upgrade), `hygiene` (dead code and duplication, one bounded pull request) and `release` (draft the notes, propose a version, never tag). Opt-in and shipped off: `merger` (merges what meets the written bar, closes what the merges fixed — see "Enable or disable the merger" below). The list lives in `.agents/config.yml` under `ledger.agents[]` — that one list is what every tool reads, so adding an agent there is how you add an agent.
 
    Each entry is one JSON line: date, verdict, a one-line summary written to stand alone, links, and whether you were paged. Anything longer sits in a narrative file (`ledger/<agent>/YYYY-MM-DD.md`) you can open when you want it. If you keep a pinned issue per agent as an entry point, treat it as a signpost: **agents neither write nor read them** — they only point at the branch.
 3. **Open pull requests** — anything an agent wants to change is a pull request waiting for *your* merge. Branches start with `agent/`. The review workflow's judge will already have reviewed it before you look, and on most repositories a second review from a different model family sits beside it (`multi-model-review.md`) — pull-request reviews are `review.yml`'s job, not the steward's. Every agent builds code changes through the build pipeline, so the pull request should carry a written root cause and a test that fails without the fix, and every body and comment is written in plain language — what was wrong, what changed, why.
@@ -36,6 +36,34 @@ Write it as a mode, an exception, or a standing decision, in plain words:
 > **A steering channel agents can also write to is not a steering channel.** If you are migrating from a setup where you steered agents by prefixing comments in a shared thread, that convention no longer reaches anyone here. It only ever existed because agents posted their own entries into the same thread under the same account, so a prefix was the one way to tell a command from an old agent talking — and a prefix is a convention, not a control. State and instructions are separate files now, on branches with different permissions. Any old prefixed text still sitting in those threads is history, and agents are told to ignore it.
 
 **Talk to an agent directly:** mention the trigger phrase (`mention.default` in `.agents/config.yml`, `@agent` out of the box) on any issue or pull request for an on-demand task or question, or open an interactive session and ask — e.g. "summarize what the agents did this week from the ledgers on the `agent-ledger` branch."
+
+## Enable or disable the merger
+
+By default **you merge**. The `merger` agent is the one exception this template offers,
+and it ships `enabled: false` in `.agents/config.yml`. Turn it on when the fleet produces
+more green pull requests than you can read — upstream that point was 37 hand-merges in a
+week with eleven pull requests still open — and only after you have read
+[`agent-modes.md`](agent-modes.md) → "Mode: merger", because that section *is* the
+decision: the merge bar every pull request must clear, the exclusion list of things it
+never merges (the rules the agents obey, destructive migrations, major bumps, production
+infra, the dependency allowlist, anything you label `hold` or `do-not-merge`), the close
+rules, and the caps.
+
+- **Enable:** set `enabled: true` on the `merger` entry under `ledger.agents[]`, make sure
+  `agents-scheduled.yml` carries a cron for its schedule, and record the date and reason
+  in `agent-modes-history.md` — all in one pull request you merge yourself.
+- **Disable:** set it back to `false`. Instant, nothing to clean up; a lock it left on the
+  ledger branch goes stale on its own.
+- **Brake one pull request without disabling anything:** add the `hold` label.
+- **Change what it may merge:** edit the exclusion list or the bar in `agent-modes.md` by
+  pull request — never by telling one agent verbally. Upstream, an exclusion lifted in
+  conversation and never written down had the merger decline a pull request another
+  agent had been told was fine, and two agents disagreeing about one rule is worse than
+  either answer.
+
+The merger never merges a change to its own rules, and it never uses the host's
+auto-merge: every merge is one it made itself, with the default branch's own checks read
+green before the next.
 
 ## How to pause or stop
 
@@ -83,10 +111,12 @@ substitution only.
 |---|---|
 | **Ledger** | An agent's run diary and its memory between runs: one JSON line per run in `ledger/<agent>.jsonl` on the `agent-ledger` branch, read with `tools/ledger.sh`. Agents re-read their own recent entries, but a ledger is **history only** — it can never instruct them. Steering goes in `agent-modes.md`. |
 | **Steward** | The event-driven agent: it triages newly-opened issues and answers mentions on issues and pull requests. The only agent not on a schedule. (Pull-request reviews are `review.yml`'s judge and challenge roles, not the steward.) |
-| **Scheduled agent** | A cron entry plus a prompt; each firing is a fresh session with no memory except its ledger. The eleven shipped ones are listed above, all disabled until you enable them. |
+| **Scheduled agent** | A cron entry plus a prompt; each firing is a fresh session with no memory except its ledger. The twelve shipped ones are listed above, all disabled until you enable them; the twelfth, the merger, stays off unless you decide otherwise. |
 | **RCA issue** | "Root-cause analysis" — an issue explaining *why* something fails, filed when an agent diagnoses but doesn't fix. |
 | **REPORT-ONLY** | A mode in which an agent analyzes and files issues but writes no code. |
 | **Build pipeline** | The gated pipeline agents use to build a fix or a feature: root cause and tests written *before* the patch, each stage gated. The default for every agent (`AGENTS.md` guardrail 7); unattended runs follow `.github/agent-temper-headless.md`. |
-| **Handoff** | One agent asking another to do something, written as a field in its ledger entry. The receiver answers it in its *own* next entry — that answer is what retires it. |
+| **Handoff** | One agent asking another to do something, written as a field in its ledger entry. The receiver answers it in its *own* next entry — that answer is what retires it. A handoff carries what the sender already did; one that hands over bare work is a punt. |
+| **Punt** | Work an agent could have finished in its run and wrote down for "later" instead. Forbidden (`AGENTS.md` guardrail 3). Anything left undone is listed in the entry's `not_done` array with one of six named stops, and the ledger tool refuses any other reason; the chief of staff's brief flags repeats. |
+| **Merger** | The opt-in agent that merges pull requests meeting the written bar in `agent-modes.md` and closes the issues those merges fixed. Off by default; you enable it. |
 | **Judge / execute / challenge** | The three model roles. `judge` is the strongest and does the reviewing and deciding; `execute` is cheaper and does mechanical work; `challenge` is a *different model family* used for anything adversarial, because a second opinion from the same family shares the same blind spots. Configured in `.agents/config.yml`; never named by vendor anywhere else. |
 | **Alert channel** | Where a run-summary and an incident ping are pushed (`alerts.channel` in `.agents/config.yml`). Issues are the primary channel and always work; this one is additive. |
