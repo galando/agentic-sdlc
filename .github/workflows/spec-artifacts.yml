@@ -39,7 +39,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # Full history: the diff below needs both the base and head commits, and a
           # shallow clone of just the head cannot produce it.

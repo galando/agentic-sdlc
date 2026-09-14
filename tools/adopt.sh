@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # tools/adopt.sh — the guided adoption. ONE command, run as many times as you like.
 #
-# Why this exists: the adoption is four local tools plus a handful of GitHub-side
-# actions, in a documented order — and five live adoptions showed the same failure
-# mode each time: not a broken step, but a human unsure WHICH step, or unaware a
-# manual one (a secret, a stale commit, branch protection) was theirs. status.sh
-# answered "where am I"; this answers "do it for me, one confirmed step at a time".
+# Why this exists: the adoption used to be four local tools plus a handful of
+# GitHub-side actions, in a documented order — and five live adoptions showed the
+# same failure mode each time: not a broken step, but a human unsure WHICH step, or
+# unaware a manual one (a secret, a stale commit, branch protection) was theirs.
+# tools/bootstrap.sh now collapses the local half into one command with no
+# questions; status.sh answers "where am I"; this answers "do the rest for me, one
+# confirmed step at a time" — the GitHub-side walk that follows the bootstrap.
 #
 # Contract:
 #   - RESUMABLE and IDEMPOTENT: it detects what is already done and moves on, so

@@ -70,7 +70,7 @@ if grep -qF "$PROVIDER_TOKEN" "$ROOT/.agents/config.yml" 2>/dev/null; then
   say ""
   say "  No provider chosen yet (this is the uninitialised template), so there is no"
   say "  argv to preview — that is the designed state, not a failure. After the"
-  say "  interview (tools/adopt.sh, or tools/init.sh --answers profiles/<name>.answers),"
+  say "  interview (tools/bootstrap.sh --product \"Name\", or tools/init.sh --answers profiles/<name>.answers),"
   say "  \`tools/run-agent.sh health --dry-run\` prints the exact command each agent"
   say "  would run, still invoking nothing."
 else
@@ -82,7 +82,8 @@ fi
 echo
 if [ "$FAILED" -eq 0 ]; then
   say "=== Done. Everything you just saw ran offline with no credentials. ==="
-  say "Next: tools/adopt.sh walks the real adoption, one confirmed step at a time."
+  say "Next: tools/bootstrap.sh --product \"Name\" does the local half of the real adoption"
+  say "in one command; tools/adopt.sh then walks the GitHub-side steps with you."
 else
   say "=== Done, with at least one section red or unable to run — see above. ==="
   say "A red section is a finding; a missing tool is a skip. Neither is a pass."

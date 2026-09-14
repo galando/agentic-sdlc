@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Official install method from actionlint's own usage docs
       # (https://github.com/rhysd/actionlint/blob/main/docs/usage.md) — a self-contained

@@ -61,7 +61,7 @@ jobs:
       findings: ${{ steps.watch.outputs.findings }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Read the ledger branch without a second checkout
         id: ledger

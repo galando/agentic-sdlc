@@ -85,10 +85,10 @@
   <h1>Agents propose.<br>A human merges.<br>CI decides.</h1>
   <p class="tagline">A GitHub template that runs your software delivery lifecycle with
   autonomous agents — every change reviewed by two model families, gated by 23 checks,
-  and merged only by you.</p>
+  and merged by you (or, only if you switch it on, by a merger under a bar you wrote).</p>
   <div class="cta-row">
     <a class="btn primary" href="https://github.com/galando/agentic-sdlc/generate">Use the template</a>
-    <a class="btn" href="https://github.com/galando/agentic-sdlc/blob/main/THE-SEVEN-IDEAS.md">The seven ideas (10 min)</a>
+    <a class="btn" href="https://github.com/galando/agentic-sdlc#why-it-is-built-this-way">Why it is built this way</a>
     <a class="btn" href="https://github.com/galando/agentic-sdlc-demo">See it live</a>
   </div>
 
@@ -130,6 +130,10 @@ issue opened ──▶ steward triages ──▶ PR opened ──▶ two reviews
     <div class="card"><b>A steward on your issues</b>
       Triages every new issue, answers mentions, writes fixes as pull requests.
       It never merges — that button is yours, by design.</div>
+    <div class="card"><b>Three watches that look where nothing else looks</b>
+      The default branch after merges, the agent fleet from <i>outside</i> it, and CI's
+      own runners and minutes. Each alerts through one tracking issue that names what
+      it found and stays quiet while the findings have not changed.</div>
     <div class="card"><b>Reviews that argue</b>
       Two reviews from <i>different model families</i>, plus a referee that settles
       their disagreements against the code. Verdicts are advice; you overrule.</div>
@@ -158,18 +162,19 @@ issue opened ──▶ steward triages ──▶ PR opened ──▶ two reviews
     <li><b>Degrade visibly, never silently</b> — a dead agent and a healthy one must never look the same.</li>
     <li><b>The ratchet</b> — floors only move up, and suppression counts as lowering.</li>
     <li><b>Test the machine that builds the software</b> — not just the software.</li>
-    <li><b>The adversary never decides</b> — different model families review; a referee rules; a human merges.</li>
+    <li><b>The adversary never decides</b> — different model families review; a referee rules; a human merges, or the opt-in merger under a human-written bar.</li>
     <li><b>Your baseline, never someone else's</b> — floors ship unarmed and loud until measured against your code.</li>
   </ol>
   <p class="muted" style="margin-top:.8rem">Each one earned by an incident and enforced by a test or a permission —
-  <a href="https://github.com/galando/agentic-sdlc/blob/main/THE-SEVEN-IDEAS.md">the ten-minute read</a>,
+  <a href="https://github.com/galando/agentic-sdlc#why-it-is-built-this-way">the seven ideas in the README</a>,
   including how to steal any one of them without adopting the rest.</p>
 </section>
 
 <section>
   <h2>Honestly, when not to use it</h2>
-  <p class="muted">Solo prototyping doesn't need a gauntlet. If you want unattended merges,
-  this is deliberately the wrong tool. If you only want dependency bumps or spec
+  <p class="muted">Solo prototyping doesn't need a gauntlet. If you want unattended merges
+  with no written bar, this is deliberately the wrong tool: the human merge is the default,
+  and the opt-in merger only ever merges what a bar you wrote allows. If you only want dependency bumps or spec
   discipline, lighter tools exist. This is for teams who want agents doing real work
   <i>and</i> a mechanical reason to trust every change that lands.</p>
 </section>

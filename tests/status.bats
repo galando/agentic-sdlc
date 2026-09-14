@@ -56,7 +56,8 @@ teardown() {
   make_fixture fresh
   run bash "$FIXTURE/tools/status.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Next command:  tools/init.sh"* ]]
+  [[ "$output" == *"Next command:  tools/bootstrap.sh --product"* ]]
+  [[ "$output" == *"or tools/init.sh for the questions"* ]]
 }
 
 @test "initialised but example still present: the next command is adopt-layout" {
@@ -91,6 +92,7 @@ teardown() {
   # Template repo: interview unanswered. An adopted tree legitimately differs,
   # so only assert when the tree is actually uninitialised.
   if grep -qF '{{PROVIDER}}' "$REPO_ROOT/.agents/config.yml"; then
-    [[ "$output" == *"Next command:  tools/init.sh"* ]]
+    [[ "$output" == *"Next command:  tools/bootstrap.sh --product"* ]]
+    [[ "$output" == *"or tools/init.sh for the questions"* ]]
   fi
 }

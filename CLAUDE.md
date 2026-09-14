@@ -133,8 +133,8 @@ or drives this scaffold.
   "skipped", which counts as passing), never a workflow-level `paths:` filter — that
   creates no check run at all and the PR waits forever. `docs/runbooks/branch-protection.md`
   lists which contexts are safe to require, by exact string.
-- A comment on a PR has **two homes** (conversation and inline); any collector must read
-  both endpoints and merge. Related: `--paginate` with a per-item `--jq` filter applies the
+- A comment on a PR has **three homes** (conversation, inline, and the formal review
+  body); any collector must read all three endpoints and merge. Related: `--paginate` with a per-item `--jq` filter applies the
   filter once *per page* — slurp, flatten, then filter.
 - A reusable workflow cannot hold more permission than its caller, so every caller of
   `nightly-alert.yml` must declare `permissions: {contents: read, issues: write}`.

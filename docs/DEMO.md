@@ -1,22 +1,18 @@
 # The capability demo — build it, then show every capability
 
-<!-- placeholder: {{PRODUCT_NAME}} — the system your agents watch. tools/init.sh fills it in. -->
+**Maintainer-only.** This file scripts the template's own public demo
+([agentic-sdlc-demo](https://github.com/galando/agentic-sdlc-demo)); `tools/init.sh`
+deletes it from every adopted tree. If you want to adopt the template for real product
+work, you do not need it — start at `README.md`, "One command in".
 
-This is the script for Part C of the second-brain/SDLC-extension design (PR #18's
-plan document; the implementation spec — intent, plan, gate ledger — lives at
-`.temper/specs/second-brain-and-sdlc-extension/`): a
-reproducible walk-through that triggers **every** capability of this harness on
-demand, in a fixed order, from a clean template instantiation — the existing agent
-loop, the second brain (`docs/knowledge/`), and the five SDLC-extension agents
-(Part B of the same design). It exists so an adopter or a
-viewer does not have to wait on organic activity to see the whole system work; every
-stop below is something you deliberately trigger, and every stop leaves an artifact —
-a comment, a pull request, a ledger line, a card — that stays in the repository
-afterwards as browsable evidence.
-
-If you only want to adopt the template for real product work, you do not need this
-file — start at `README.md` section 3 instead. This file is for demonstrating the
-system itself.
+It is a reproducible walk-through that triggers **every** capability of this harness on
+demand, in a fixed order, from a clean template instantiation — the agent loop, the second
+brain (`docs/knowledge/`), the SDLC-extension agents and the three watches. It exists so a
+viewer does not have to wait on organic activity to see the whole system work; every stop
+below is something you deliberately trigger, and every stop leaves an artifact — a comment,
+a pull request, a ledger line, a card — that stays in the repository afterwards as
+browsable evidence. (The build record of the second-brain design it grew from is
+`.temper/specs/second-brain-and-sdlc-extension/`.)
 
 ---
 
@@ -25,13 +21,15 @@ system itself.
 1. **Create the repository from the template**, keeping the bundled example product
    (`examples/`) — the gates need something real to measure, and `tools/measure-floors.sh`
    refuses to run without it.
-2. **Run `tools/adopt.sh`** and answer the interview: product name, provider, a model
-   per role (`judge` / `execute` / `challenge` — pick `challenge` from a **different
-   model family** to unlock the adversarial second review), alert channel, mention
-   trigger. Re-run it until `tools/status.sh` reports clean.
+2. **Run `tools/bootstrap.sh --product "<name>"`** — no questions; it runs
+   `tools/init.sh --defaults` and prints every assumption it made. When a default is
+   wrong (the models per role, say — pick `challenge` from a **different model
+   family** to unlock the adversarial second review), run `tools/init.sh --answers
+   <file>` with a copy of `profiles/<provider>.answers` instead. Then `tools/adopt.sh`
+   for the GitHub-side steps; re-run it until `tools/status.sh` reports clean.
 3. **Confirm the floors calibrated** against the example product's own baseline —
-   `tools/adopt.sh` offers to run `tools/measure-floors.sh` and open the calibration
-   pull request; merge it once the FAST tier is green.
+   `tools/adopt.sh` (after the bootstrap) offers to run `tools/measure-floors.sh` and
+   open the calibration pull request; merge it once the FAST tier is green.
 4. **Confirm the ledger branch exists** — `tools/adopt.sh` offers
    `tools/create-ledger-branch.sh`; it is idempotent if you run it again by hand.
 5. **Branch protection, last** — `docs/runbooks/branch-protection.md`, the FAST tier
@@ -50,7 +48,7 @@ system itself.
    tools/run-agent.sh --check-credentials chief-of-staff
    tools/run-agent.sh --check-credentials challenger   # role: challenge
    for agent in health quality audit chief-of-staff challenger \
-                docs groomer testgap deps release; do
+                docs groomer testgap deps hygiene release merger; do
      tools/run-agent.sh "$agent" --dry-run
    done
    ```
@@ -63,14 +61,14 @@ system itself.
    - one dependency with a known available upgrade (dependency steward, C2 stop 12);
    - floors armed a few points below measured, so the test-gap agent has a
      legitimate raise to propose (C2 stop 11).
-9. **Enable the agents you intend to show**, one at a time, per README section 6
+9. **Enable the agents you intend to show**, one at a time, per `README.md`
    ("Turning on the routines") — flip `enabled: true` for that agent's entry in
    `.agents/config.yml`, dry-run it once via `workflow_dispatch`, then let its cron
    take over.
 
 ---
 
-## C2 — The capability tour (fixed order, 13 stops)
+## C2 — The capability tour (fixed order, 17 stops)
 
 Each stop names the trigger, what to show on screen, and the artifact that proves it
 worked.
@@ -119,13 +117,28 @@ worked.
     decisions-needed list. Then the **negative proof**: disable one agent's schedule
     for a day (`enabled: false`) and show the missed-heartbeat alert — a dead agent
     and a healthy agent never look the same.
+14. **Code hygiene** — its weekly run finds a planted duplicate helper or dead
+    export. **Show:** the bounded, docs-and-code pull request and the ledger metrics.
+15. **The fleet watched from outside** — stop the scheduler (disable
+    `agents-scheduled.yml` from the Actions tab) for one slot. **Show:**
+    `fleet-heartbeat.yml` on the hosted runner filing the `[heartbeat]` overdue-agents
+    issue, with the missed slot named, while no agent was alive to report it.
+16. **Findings filed at merge, not at review** — merge a pull request that carries a
+    non-blocking review finding, once with the label removed and once with it left on.
+    **Show:** `review-followup-sweep.yml` filing exactly one `[review-followup]` issue,
+    for the second merge only, with the merged diff as evidence.
+17. **The opt-in merger** — write a merge bar in `docs/runbooks/agent-modes.md`
+    (green gauntlet, both reviews approve, a docs-only diff), enable `merger`, open a
+    docs-only pull request that meets it and one that does not. **Show:** the first
+    merged with the bar quoted in the ledger line; the second left for a human, with
+    the unmet clause named.
 
 ---
 
 ## C3 — Demo acceptance criteria
 
 - **Every stop is reproducible from a clean template instantiation** by following
-  this file — no organic waiting required for any of the 13 stops.
+  this file — no organic waiting required for any of the 17 stops.
 - **The whole tour's artifacts remain in the repository afterwards** as browsable
   evidence: the issues, the pull requests, the ledger lines (`agent-ledger` branch),
   and the knowledge cards. Nothing in this tour is cleaned up after recording.

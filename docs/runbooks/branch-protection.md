@@ -153,6 +153,7 @@ pull request that does not touch those paths.
 | `sweep` (`review-sweep.yml`) | It runs on a `workflow_run` completion and acts **only when the review run was cancelled**, so on an ordinary pull request it never reports. Requiring it blocks every pull request forever, waiting on a check that by design will not arrive — the same trap as the nightly contexts above. It is a reporter, not a gate: its whole job is to say *nobody is acting on these reviews*, which is information for the person merging, never a reason to stop them. |
 | `watch-main` (`main-watch.yml`), `watch-fleet-heartbeat` (`fleet-heartbeat.yml`) | Scheduled only, never on a pull request — the same trap as the nightly contexts. The default-branch watch re-tests what already merged; the fleet heartbeat reads the agents' ledger branch. Neither has anything to say about the pull request in front of you. |
 | `sweep` (`review-followup-sweep.yml`) | It runs when a pull request **closes** and on a daily schedule, never on a pull request's own pushes. Requiring it blocks every pull request forever. |
+| `sweep` (`parked-branch-sweep.yml`) | Scheduled every three hours and on dispatch, never on a pull request. Note that **three workflows publish a job named `sweep`** (`review-sweep.yml`, `review-followup-sweep.yml`, `parked-branch-sweep.yml`); the context picker shows one string for all three, and none of them may be required. |
 | `watch-ci-health` | Same reason — scheduled only, never on a pull request. It is also the one check whose *subject* is CI itself: requiring the watchdog that tells you the runners are down would mean a runner outage blocks every merge as well as every build, which is the outage helping itself along. |
 
 <!-- placeholder: {{ALERT_CHANNEL}} — where operational pings go (a chat channel,
@@ -219,7 +220,7 @@ each name as a JSON string, exactly as spelled in the tables above:
 
 **Promotion week**, once you have watched the full tier report green on real
 pull requests: append the five full-tier names from the table above, for
-twelve. Re-run the `NOT PRESENT` loop first — silence is the signal they are
+thirteen. Re-run the `NOT PRESENT` loop first — silence is the signal they are
 really there.
 
 A rule for this and for anything you add later: **the loop before the paste,

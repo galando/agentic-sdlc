@@ -11,6 +11,55 @@ diff against, and keeping the surface small keeps that diff readable.
 placeholder — see `ADOPTING.md`). Every release therefore needs a heading in exactly this
 shape.
 
+## [0.5.1] - 2026-09-14
+
+A docs-and-dependencies release: **the repository is simpler to walk into**, every page
+says what 0.5.0 made true, and the eight Dependabot pull requests that could not pass the
+gauntlet are landed by hand with the reason each one failed written down.
+
+### Changed
+
+- **Fewer front doors.** `THE-SEVEN-IDEAS.md` is folded into `README.md` as the section
+  "Why it is built this way" (the site links there); `DEMO.md` moved to `docs/DEMO.md`
+  and is now maintainer-only, removed from adopted trees by `tools/init.sh` and excluded
+  by `tools/upgrade.sh --install`, like `site/` before it; `docs/maintainers/` is gone
+  (`demo-recreation.md` duplicated the demo script, the 2026-08-13 strategic review was
+  a dated snapshot whose every blocker has since shipped). `docs/README.md` is the new map
+  of every document by who reads it, and `README.md` ends with the short version.
+- **The docs say what 0.5.0 did.** `tools/status.sh`, `tools/adopt.sh`,
+  `tools/demo-local.sh`, `profiles/README.md`, the operator guide and the demo script
+  now lead with `tools/bootstrap.sh`; `docs/QUALITY-GATES.md` lists the review follow-up
+  sweep and the parked-branch sweep among the watchdogs and describes the notifier's
+  `findings` and `cadence` inputs; `branch-protection.md` adds the parked-branch sweep to
+  the never-required list, notes that three workflows publish a job named `sweep`, and
+  corrects the promotion-week arithmetic (eight fast plus five full is thirteen);
+  `troubleshooting.md` gains rows for the four 0.5.0 symptoms; `model-budget-exhaustion.md`
+  and `credentials-and-cost.md` no longer claim a spent budget alerts nobody, since
+  `fleet-heartbeat.yml` is what alerts; the communication-style runbook binds all twelve
+  agents, not five; the knowledge card on lost reviews distinguishes a completed run
+  from a dead or refused one; a review has three homes (conversation, inline, review
+  body), not two.
+- **The example product's dependencies.** Every action Dependabot proposed
+  (`actions/checkout` v6, `setup-java` v5, `setup-node` v6, `upload-artifact` v7 and
+  the rest) is applied. Backend: ArchUnit 1.5, Cucumber 7.34, Surefire and Failsafe
+  3.6, JaCoCo 0.8.15, PIT 1.30 with a `junit-jupiter.version` override to 5.13, because
+  Cucumber 7.34 needs JUnit Platform 1.13 and Boot 3.3 manages 1.10 (the bot's own pull
+  request failed on exactly that). Frontend: ESLint 10 with its plugin chain, jsdom 30,
+  Playwright 1.63, Testing Library 16.3, TypeScript-ESLint 8.70, and `@types/node`,
+  which the two npm pull requests were missing (`tsc` failed on `node:fs`).
+- **Dependabot ignores the majors it cannot land.** A Spring Boot major is a
+  migration, and the vite family (`vite`, `vitest`, `@vitest/coverage-v8`,
+  `@vitejs/plugin-react`) only moves as one set; `.github/dependabot.yml` says so in
+  place, so those pull requests stop arriving red every Monday.
+
+### Not done, and why
+
+- The vite 8 chain is not adopted. It installs only with `--legacy-peer-deps` under npm
+  10, the build fails on `node:url` types, and `@testing-library/dom` is no longer pulled
+  in transitively. It is one deliberate change for a human or the dependency steward, not
+  a Monday bump.
+- Spring Boot 4 is not adopted, for the same reason.
+
 ## [0.5.0] - 2026-09-13
 
 Three things in one release: **the pipelines stop failing** (and say what they found when

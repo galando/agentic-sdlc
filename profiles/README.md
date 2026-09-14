@@ -2,7 +2,10 @@
 
 A profile is a ready-made `--answers` file for `tools/init.sh` — the whole
 adoption interview, pre-filled, minus the one answer nobody can default:
-`PRODUCT_NAME`. Use one directly:
+`PRODUCT_NAME`. You normally never copy one: `tools/bootstrap.sh --product "Name"`
+runs `tools/init.sh --defaults`, which reads `profiles/<provider>.answers` for the
+provider you chose (`--provider`, default `claude-code`) and prints every answer it
+took. Use a profile by hand only when the defaults are wrong for you:
 
 ```bash
 cp profiles/claude-code.answers /tmp/answers
@@ -24,6 +27,8 @@ labels — publishes it internally, and every team adopts with it:
 
 ```bash
 tools/init.sh --answers /path/to/acme-internal.answers
+# or, checked into profiles/ as acme.answers:
+tools/bootstrap.sh --product "Widget" --provider acme
 ```
 
 That is what "a couple of clicks" looks like inside a company: the individual

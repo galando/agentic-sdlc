@@ -52,7 +52,7 @@ jobs:
       frontend: ${{ steps.detect.outputs.frontend }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Detect present stacks
         id: detect
         run: |
@@ -65,7 +65,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout the default branch's HEAD
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install the shell test runner and the workflow linter
         run: |
@@ -73,7 +73,7 @@ jobs:
           bash <(curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) latest /usr/local/bin >/dev/null
 
       - name: Install node (the behavioural guards execute workflow JavaScript)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -87,7 +87,7 @@ jobs:
 
       - name: Set up the backend toolchain
         if: needs.stacks.outputs.backend == 'true'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '24'
@@ -100,7 +100,7 @@ jobs:
 
       - name: Set up the frontend toolchain
         if: needs.stacks.outputs.frontend == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: 'npm'

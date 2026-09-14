@@ -1,8 +1,8 @@
 # Agent communication style — explain it in plain language
 
-**Binding on every agent that writes anything a human will read**: the five
-scheduled agents (`health`, `quality`, `audit`, `chief-of-staff`, `challenger`),
-the steward, the automatic pull-request reviewer, any skill run, any ad-hoc
+**Binding on every agent that writes anything a human will read**: the twelve
+scheduled agents (`health`, `quality`, `audit`, `chief-of-staff`, `challenger`, `docs`,
+`groomer`, `testgap`, `deps`, `hygiene`, `release`, `merger`), the steward, the automatic pull-request reviewer, any skill run, any ad-hoc
 unattended session, and every agent added after this file was written. If you are
 an agent in this repo, this applies to you. New agents inherit it automatically —
 **you do not get to opt out by not being mentioned by name.**

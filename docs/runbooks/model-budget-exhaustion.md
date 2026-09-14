@@ -12,10 +12,13 @@ spends a run on the wrong console.
 
 Every scheduled agent stops at once. No routine writes a ledger entry, no run-summary
 line arrives on the alert channel, no pull request gets a review. **The agents that
-would normally notice are themselves stopped, so the silence reports itself to nobody.**
-The watcher ring runs inside the fleet; a fleet with no budget cannot make it report
-anything. Upstream, five routines died on one day and the cause was not named for a
-full day.
+would normally notice are themselves stopped, so the in-fleet watcher ring reports it to
+nobody** — a fleet with no budget cannot make it report anything. What does report it is
+`.github/workflows/fleet-heartbeat.yml`: on the hosted runner, every six hours,
+`tools/check-heartbeat.sh` reads every enabled agent's newest ledger entry against its own
+`schedule:` and files an overdue-agents issue once the grace period has passed. Expect that
+issue, not silence. Upstream, before that watch existed, five routines died on one day and
+the cause was not named for a full day.
 
 **Do not blame the scheduler.** Upstream the first three readings all pointed at the
 scheduler console, and all three were wrong — nothing was disabled. Check the budget

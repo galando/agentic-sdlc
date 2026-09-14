@@ -10,10 +10,14 @@
 # One gate in the source system had been dying on a missing interpreter for its
 # entire existence and nothing said so.
 #
-# Called with a per-gate `if:` from each nightly job. Does two things:
+# Called with a per-gate `if:` from each nightly job. Does four things:
 #   1. Opens an issue, or comments on the existing open one for the SAME GATE,
 #      so a recurring failure does not spawn a new issue every night.
-#   2. Sends an alert-channel ping, if one is configured.
+#   2. Names what the run found (`findings`), and adds NO comment when that
+#      line is unchanged since the previous one.
+#   3. Titles and words the issue with the caller's `cadence` (default
+#      nightly), retitling a thread filed under an older word.
+#   4. Sends an alert-channel ping, if one is configured.
 #
 # The issue is the PRIMARY channel and needs only GITHUB_TOKEN, which every
 # workflow already has. A pushed channel is ADDITIVE: if its secret is absent
@@ -121,7 +125,7 @@ jobs:
     steps:
       - name: Open or update the tracking issue
         id: issue
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           GATE: ${{ inputs.gate }}
           SEVERITY: ${{ inputs.severity }}
