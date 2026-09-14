@@ -70,7 +70,7 @@ TOKENS="PRODUCT_NAME PROVIDER MODEL_JUDGE MODEL_EXECUTE MODEL_CHALLENGE CHALLENG
 
 # The harness surface, derived from the tracked tree of the checkout at $1.
 # Excluded: the example product and the site (retired on adoption), the
-# maintainer docs (deleted on adoption), README.md (rewritten per product),
+# demo script docs/DEMO.md (deleted on adoption), README.md (rewritten per product),
 # ADOPTING.md (regenerated), the build record, and the manifest itself.
 list_files() {
   local from="$1"
@@ -80,7 +80,7 @@ list_files() {
   ( cd "$from" && git ls-files ) 2>/dev/null \
     | grep -v '^examples/' \
     | grep -v '^site/' \
-    | grep -v '^docs/maintainers/' \
+    | grep -v '^docs/DEMO\.md$' \
     | grep -v '^\.temper/' \
     | grep -v '^README\.md$' \
     | grep -v '^ADOPTING\.md$' \

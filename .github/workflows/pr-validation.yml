@@ -74,10 +74,10 @@ jobs:
       migrations: ${{ steps.filter.outputs.migrations }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Detect changed paths
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -110,7 +110,7 @@ jobs:
           --health-retries 10
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Cheap and file-level: two migrations claiming the same version number
       # is a merge artefact that only shows up at deploy time otherwise.

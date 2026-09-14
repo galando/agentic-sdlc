@@ -35,6 +35,13 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # A Spring Boot major is a migration (new Jakarta namespaces, dropped
+      # starters, a new managed-versions table), not a version bump. The bot
+      # cannot write that pull request; the dependency-steward agent, or a
+      # human, plans it. Minor and patch Boot releases still arrive weekly.
+      - dependency-name: "org.springframework.boot:spring-boot-starter-parent"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/examples/frontend"
@@ -49,6 +56,20 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # The vite family moves as one: @vitejs/plugin-react 6 needs vite 8,
+      # vitest 4 and @vitest/coverage-v8 4 need each other, and the stryker
+      # vitest runner has to keep up. Bumping one of them alone can never pass
+      # the gauntlet, so the majors are ignored here and moved together, on
+      # purpose, by a human or the dependency steward. Minors still arrive.
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/coverage-v8"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"

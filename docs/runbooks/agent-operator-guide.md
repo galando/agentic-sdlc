@@ -81,15 +81,18 @@ Each clause of the safety model is enforced somewhere you can inspect: the acces
 
 ## First-time setup order
 
-Some of this cannot be committed to a repository at all — a vendor scheduler and an
-admin setting are not files. Do these **in this order**, last item last. Lost at any
-point? `tools/status.sh` prints this whole map with your position on it and the one
-next command — read-only, seconds. `tools/adopt.sh` walks the same map with you,
-verifying each item where it can and offering to do the automatable ones.
+`tools/bootstrap.sh --product "Name"` does the whole local half in one command and
+prints this list back to you; what follows is the GitHub-side tail it hands back. Some of
+it cannot be committed to a repository at all — a vendor scheduler and an admin setting
+are not files. Do these **in this order**, last item last. Lost at any point?
+`tools/status.sh` prints this whole map with your position on it and the one next
+command — read-only, seconds. `tools/adopt.sh` walks the same map with you, verifying
+each item where it can and offering to do the automatable ones.
 
 1. Create the ledger orphan branch — the agents' run diary — with one idempotent
    command: `tools/create-ledger-branch.sh` (`tools/init.sh` offers to run it for
-   you at the end of the interview; `agent-ledgers.md` explains it).
+   you at the end of the interview, and `tools/adopt.sh` offers it again;
+   `agent-ledgers.md` explains it).
 2. Add the secrets your setup needs (`credentials-and-cost.md`).
 3. Grant read-only observability access if you have a health-signal source
    (`agent-access-setup.md`), then fill in `.agents/health-signals.yml`.

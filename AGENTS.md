@@ -189,7 +189,8 @@ verification" in `docs/runbooks/agent-routines.md`.)
 | Operator's guide (how the human steers agents) | `docs/runbooks/agent-operator-guide.md` |
 | The gate inventory and the ratchet policy | `docs/QUALITY-GATES.md` |
 | The second brain — rule/trap cards agents distill and read at session start | `docs/knowledge/` (`README.md` is the card contract, `INDEX.md` is the read path) |
-| The scripted, 13-stop capability tour (every agent, on demand) | `DEMO.md` |
+| The map of every document, by who reads it | `docs/README.md` |
+| The scripted capability tour of the template's own demo (maintainers only; `tools/init.sh` removes it on adoption) | `docs/DEMO.md` |
 | Which checks are safe to mark required, by exact context string | `docs/runbooks/branch-protection.md` |
 | How to read and triage a red gate | `docs/runbooks/qa-procedures.md` |
 | How production read-access is granted | `docs/runbooks/agent-access-setup.md` |

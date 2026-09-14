@@ -12,13 +12,13 @@ UPGRADE="$REPO_ROOT/tools/upgrade.sh"
 # including the exclusions list-files must drop and one placeholder token.
 make_template() {
   local dir="$1"
-  mkdir -p "$dir/tools" "$dir/examples" "$dir/site" "$dir/docs/maintainers" "$dir/.agents"
+  mkdir -p "$dir/tools" "$dir/examples" "$dir/site" "$dir/docs" "$dir/.agents"
   printf '#!/bin/sh\necho "product: {{PRODUCT_NAME}}"\n' > "$dir/tools/hello.sh"
   printf 'shared harness line\n' > "$dir/tools/stable.sh"
   printf 'mutation: unset\n' > "$dir/floors.yml"
   printf 'example product\n' > "$dir/examples/e.txt"
   printf 'site\n' > "$dir/site/index.html"
-  printf 'maintainer notes\n' > "$dir/docs/maintainers/notes.md"
+  printf 'demo script\n' > "$dir/docs/DEMO.md"
   printf 'readme\n' > "$dir/README.md"
   printf '# Adopting\n<!-- PLACEHOLDERS:BEGIN -->\n<!-- PLACEHOLDERS:END -->\n' > "$dir/ADOPTING.md"
   printf '## [1.0.0] - 2026-01-01\n' > "$dir/CHANGELOG.md"
@@ -49,7 +49,7 @@ setup() {
   [[ "$output" == *"floors.yml"* ]]
   [[ "$output" != *"examples/"* ]]
   [[ "$output" != *"site/"* ]]
-  [[ "$output" != *"docs/maintainers/"* ]]
+  [[ "$output" != *"docs/DEMO.md"* ]]
   [[ "$output" != *"README.md"* ]]
 }
 

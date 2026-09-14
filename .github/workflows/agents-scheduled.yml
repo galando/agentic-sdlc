@@ -80,7 +80,7 @@ jobs:
       mode: ${{ steps.list.outputs.mode }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Read the agent ring and fleet mode from .agents/config.yml
         id: list

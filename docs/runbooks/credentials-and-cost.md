@@ -57,12 +57,13 @@ key costs you a second opinion on reviews — never the system; see the secrets 
 above. If you must run on API keys throughout instead of a subscription, the pieces
 that spend tokens, roughly in ramp order, are: each steward run, two reviews per pull
 request (one if the challenge key is absent), and each enabled routine once per day.
-Turn routines on one at a time (`README.md` section 6) precisely so spend stays
+Turn routines on one at a time (`README.md`, "Turning on the routines") precisely so spend stays
 proportional to the value you are actually getting, rather than jumping straight to
 every daily/weekly agent plus two reviews per PR.
 
-**When the budget behind `AGENT_CLI_TOKEN` runs out, every agent stops at once and
-nothing files an alert about it** — the agents that would notice are the ones stopped.
+**When the budget behind `AGENT_CLI_TOKEN` runs out, every agent stops at once.** The
+agents that would notice are the ones stopped, which is why `fleet-heartbeat.yml` watches
+them from the hosted runner and files the overdue-agents issue the fleet cannot.
 What that looks like, how to read the budget for free from a review job's log, the
 arithmetic for the dark period, and why the fix is operator-only:
 `model-budget-exhaustion.md`.

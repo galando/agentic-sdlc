@@ -73,7 +73,7 @@ uncalibrated" — this is not an omission, it is the design.
 | 17 | **Diff-scoped mutation check** — floor `{{FLOOR_MUTATION}}`, skipped below ~20 mutants | `full-mutation-on-diff` | FULL | Assertions were weakened in the changed code — caught at pull-request time rather than the next morning |
 | 19 | **Bundle-size budget** — ceiling `{{CEILING_BUNDLE_KIB}}` | `full-bundle-budget` | FULL | The shipped bundle grew: a heavyweight import, a barrel that defeats tree-shaking, or a large dependency landing in the entry chunk |
 | 21 | **Spec artifacts present** | `fast-spec-artifacts` | FAST | A pull request labelled fix or feature carries no spec directory in its diff and no `temper: unavailable — …` line in its body |
-| 22 | **HARNESS tests** — text-pin the load-bearing strings inside the agent workflows (`tests/harness-guards/`), and exercise the tooling those workflows call (`tests/`) | `fast-harness-guards` | FAST | The agents' own plumbing has no other safety net. If a collector stops reading an endpoint, or a prompt loses the line that makes an agent identifiable, **every run still goes GREEN** and the loss shows up only as a wrong conclusion later. Both halves run as separate steps of the one job: until this was fixed CI ran only the guards, and the 142 tests under `tests/` — including the check that the config reader's two readers agree — were executed on contributors' laptops and nowhere else |
+| 22 | **HARNESS tests** — text-pin the load-bearing strings inside the agent workflows (`tests/harness-guards/`), and exercise the tooling those workflows call (`tests/`) | `fast-harness-guards` | FAST | The agents' own plumbing has no other safety net. If a collector stops reading an endpoint, or a prompt loses the line that makes an agent identifiable, **every run still goes GREEN** and the loss shows up only as a wrong conclusion later. Both halves run as separate steps of the one job: until this was fixed CI ran only the guards, and the ~400 tests under `tests/` — including the check that the config reader's two readers agree — were executed on contributors' laptops and nowhere else |
 | 23 | **Second brain lint** — `docs/knowledge/` index and cards agree 1:1, frontmatter complete, body and index line caps held (`tools/knowledge-lint.sh`) | `fast-knowledge-lint` | FAST | A card unreachable by the read path (no index line), a dangling index promise (no card), or a `docs/knowledge/` directory silently growing past what the read path in `AGENTS.md` was sized for |
 | — | Workflow lint | `fast-actionlint` | FAST | A workflow will not parse. A startup failure creates no status check at all, so it goes quiet rather than red |
 
@@ -112,6 +112,8 @@ else in the gauntlet does.
 |---|---|---|
 | **Default-branch watch** — re-runs the FAST suite against the default branch's HEAD every four hours | `watch-main` (`main-watch.yml`) | Two independently green pull requests broke the default branch together, and nothing re-tested it after the merges. Every other gate reads one pull request's own diff; that reasoning holds for one pull request at a time, not for two. Red here means the default branch itself is broken now, whatever every merged pull request said |
 | **Fleet heartbeat** — every enabled scheduled agent has written a ledger entry since its last due slot | `watch-fleet-heartbeat` (`fleet-heartbeat.yml`) | The scheduler stopped, the runner label points at nothing, the provider refused every run, or the agents' own model budget is spent — and the agents that would normally notice are the ones that stopped. A **broken watch** (an unreadable ledger branch, a schedule it cannot parse) is red too, never a quiet green, because a fault must not be mistaken for a healthy fleet |
+| **Review follow-up sweep** — files the non-blocking findings a review labelled, at merge, only if the label survived; a daily `--scan` backstop | `sweep` (`review-followup-sweep.yml`) | A pull request merged with a review's non-blocking finding still open, and the finding is now an issue with the merged diff as evidence. A red run means the sweep could not read the label or the review, so findings may be going unfiled |
+| **Parked-branch sweep** — every three hours, opens the pull request a dead run pushed a branch for and could not open | `sweep` (`parked-branch-sweep.yml`) | An agent run pushed its work and died before `gh pr create`; the branch was parked and this opened it. Red means a parked branch could not be opened, so the work is sitting unreviewed |
 | **CI health watch** — self-hosted runner liveness + hosted-minutes allowance | `watch-ci-health` | CI itself is degraded. A runner **offline** means the queue has stopped draining, and no other check will go red to tell you — that silence is the whole reason this exists. **Minutes** at or above the threshold is a countdown: at 100% every hosted job dies within seconds with no runner assigned, which reads as a mystery fault rather than the predictable state it is. A `::warning::` on a **green** run is neither — that is a could-not-check, and it means the watch is blind, not that something is wrong |
 
 Three properties of that job are load-bearing and easy to undo:
@@ -268,9 +270,15 @@ deliberate act rather than a one-line edit buried in an unrelated diff.
 
 Every nightly gate has an `if:`-guarded notifier job calling the reusable
 `.github/workflows/nightly-alert.yml`. It opens — or comments on the existing open —
-`[nightly] <gate> is failing` issue, and sends the alert-channel ping. `ci-health-watch.yml`
-calls the same notifier from its own workflow, with its own notifier job; being in a
-different file changes nothing about the rules below.
+`[<cadence>] <gate> is failing` issue, and sends the alert-channel ping. `cadence` is an
+input (default `nightly`); a merge-time watch or the heartbeat passes its own word, and a
+thread filed under an older word is found and **retitled**, never orphaned. A caller that
+can name what it found passes `findings`: the body carries it as **What this run found**,
+and an unchanged findings line adds **no new comment** — which is how the template's own
+CVE gate stopped posting an identical comment every night for eleven days. The watchdogs
+(`ci-health-watch.yml`, `main-watch.yml`, `fleet-heartbeat.yml`, `parked-branch-sweep.yml`,
+`review-followup-sweep.yml`) call the same notifier from their own workflows, each with its
+own notifier job; being in a different file changes nothing about the rules below.
 
 **A red nightly visible only in the Actions tab stays red for weeks.** In the source
 system, one gate had been dying on a missing interpreter for its *entire existence* and

@@ -7,7 +7,8 @@
 # difficult to follow" — and they were right. This prints the whole map with
 # your position on it, every time, in seconds.
 #
-# The adoption is FOUR steps, one script each, in this order:
+# The adoption is ONE command — tools/bootstrap.sh — which performs step 1 below
+# with printed defaults and verifies. The four underlying steps, one script each:
 #   1. tools/init.sh                 — the interview (answers written into the tree)
 #   2. tools/adopt-layout.sh         — retire examples/, point the harness at
 #                                      backend/ and frontend/  (+ your product code)
@@ -31,7 +32,8 @@ todo() { printf '  [NEXT] %s\n' "$1"; [ -n "$next" ] || next="$2"; }
 info() { printf '  [....] %s\n' "$1"; }
 
 echo "=== Adoption status — four steps, in order ==="
-echo "    (this is the read-only map; tools/adopt.sh walks it WITH you, offer by offer)"
+echo "    (this is the read-only map; tools/bootstrap.sh does step 1 with no questions,"
+echo "     tools/adopt.sh walks the rest WITH you, offer by offer)"
 echo
 
 # --- 1. The interview --------------------------------------------------------
@@ -41,7 +43,7 @@ echo
 # ADOPTING.md's placeholder map. CI's hygiene gate caught exactly that.
 PROVIDER_TOKEN="$(printf '{{%s}}' PROVIDER)"
 if grep -qF "$PROVIDER_TOKEN" "$ROOT/.agents/config.yml" 2>/dev/null; then
-  todo "1. Answer the interview (writes your answers into the tree)" "tools/init.sh"
+  todo "1. Answer the interview (writes your answers into the tree)" "tools/bootstrap.sh --product \"<name>\"  (or tools/init.sh for the questions)"
 else
   provider="$(cfg_get provider '?' 2>/dev/null || echo '?')"
   ok "1. Interview answered (provider: $provider)"
@@ -107,8 +109,9 @@ if [ -n "$next" ]; then
   echo "Next command:  $next"
 else
   cat <<'EOF'
-All four tool steps are done. What remains lives in GitHub's UI, in order —
-tools/adopt.sh checks each one and offers to do the settable ones for you:
+All four tool steps are done. What remains lives in GitHub's UI, in order — the
+same list tools/bootstrap.sh printed when it finished; tools/adopt.sh checks each
+one and offers to do the settable ones for you:
   - add the AGENT_CLI_TOKEN secret. Without it EVERY agent job fails at the
     credential check: the steward runs and leaves nothing behind, reviews post
     no comment — the loop looks broken when it is only unauthenticated.

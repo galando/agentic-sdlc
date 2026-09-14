@@ -38,5 +38,7 @@ issue — inside your own turn, never "after" anything. Two corollaries:
 
 `.agents/prompts/review-judge.md` and `review-challenge.md` carry the posting-last
 rule verbatim, and `review.yml`'s per-role lost-review checks are the detectors: a
-run that lost its review files a `[review-lost]` issue and exits non-zero, because a
-green check on a lost deliverable is the whole defect.
+run that **completed** and lost its review files a `[review-lost]` issue and exits
+non-zero, because a green check on a lost deliverable is the whole defect. A job that
+**died** posts a notice and files nothing; a job **refused** for a spent allowance has its
+log read once, the cause named, and no handoff filed.

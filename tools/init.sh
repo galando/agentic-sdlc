@@ -406,17 +406,19 @@ fi
 
 # ---------------------------------------------------------------------------
 # Remove the maintainer-only docs. Same reasoning as site/ and the upstream
-# tooling above: docs/maintainers/ describes how the TEMPLATE's own public demo
-# repository is built and kept in step with the README's claims. An adopter has
-# no demo repository to rebuild, so these pages would sit in their tree
-# describing somebody else's project — the exact failure mode site/ was removed
-# for. docs/runbooks/ and docs/QUALITY-GATES.md are the adopter's docs and stay.
+# tooling above: docs/DEMO.md is the script for the TEMPLATE's own capability
+# demo, kept in step with the README's claims. An adopter has no demo to
+# record, so the page would sit in their tree describing somebody else's
+# project — the exact failure mode site/ was removed for. docs/runbooks/ and
+# docs/QUALITY-GATES.md are the adopter's docs and stay. (docs/maintainers/
+# held the same kind of page in releases before 0.5.1 and is removed for the
+# same reason when an older clone still carries it.)
 # ---------------------------------------------------------------------------
-if [ -d "$ROOT/docs/maintainers" ]; then
+if [ -f "$ROOT/docs/DEMO.md" ] || [ -d "$ROOT/docs/maintainers" ]; then
   echo
   echo "--- Maintainer-only docs ---"
-  rm -rf "$ROOT/docs/maintainers"
-  echo "Removed docs/maintainers/: it documents the TEMPLATE's own demo repository,"
+  rm -rf "$ROOT/docs/DEMO.md" "$ROOT/docs/maintainers"
+  echo "Removed docs/DEMO.md: it scripts the TEMPLATE's own capability demo,"
   echo "not $PRODUCT_NAME. Your docs — docs/runbooks/ and docs/QUALITY-GATES.md — are"
   echo "untouched."
 fi

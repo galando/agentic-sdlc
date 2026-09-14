@@ -74,7 +74,7 @@ jobs:
       # clone those ranges are fiction — a 1-commit branch reads as thousands
       # of commits ahead of a base it shares no ancestor with.
       - name: Checkout with full history
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
