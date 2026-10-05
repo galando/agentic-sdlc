@@ -26,7 +26,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.3.4</version>
+    <version>3.5.16</version>
     <relativePath/>
   </parent>
 
@@ -45,7 +45,7 @@
     <!-- Cucumber 7.34 needs JUnit Platform 1.13 (DiscoveryIssueReporter); Boot 3.3 manages 1.10. -->
     <junit-jupiter.version>5.13.4</junit-jupiter.version>
     <maven.compiler.release>17</maven.compiler.release>
-    <archunit.version>1.5.0</archunit.version>
+    <archunit.version>1.5.1</archunit.version>
     <cucumber.version>7.34.8</cucumber.version>
 
     <!-- FLOORS:BEGIN backend.mutation.score -->
